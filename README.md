@@ -9,8 +9,10 @@ Webapp per gestire più BOT WhatsApp Twilio, le conversazioni con gli operatori 
 - webhook Twilio firmati, risposte automatiche e passaggio a operatore;
 - base di conoscenza PDF con testo ed embedding conservati in PostgreSQL/pgvector;
 - import CSV fino a 10.000 contatti con anteprima, rilevamento separatore, validazione E.164 e deduplicazione;
-- selezione dei Content Template Twilio approvati e mappatura dei placeholder sulle colonne CSV;
+- creazione dei Content Template Twilio dalla pagina **Broadcast**, richiesta di approvazione WhatsApp e mappatura dei placeholder sulle colonne CSV;
+- template testuali, con media, call to action, risposte rapide e card;
 - broadcast asincroni, ripresa dopo riavvio, avanzamento e dettaglio errori per destinatario;
+- chat operatore con testo, immagini, documenti, audio, video e pulsanti interattivi;
 - interfaccia “UN Whatsapp Manager” ispirata al design system di [United Network](https://www.unitednetwork.it/en/home-en/).
 - accesso con username e password, sessioni revocabili e ruoli `admin`, `operator`, `broadcaster` e `viewer`;
 - configurazione Twilio cifrata dalla pagina **Impostazioni**, senza modificare il file `.env`.
@@ -45,10 +47,10 @@ Impostare almeno `DATABASE_URL`, `APP_ENCRYPTION_KEY`, `BOOTSTRAP_ADMIN_USERNAME
 Prima di avviare questa versione applicare:
 
 ```bash
-psql "$DATABASE_URL" -f migrations/001_upgrade_to_bots.sql
+npm run migrate
 ```
 
-Lo script rinomina il modello dati precedente, aggiunge le credenziali AI per BOT e crea le tabelle dei broadcast.
+Lo script applica lo schema corrente e tutte le migrazioni presenti nella cartella `migrations`, incluse le colonne per i messaggi evoluti e l'archivio media.
 
 ## CSV contatti
 
@@ -62,6 +64,14 @@ telefono,nome,citta
 
 Le colonne aggiuntive possono essere collegate ai placeholder `{{1}}`, `{{2}}`, ecc. del template Twilio.
 
+## Template Twilio e messaggi evoluti
+
+Dalla pagina **Broadcast** è possibile creare un template Twilio, aggiungere media o pulsanti e inviarlo direttamente all'approvazione WhatsApp. La pubblicazione del template non è immediata: finché Twilio/Meta non lo approva, il template resta visibile ma non è selezionabile per un broadcast.
+
+Il Sandbox Twilio consente di verificare chat, webhook e invio media, ma non l'uso completo dei template personalizzati. Per i broadcast reali servono un WhatsApp Sender Twilio registrato e i template approvati. Gli allegati possono pesare fino a 5 MB per le immagini e 16 MB per audio, video e documenti.
+
+Gli allegati caricati sono conservati nel database e pubblicati tramite URL casuali non enumerabili, così Twilio può recuperarli. Questa soluzione è pratica per test e bassi volumi; prima di gestire molti file o documenti sensibili è consigliato usare uno storage a oggetti con una politica di conservazione dedicata.
+
 ## URL applicativi
 
 - `/` — conversazioni e operatore;
@@ -71,6 +81,7 @@ Le colonne aggiuntive possono essere collegate ai placeholder `{{1}}`, `{{2}}`, 
 - `/login` — accesso con username e password;
 - `/webhook/whatsapp` — webhook messaggi Twilio;
 - `/webhook/status` — callback stato Twilio;
+- `/media/:token/:filename` — download pubblico degli allegati tramite token casuale;
 - `/health` — stato applicazione e database.
 
 ## Hosting
@@ -121,5 +132,6 @@ Solo un amministratore può creare, modificare o disabilitare gli account. L'app
 - le password sono salvate come hash bcrypt e le sessioni come hash non reversibili;
 - cambiare `APP_ENCRYPTION_KEY` senza ricifrare i valori rende inutilizzabili le chiavi già salvate;
 - i webhook verificano la firma Twilio;
+- gli URL pubblici degli allegati usano token casuali non memorizzati in chiaro;
 - i segreti restano nelle variabili runtime e non vanno committati;
 - usare HTTPS in produzione e limitare `ALLOWED_ORIGINS` al dominio della webapp.

@@ -1,11 +1,15 @@
 const db = require('../config/db');
 
-async function add(conversationId, role, content, twilioSid = null) {
+async function add(conversationId, role, content, twilioSid = null, metadata = {}) {
   const { rows } = await db.query(
-    `INSERT INTO messages (conversation_id, role, content, twilio_sid)
-     VALUES ($1,$2,$3,$4)
+    `INSERT INTO messages
+     (conversation_id, role, content, twilio_sid, media_url, media_type, media_name, actions, content_sid)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
      RETURNING *`,
-    [conversationId, role, content, twilioSid]
+    [conversationId, role, content, twilioSid,
+      metadata.mediaUrl || null, metadata.mediaType || null, metadata.mediaName || null,
+      JSON.stringify(Array.isArray(metadata.actions) ? metadata.actions : []),
+      metadata.contentSid || null]
   );
   await db.query(
     `UPDATE conversations SET last_message_at = now() WHERE id = $1`,

@@ -3,11 +3,14 @@ const conversationRepo = require('../repos/conversationRepo');
 const messageRepo = require('../repos/messageRepo');
 const twilioService = require('../services/twilioService');
 const aiService = require('../services/aiService');
+const mediaService = require('../services/mediaService');
 
 async function handleIncomingMessage(req, res) {
   try {
-    const { From, To, Body, MessageSid } = req.body || {};
-    if (!From || !To || !Body || !MessageSid) {
+    const { From, To, Body, MessageSid, MediaUrl0, MediaContentType0 } = req.body || {};
+    const bodyText = String(Body || '').trim();
+    const hasMedia = Number(req.body?.NumMedia || 0) > 0 && Boolean(MediaUrl0);
+    if (!From || !To || (!bodyText && !hasMedia) || !MessageSid) {
       return res.status(400).send('Missing parameters');
     }
 
@@ -21,7 +24,29 @@ async function handleIncomingMessage(req, res) {
 
     const conversation = await conversationRepo.upsert(bot.id, fromPhone);
 
-    await messageRepo.add(conversation.id, 'user', Body, MessageSid);
+    let media = {};
+    if (hasMedia) {
+      try {
+        const asset = await mediaService.importFromTwilio(MediaUrl0, MediaContentType0, { req });
+        media = {
+          mediaUrl: asset.url,
+          mediaType: asset.content_type,
+          mediaName: asset.filename,
+        };
+      } catch (error) {
+        console.error('[webhook] media import error:', error.message);
+        media = {
+          mediaType: String(MediaContentType0 || ''),
+          mediaName: 'Allegato WhatsApp non disponibile',
+        };
+      }
+    }
+    const incomingContent = bodyText || `📎 ${media.mediaName || 'Allegato WhatsApp'}`;
+    if (hasMedia) {
+      await messageRepo.add(conversation.id, 'user', incomingContent, MessageSid, media);
+    } else {
+      await messageRepo.add(conversation.id, 'user', incomingContent, MessageSid);
+    }
 
     const io = req.app.get('io');
     if (io) {
@@ -29,8 +54,38 @@ async function handleIncomingMessage(req, res) {
         conversationId: conversation.id,
         botId: bot.id,
         phoneNumber: fromPhone,
-        message: { role: 'user', content: Body, createdAt: new Date().toISOString() },
+        message: {
+          role: 'user', content: incomingContent, createdAt: new Date().toISOString(),
+          media_url: media.mediaUrl || null,
+          media_type: media.mediaType || null,
+          media_name: media.mediaName || null,
+          actions: [],
+        },
       });
+    }
+
+    // Inbound attachments require an operator: the configured text models do
+    // not inspect arbitrary WhatsApp media and must not fabricate a response.
+    if (hasMedia) {
+      if (conversation.status !== 'human') {
+        await conversationRepo.setStatus(conversation.id, 'human');
+        if (io) {
+          io.to(`bot:${bot.id}`).emit('operator-mode-changed', {
+            conversationId: conversation.id,
+            status: 'human',
+            reason: 'incoming_media',
+          });
+        }
+      }
+      if (io) {
+        io.to(`bot:${bot.id}`).emit('attention-required', {
+          conversationId: conversation.id,
+          botId: bot.id,
+          phoneNumber: fromPhone,
+          reason: 'incoming_media',
+        });
+      }
+      return res.status(200).send('OK');
     }
 
     // A BOT without an AI key remains fully usable for operator-managed chats.
@@ -65,7 +120,7 @@ async function handleIncomingMessage(req, res) {
 
     let aiResponse;
     try {
-      aiResponse = await aiService.generateResponse(bot, conversation, Body);
+      aiResponse = await aiService.generateResponse(bot, conversation, bodyText);
     } catch (err) {
       console.error('[webhook] AI error:', err);
       return res.status(200).send('OK');
@@ -91,7 +146,7 @@ async function handleIncomingMessage(req, res) {
     }
 
     try {
-      const needsHuman = await aiService.shouldTransferToHuman(bot, conversation, Body);
+      const needsHuman = await aiService.shouldTransferToHuman(bot, conversation, bodyText);
       if (needsHuman && io) {
         io.to(`bot:${bot.id}`).emit('attention-required', {
           conversationId: conversation.id,

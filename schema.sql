@@ -43,10 +43,35 @@ CREATE TABLE IF NOT EXISTS messages (
   role               TEXT NOT NULL CHECK (role IN ('user','bot','operator','system')),
   content            TEXT NOT NULL,
   twilio_sid         TEXT,
+  media_url          TEXT,
+  media_type         TEXT,
+  media_name         TEXT,
+  actions            JSONB NOT NULL DEFAULT '[]'::jsonb,
+  content_sid        TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS actions JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_sid TEXT;
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
   ON messages (conversation_id, created_at);
+
+-- Media are stored in PostgreSQL for the initial Render deployment. Public
+-- access uses an unguessable token whose hash alone is persisted here.
+CREATE TABLE IF NOT EXISTS media_assets (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash         TEXT UNIQUE NOT NULL,
+  filename           TEXT NOT NULL,
+  content_type       TEXT NOT NULL,
+  byte_size          INT NOT NULL,
+  data               BYTEA NOT NULL,
+  uploaded_by        TEXT,
+  purpose            TEXT NOT NULL DEFAULT 'chat',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_media_assets_created ON media_assets (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS documents (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

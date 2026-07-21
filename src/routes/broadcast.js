@@ -10,6 +10,7 @@ const upload = multer({
 });
 
 router.get('/templates', requirePermission('broadcast:read'), ctrl.listTemplates);
+router.post('/templates', requirePermission('broadcast:write'), ctrl.createTemplate);
 router.post('/preview', requirePermission('broadcast:write'), upload.single('contacts'), ctrl.previewCsv);
 router.get('/campaigns', requirePermission('broadcast:read'), ctrl.listCampaigns);
 router.post('/campaigns', requirePermission('broadcast:write'), upload.single('contacts'), ctrl.createCampaign);

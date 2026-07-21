@@ -2,6 +2,7 @@ const botRepo = require('../repos/botRepo');
 const conversationRepo = require('../repos/conversationRepo');
 const messageRepo = require('../repos/messageRepo');
 const twilioService = require('../services/twilioService');
+const contentService = require('../services/contentService');
 
 async function listConversations(req, res) {
   const botId = req.query.botId || req.query.botId;
@@ -21,36 +22,97 @@ async function getConversation(req, res) {
 }
 
 async function sendOperatorMessage(req, res) {
-  const { id } = req.params;
-  const { message } = req.body;
-  if (!message || !message.trim()) {
-    return res.status(400).json({ error: 'message required' });
-  }
-  const conversation = await conversationRepo.getById(id);
-  if (!conversation) return res.status(404).json({ error: 'not found' });
+  try {
+    const { id } = req.params;
+    const body = String(req.body?.message || '').trim();
+    const mediaUrl = req.body?.mediaUrl
+      ? contentService.requirePublicHttpsUrl(req.body.mediaUrl, 'URL del media') : '';
+    const mediaType = String(req.body?.mediaType || '').slice(0, 120);
+    const mediaName = String(req.body?.mediaName || '').slice(0, 180);
+    const actions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+    if (!body && !mediaUrl) return res.status(400).json({ error: 'Inserisci un messaggio o allega un file' });
+    if (actions.length && !body) return res.status(400).json({ error: 'Il testo è obbligatorio quando aggiungi pulsanti' });
 
-  const bot = await botRepo.getById(conversation.bot_id);
-  if (!bot) return res.status(404).json({ error: 'bot not found' });
+    const conversation = await conversationRepo.getById(id);
+    if (!conversation) return res.status(404).json({ error: 'not found' });
+    const bot = await botRepo.getById(conversation.bot_id);
+    if (!bot) return res.status(404).json({ error: 'bot not found' });
 
-  await conversationRepo.setOperator(id, req.user?.username || 'operator');
+    await conversationRepo.setOperator(id, req.user?.username || 'operator');
+    const savedMessages = [];
+    const sentMessages = [];
 
-  const sent = await twilioService.sendMessage(
-    bot.twilio_number,
-    conversation.phone_number,
-    message.trim()
-  );
-  const saved = await messageRepo.add(id, 'operator', message.trim(), sent.sid);
+    if (actions.length) {
+      const rich = await twilioService.createRichContent({
+        friendlyName: `operator_${Date.now()}`,
+        language: bot.language || 'it',
+        body,
+        mediaUrl,
+        actions,
+      });
+      const sent = await twilioService.sendTemplate({
+        from: bot.twilio_number,
+        to: conversation.phone_number,
+        contentSid: rich.sid,
+        contentVariables: {},
+      });
+      sentMessages.push(sent);
+      savedMessages.push(await messageRepo.add(id, 'operator', body, sent.sid, {
+        mediaUrl, mediaType, mediaName, actions: rich.actions, contentSid: rich.sid,
+      }));
+    } else {
+      const imageWithCaption = mediaUrl && ['image/jpeg', 'image/png'].includes(mediaType);
+      if (body && mediaUrl && !imageWithCaption) {
+        const sentText = await twilioService.sendMessage(bot.twilio_number, conversation.phone_number, body);
+        sentMessages.push(sentText);
+        savedMessages.push(await messageRepo.add(id, 'operator', body, sentText.sid));
+      }
+      if (mediaUrl) {
+        const sentMedia = await twilioService.sendMessage(
+          bot.twilio_number,
+          conversation.phone_number,
+          imageWithCaption ? body : '',
+          { mediaUrl }
+        );
+        sentMessages.push(sentMedia);
+        savedMessages.push(await messageRepo.add(
+          id, 'operator', imageWithCaption ? body : `📎 ${mediaName || 'Allegato'}`, sentMedia.sid,
+          { mediaUrl, mediaType, mediaName }
+        ));
+      } else if (body) {
+        const sentText = await twilioService.sendMessage(bot.twilio_number, conversation.phone_number, body);
+        sentMessages.push(sentText);
+        savedMessages.push(await messageRepo.add(id, 'operator', body, sentText.sid));
+      }
+    }
 
-  const io = req.app.get('io');
-  if (io) {
-    io.to(`bot:${bot.id}`).emit('new-message', {
-      conversationId: id,
-      botId: bot.id,
-      phoneNumber: conversation.phone_number,
-      message: { role: 'operator', content: saved.content, createdAt: saved.created_at },
+    const io = req.app.get('io');
+    if (io) {
+      for (const saved of savedMessages) {
+        io.to(`bot:${bot.id}`).emit('new-message', {
+          conversationId: id,
+          botId: bot.id,
+          phoneNumber: conversation.phone_number,
+          message: {
+            role: 'operator', content: saved.content, createdAt: saved.created_at,
+            media_url: saved.media_url, media_type: saved.media_type, media_name: saved.media_name,
+            actions: saved.actions, content_sid: saved.content_sid,
+          },
+        });
+      }
+    }
+    res.json({
+      success: true,
+      twilioSids: sentMessages.map((message) => message.sid),
+      messages: savedMessages,
+    });
+  } catch (error) {
+    console.error('[chat] operator send error:', error);
+    res.status(error.status || (error.code ? 502 : 400)).json({
+      error: error.message,
+      code: error.code,
     });
   }
-  res.json({ success: true, twilioSid: sent.sid, message: saved });
 }
 
 async function releaseOperator(req, res) {

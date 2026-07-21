@@ -19,6 +19,20 @@ async function listTemplates(_req, res) {
   }
 }
 
+async function createTemplate(req, res) {
+  try {
+    const result = await twilioService.createTemplate(req.body || {});
+    res.status(201).json(result);
+  } catch (error) {
+    const status = error.status || (error.code ? 502 : 400);
+    res.status(status).json({
+      error: status === 502 ? 'Creazione template Twilio non riuscita' : error.message,
+      detail: status === 502 ? error.message : undefined,
+      code: error.code,
+    });
+  }
+}
+
 async function previewCsv(req, res) {
   try {
     if (!req.file) return res.status(400).json({ error: 'Seleziona un file CSV' });
@@ -99,4 +113,11 @@ async function getCampaign(req, res) {
   res.json({ campaign, recipients });
 }
 
-module.exports = { listTemplates, previewCsv, createCampaign, listCampaigns, getCampaign };
+module.exports = {
+  listTemplates,
+  createTemplate,
+  previewCsv,
+  createCampaign,
+  listCampaigns,
+  getCampaign,
+};

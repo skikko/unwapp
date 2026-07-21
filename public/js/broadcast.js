@@ -1,4 +1,7 @@
-const state = { bots: [], templates: [], preview: null, file: null, user: null };
+const state = {
+  bots: [], templates: [], preview: null, file: null, user: null,
+  templateActions: [],
+};
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) {
@@ -54,7 +57,8 @@ async function loadBots() {
 }
 
 function approvalLabel(status) {
-  return status === 'approved' ? 'approvato' : status.replaceAll('_', ' ');
+  const value = String(status || 'not_submitted');
+  return value === 'approved' ? 'approvato' : value.replaceAll('_', ' ');
 }
 
 async function loadTemplates() {
@@ -62,8 +66,10 @@ async function loadTemplates() {
     const { templates } = await api('/api/broadcast/templates');
     state.templates = templates;
     const approved = templates.filter((template) => template.status === 'approved');
+    const waiting = templates.filter((template) => template.status !== 'approved');
     $('templateSelect').innerHTML = '<option value="">Seleziona un template</option>'
       + approved.map((template) => `<option value="${template.sid}">${escapeHtml(template.name)} · ${escapeHtml(template.language)}</option>`).join('')
+      + waiting.map((template) => `<option disabled>${escapeHtml(template.name)} · ${escapeHtml(approvalLabel(template.status))}</option>`).join('')
       + '<option value="manual">Inserisci Content SID manualmente</option>';
     if (!approved.length) toast('Nessun template WhatsApp approvato trovato. Puoi inserire il SID manualmente.', 'err');
   } catch (error) {
@@ -72,6 +78,166 @@ async function loadTemplates() {
     $('templateSelect').value = 'manual';
     toggleManualTemplate();
     toast(error.message, 'err');
+  }
+}
+
+function openTemplateStudio() {
+  $('templateStudio').hidden = false;
+  $('templateStudio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  syncTemplateBuilder();
+}
+
+function closeTemplateStudio() {
+  $('templateStudio').hidden = true;
+}
+
+function templateActionLimit() {
+  return $('templateType').value === 'call_to_action' ? 2 : 3;
+}
+
+function templateAllowedActionTypes() {
+  if ($('templateType').value === 'quick_reply') return ['QUICK_REPLY'];
+  if ($('templateType').value === 'call_to_action') return ['URL', 'PHONE_NUMBER'];
+  return ['URL', 'PHONE_NUMBER', 'QUICK_REPLY'];
+}
+
+function actionValue(action) {
+  return action.type === 'URL' ? action.url || ''
+    : action.type === 'PHONE_NUMBER' ? action.phone || '' : action.id || '';
+}
+
+function renderTemplateActions() {
+  const allowed = templateAllowedActionTypes();
+  state.templateActions = state.templateActions.slice(0, templateActionLimit()).map((action) => ({
+    ...action,
+    type: allowed.includes(action.type) ? action.type : allowed[0],
+  }));
+  $('templateActions').innerHTML = state.templateActions.map((action, index) => `
+    <div class="action-row" data-template-action="${index}">
+      <select data-action-field="type">${allowed.map((type) => `<option value="${type}" ${type === action.type ? 'selected' : ''}>${({ URL: 'Apri URL', PHONE_NUMBER: 'Chiama', QUICK_REPLY: 'Risposta rapida' })[type]}</option>`).join('')}</select>
+      <input data-action-field="title" maxlength="25" value="${escapeHtml(action.title || '')}" placeholder="Testo pulsante" />
+      <input data-action-field="value" value="${escapeHtml(actionValue(action))}" placeholder="${action.type === 'URL' ? 'https://...' : action.type === 'PHONE_NUMBER' ? '+39...' : 'identificativo'}" />
+      <button class="danger" data-remove-action="${index}" aria-label="Rimuovi pulsante">×</button>
+    </div>`).join('');
+  $('addTemplateActionBtn').disabled = state.templateActions.length >= templateActionLimit();
+
+  $('templateActions').querySelectorAll('[data-template-action]').forEach((row) => {
+    const index = Number(row.dataset.templateAction);
+    row.querySelectorAll('[data-action-field]').forEach((control) => {
+      control.addEventListener('input', () => updateTemplateAction(index, control.dataset.actionField, control.value));
+      control.addEventListener('change', () => updateTemplateAction(index, control.dataset.actionField, control.value));
+    });
+  });
+  $('templateActions').querySelectorAll('[data-remove-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.templateActions.splice(Number(button.dataset.removeAction), 1);
+      renderTemplateActions(); renderTemplateVariables();
+    });
+  });
+}
+
+function updateTemplateAction(index, field, value) {
+  const action = state.templateActions[index];
+  if (!action) return;
+  if (field === 'type') {
+    state.templateActions[index] = { type: value, title: action.title || '' };
+    renderTemplateActions();
+  } else if (field === 'title') action.title = value;
+  else if (action.type === 'URL') action.url = value;
+  else if (action.type === 'PHONE_NUMBER') action.phone = value;
+  else action.id = value;
+  renderTemplateVariables();
+}
+
+function addTemplateAction() {
+  if (state.templateActions.length >= templateActionLimit()) return;
+  state.templateActions.push({ type: templateAllowedActionTypes()[0], title: '' });
+  renderTemplateActions();
+}
+
+function detectedTemplateVariables() {
+  const pieces = [
+    $('templateBody').value, $('templateHeader').value, $('templateFooter').value,
+    $('templateMediaUrl').value,
+    ...state.templateActions.map((action) => action.url || ''),
+  ];
+  const keys = new Set();
+  pieces.forEach((piece) => {
+    for (const match of String(piece || '').matchAll(/{{\s*(\d+)\s*}}/g)) keys.add(match[1]);
+  });
+  return [...keys].sort((a, b) => Number(a) - Number(b));
+}
+
+function renderTemplateVariables() {
+  const previous = {};
+  document.querySelectorAll('[data-template-variable]').forEach((input) => { previous[input.dataset.templateVariable] = input.value; });
+  const keys = detectedTemplateVariables();
+  $('templateVariablesFields').hidden = !keys.length;
+  $('templateVariables').innerHTML = keys.map((key) => `
+    <div class="mapping-row"><div><span>{{${key}}}</span><strong>Esempio approvazione</strong></div><input data-template-variable="${key}" value="${escapeHtml(previous[key] || '')}" placeholder="Valore di esempio" /></div>`).join('');
+}
+
+function syncTemplateBuilder({ resetActions = false } = {}) {
+  const type = $('templateType').value;
+  const hasMedia = ['media', 'card'].includes(type);
+  const hasActions = ['call_to_action', 'quick_reply', 'card'].includes(type);
+  $('templateMediaFields').hidden = !hasMedia;
+  $('templateActionsFields').hidden = !hasActions;
+  $('templateCardFields').hidden = type !== 'card';
+  if (resetActions) state.templateActions = [];
+  if (hasActions && !state.templateActions.length) addTemplateAction();
+  else renderTemplateActions();
+  renderTemplateVariables();
+}
+
+function collectTemplateVariables() {
+  const variables = {};
+  document.querySelectorAll('[data-template-variable]').forEach((input) => { variables[input.dataset.templateVariable] = input.value.trim(); });
+  return variables;
+}
+
+async function uploadTemplateMedia() {
+  const file = $('templateMediaFile').files[0];
+  if (!file) return $('templateMediaUrl').value.trim();
+  const form = new FormData();
+  form.append('media', file);
+  const { media } = await api('/media/upload/broadcast', { method: 'POST', body: form });
+  return media.url;
+}
+
+async function createTemplate() {
+  $('createTemplateBtn').disabled = true;
+  $('templateCreateStatus').textContent = 'Creazione in corso…';
+  try {
+    const type = $('templateType').value;
+    const mediaUrl = ['media', 'card'].includes(type) ? await uploadTemplateMedia() : '';
+    const result = await api('/api/broadcast/templates', {
+      method: 'POST',
+      body: JSON.stringify({
+        friendlyName: $('templateName').value.trim(),
+        language: $('templateLanguage').value,
+        category: $('templateCategory').value,
+        type,
+        body: $('templateBody').value,
+        headerText: $('templateHeader').value,
+        footer: $('templateFooter').value,
+        mediaUrl,
+        actions: state.templateActions,
+        variables: collectTemplateVariables(),
+        submitForApproval: $('submitTemplateApproval').checked,
+      }),
+    });
+    $('templateCreateStatus').textContent = `Creato ${result.template.sid} · ${approvalLabel(result.template.status)}`;
+    toast(result.approvalError
+      ? `Template creato, ma invio in approvazione non riuscito: ${result.approvalError}`
+      : `Template creato: ${approvalLabel(result.template.status)}`,
+    result.approvalError ? 'err' : 'ok');
+    await loadTemplates();
+  } catch (error) {
+    $('templateCreateStatus').textContent = '';
+    toast(error.message, 'err');
+  } finally {
+    $('createTemplateBtn').disabled = false;
   }
 }
 
@@ -96,7 +262,9 @@ function toggleManualTemplate() {
   const template = currentTemplate();
   if (template) {
     $('templatePreview').style.display = 'block';
-    $('templatePreview').innerHTML = `<div><span class="badge on">${approvalLabel(template.status)}</span><span>${escapeHtml(template.language)}</span></div><strong>${escapeHtml(template.name)}</strong><p>${escapeHtml(template.body || 'Anteprima testuale non disponibile')}</p>`;
+    const actions = (template.actions || []).map((action) => `<span class="template-action-chip">${escapeHtml(action.title || action.type)}</span>`).join('');
+    const media = template.media?.length ? `<a href="${escapeHtml(template.media[0])}" target="_blank" rel="noopener">Media allegato</a>` : '';
+    $('templatePreview').innerHTML = `<div><span class="badge on">${approvalLabel(template.status)}</span><span>${escapeHtml(template.language)}</span><span>${escapeHtml(template.type || '')}</span></div><strong>${escapeHtml(template.name)}</strong><p>${escapeHtml(template.body || 'Anteprima testuale non disponibile')}</p>${media}<div class="template-actions-preview">${actions}</div>`;
   } else {
     $('templatePreview').style.display = 'none';
   }
@@ -234,6 +402,15 @@ $('csvFile').addEventListener('change', previewFile);
 $('phoneColumn').addEventListener('change', refreshValidation);
 $('sendBroadcastBtn').addEventListener('click', sendBroadcast);
 $('refreshCampaigns').addEventListener('click', loadCampaigns);
+$('newTemplateBtn').addEventListener('click', openTemplateStudio);
+$('closeTemplateBtn').addEventListener('click', closeTemplateStudio);
+$('templateType').addEventListener('change', () => syncTemplateBuilder({ resetActions: true }));
+$('addTemplateActionBtn').addEventListener('click', addTemplateAction);
+$('templateBody').addEventListener('input', renderTemplateVariables);
+$('templateHeader').addEventListener('input', renderTemplateVariables);
+$('templateFooter').addEventListener('input', renderTemplateVariables);
+$('templateMediaUrl').addEventListener('input', renderTemplateVariables);
+$('createTemplateBtn').addEventListener('click', createTemplate);
 
 (async () => {
   await loadMe();

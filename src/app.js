@@ -42,6 +42,7 @@ app.get('/health', async (_req, res) => {
 });
 
 // Routes
+app.use('/media', require('./routes/media'));              // public reads, authenticated uploads
 app.use('/webhook', require('./routes/webhook'));          // twilio-signed, public
 app.use('/api/outbound', require('./routes/outbound'));    // bearer-token (server-to-server)
 app.use('/api/bots', require('./routes/bots'));

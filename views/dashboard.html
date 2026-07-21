@@ -46,6 +46,14 @@
           </div>
           <div class="chat-body" id="chatBody"></div>
           <div class="chat-input">
+            <div class="composer-toolbar">
+              <button class="secondary" id="attachBtn" type="button">📎 Allega</button>
+              <button class="secondary" id="addChatActionBtn" type="button">+ Pulsante</button>
+              <input id="chatMediaFile" type="file" hidden accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vcf" />
+              <span>Immagini 5 MB · altri file 16 MB · 1 URL o 3 risposte rapide</span>
+            </div>
+            <div class="attachment-preview" id="chatAttachmentPreview" hidden></div>
+            <div class="action-editor chat-action-editor" id="chatActions" hidden></div>
             <div class="row"><textarea id="msgInput" placeholder="Scrivi come operatore..."></textarea><button id="sendBtn">Invia</button></div>
             <div class="hint"><span id="inputHint">L'invio attiva la modalità operatore</span><span>Invio per mandare · Maiusc + Invio per andare a capo</span></div>
           </div>

@@ -25,8 +25,52 @@
     <main class="page-shell broadcast-page">
       <div class="page-heading">
         <div><span class="eyebrow">Twilio Content Templates</span><h1>Nuovo broadcast</h1><p>Importa i contatti, personalizza le variabili e avvia l'invio in background.</p></div>
-        <div class="privacy-note"><strong>Solo template approvati</strong><span>Per avviare conversazioni WhatsApp fuori dalla finestra di 24 ore.</span></div>
+        <div class="toolbar">
+          <button id="newTemplateBtn" data-permission="broadcast:write">+ Crea template</button>
+          <div class="privacy-note"><strong>Solo template approvati</strong><span>Per avviare conversazioni WhatsApp fuori dalla finestra di 24 ore.</span></div>
+        </div>
       </div>
+
+      <section class="card template-studio" id="templateStudio" hidden data-write="broadcast:write">
+        <div class="section-heading">
+          <div><span class="eyebrow">Content API</span><h2>Crea un template WhatsApp</h2></div>
+          <button class="ghost" id="closeTemplateBtn">Chiudi</button>
+        </div>
+        <div class="info-banner">
+          <strong>Creazione e approvazione senza uscire dall’app</strong>
+          <span>I template personalizzati richiedono un mittente WhatsApp Business di produzione. Nel Sandbox restano disponibili solo i template di test Twilio.</span>
+        </div>
+        <div class="grid-2">
+          <div class="form-field"><label for="templateName">Nome template</label><input id="templateName" placeholder="promemoria_evento" /><small>Solo minuscole, numeri e underscore.</small></div>
+          <div class="form-field"><label for="templateLanguage">Lingua</label><select id="templateLanguage"><option value="it">Italiano</option><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
+          <div class="form-field"><label for="templateCategory">Categoria WhatsApp</label><select id="templateCategory"><option value="UTILITY">Utility</option><option value="MARKETING">Marketing</option></select></div>
+          <div class="form-field"><label for="templateType">Formato</label><select id="templateType"><option value="text">Testo</option><option value="media">Immagine o documento</option><option value="call_to_action">Call to action</option><option value="quick_reply">Risposte rapide</option><option value="card">Media + pulsanti</option></select></div>
+          <div class="form-field span-2"><label for="templateBody">Messaggio</label><textarea id="templateBody" rows="5" placeholder="Ciao {{1}}, il tuo appuntamento è fissato per {{2}}."></textarea><small>Usa {{1}}, {{2}}… per i valori collegati al CSV.</small></div>
+        </div>
+        <div class="grid-2 template-conditional" id="templateCardFields" hidden>
+          <div class="form-field"><label for="templateHeader">Header opzionale</label><input id="templateHeader" placeholder="Aggiornamento importante" /></div>
+          <div class="form-field"><label for="templateFooter">Footer opzionale</label><input id="templateFooter" placeholder="United Network" /></div>
+        </div>
+        <div class="template-conditional" id="templateMediaFields" hidden>
+          <div class="grid-2">
+            <div class="form-field"><label for="templateMediaFile">Carica media o documento</label><input id="templateMediaFile" type="file" accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vcf" /><small>Immagini 5 MB; audio, video e documenti 16 MB. Il file sarà pubblicato tramite URL HTTPS non enumerabile.</small></div>
+            <div class="form-field"><label for="templateMediaUrl">Oppure URL HTTPS</label><input id="templateMediaUrl" type="url" placeholder="https://..." /></div>
+          </div>
+        </div>
+        <div class="template-conditional" id="templateActionsFields" hidden>
+          <div class="section-heading compact"><div><span class="step-number">CTA</span><h2>Pulsanti</h2></div><button class="secondary" id="addTemplateActionBtn">+ Aggiungi</button></div>
+          <div class="action-editor" id="templateActions"></div>
+        </div>
+        <div class="template-conditional" id="templateVariablesFields" hidden>
+          <div class="section-heading compact"><div><span class="step-number">VAR</span><h2>Esempi variabili</h2></div><p>Obbligatori per l’approvazione WhatsApp.</p></div>
+          <div class="mapping-grid" id="templateVariables"></div>
+        </div>
+        <div class="form-actions">
+          <button id="createTemplateBtn">Crea con Twilio</button>
+          <label class="check-field"><input id="submitTemplateApproval" type="checkbox" checked /> Invia subito per approvazione WhatsApp</label>
+          <span class="muted-copy" id="templateCreateStatus"></span>
+        </div>
+      </section>
 
       <div class="broadcast-layout">
         <section class="card compose-card" data-write="broadcast:write">

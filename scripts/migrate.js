@@ -27,6 +27,14 @@ async function migrate() {
     const schema = fs.readFileSync(path.join(root, 'schema.sql'), 'utf8');
     await client.query(schema);
     console.log('✓ Schema database verificato');
+
+    const migrations = fs.readdirSync(path.join(root, 'migrations'))
+      .filter((filename) => /^\d+.*\.sql$/.test(filename) && filename !== '001_upgrade_to_bots.sql')
+      .sort();
+    for (const filename of migrations) {
+      await client.query(fs.readFileSync(path.join(root, 'migrations', filename), 'utf8'));
+      console.log(`✓ Migrazione ${filename} applicata`);
+    }
   } finally {
     await client.end();
   }

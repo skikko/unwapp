@@ -1,5 +1,6 @@
 const twilio = require('twilio');
 const settingsService = require('./settingsService');
+const contentService = require('./contentService');
 
 let _client = null;
 let _clientFingerprint = '';
@@ -33,13 +34,16 @@ function stripWhatsAppPrefix(n) {
   return (n || '').replace(/^whatsapp:/, '');
 }
 
-async function sendMessage(from, to, body) {
+async function sendMessage(from, to, body, { mediaUrl } = {}) {
   const twilioClient = await client();
-  return twilioClient.messages.create({
+  const payload = {
     from: addWhatsAppPrefix(from),
     to: addWhatsAppPrefix(to),
-    body,
-  });
+  };
+  if (body) payload.body = body;
+  if (mediaUrl) payload.mediaUrl = Array.isArray(mediaUrl) ? mediaUrl : [mediaUrl];
+  if (!payload.body && !payload.mediaUrl) throw new Error('Messaggio o media obbligatorio');
+  return twilioClient.messages.create(payload);
 }
 
 async function sendTemplate({ from, to, contentSid, contentVariables }) {
@@ -58,22 +62,60 @@ async function sendTemplate({ from, to, contentSid, contentVariables }) {
 async function listTemplates() {
   const twilioClient = await client();
   const contents = await twilioClient.content.v1.contentAndApprovals.list({ limit: 200 });
-  return contents.map((content) => {
-    const approval = content.approvalRequests?.whatsapp || {};
-    const type = content.types?.['twilio/text']
-      || content.types?.['twilio/media']
-      || content.types?.['whatsapp/card']
-      || Object.values(content.types || {})[0]
-      || {};
-    return {
-      sid: content.sid,
-      name: content.friendlyName,
-      language: content.language,
-      status: approval.status || 'not_submitted',
-      variables: content.variables || {},
-      body: type.body || '',
-    };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  return contents.map(normalizeContent).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeContent(content, approvalOverride = null) {
+  const approval = approvalOverride || content.approvalRequests?.whatsapp || {};
+  const entries = Object.entries(content.types || {});
+  const [contentType, definition = {}] = entries[0] || [];
+  return {
+    sid: content.sid,
+    name: content.friendlyName,
+    language: content.language,
+    status: String(approval.status || 'not_submitted').toLowerCase(),
+    category: approval.category || null,
+    rejectionReason: approval.rejectionReason || approval.rejection_reason || null,
+    variables: content.variables || {},
+    type: contentType || 'unknown',
+    body: definition.body || definition.title || '',
+    media: definition.media || [],
+    actions: definition.actions || [],
+    footer: definition.footer || definition.subtitle || '',
+  };
+}
+
+async function createTemplate(input) {
+  const built = contentService.buildTemplatePayload(input);
+  const twilioClient = await client();
+  const content = await twilioClient.content.v1.contents.create(built.payload);
+  let approval = null;
+  let approvalError = null;
+  if (input.submitForApproval !== false) {
+    try {
+      approval = await twilioClient.content.v1.contents(content.sid).approvalCreate.create({
+        name: built.payload.friendly_name,
+        category: built.category,
+      });
+    } catch (error) {
+      approvalError = error.message;
+    }
+  }
+  return {
+    template: normalizeContent(content, approval),
+    approvalError,
+  };
+}
+
+async function createRichContent(input) {
+  const built = contentService.buildRichMessagePayload(input);
+  const twilioClient = await client();
+  const content = await twilioClient.content.v1.contents.create(built.payload);
+  return {
+    sid: content.sid,
+    type: built.type,
+    actions: built.actions,
+  };
 }
 
 async function validateSignature(req, url) {
@@ -94,6 +136,8 @@ module.exports = {
   sendMessage,
   sendTemplate,
   listTemplates,
+  createTemplate,
+  createRichContent,
   addWhatsAppPrefix,
   stripWhatsAppPrefix,
   validateSignature,
