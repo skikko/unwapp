@@ -5,12 +5,17 @@ const twilioService = require('../services/twilioService');
 const contentService = require('../services/contentService');
 
 async function listConversations(req, res) {
-  const botId = req.query.botId || req.query.botId;
+  const botId = req.query.botId;
   if (!botId) return res.status(400).json({ error: 'botId required' });
   const bot = await botRepo.getById(botId);
   if (!bot) return res.status(404).json({ error: 'BOT not found' });
-  const conversations = await conversationRepo.listByBot(botId);
-  res.json({ bot: { id: bot.id, name: bot.name }, conversations });
+  const conversations = await conversationRepo.listByBot(botId, {
+    search: req.query.search,
+    status: req.query.status,
+    broadcast: req.query.broadcast,
+  });
+  const filters = await conversationRepo.listFiltersByBot(botId);
+  res.json({ bot: { id: bot.id, name: bot.name }, conversations, filters });
 }
 
 async function getConversation(req, res) {
@@ -142,6 +147,19 @@ async function closeConversation(req, res) {
   res.json({ success: true });
 }
 
+async function deleteConversation(req, res) {
+  const deleted = await conversationRepo.remove(req.params.id);
+  if (!deleted) return res.status(404).json({ error: 'Conversazione non trovata' });
+  const io = req.app.get('io');
+  if (io) {
+    io.to(`bot:${deleted.bot_id}`).emit('conversation-deleted', {
+      conversationId: deleted.id,
+      botId: deleted.bot_id,
+    });
+  }
+  res.json({ success: true });
+}
+
 async function deleteMessage(req, res) {
   const { messageId } = req.params;
   const deleted = await messageRepo.remove(messageId);
@@ -155,5 +173,6 @@ module.exports = {
   sendOperatorMessage,
   releaseOperator,
   closeConversation,
+  deleteConversation,
   deleteMessage,
 };

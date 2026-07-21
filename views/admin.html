@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BOT · UN Whatsapp Manager</title>
+  <title>UN WhatsApp Manager — BOT</title>
+  <meta name="theme-color" content="#151923" />
   <link href="/css/app.css" rel="stylesheet" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="UN Whatsapp Manager, home">
+      <a class="brand" href="/" aria-label="UN WhatsApp Manager, home">
         <span class="brand-mark">UN</span>
-        <span><strong>Whatsapp Manager</strong><small>United Network</small></span>
+        <span><strong>WhatsApp Manager</strong><small>United Network</small></span>
       </a>
       <nav aria-label="Navigazione principale">
         <a href="/" data-permission="chat:read">Conversazioni</a>
@@ -27,7 +28,6 @@
         <div>
           <span class="eyebrow">Configurazione</span>
           <h1>I tuoi BOT</h1>
-          <p>Gestisci numeri WhatsApp, comportamento AI e base di conoscenza.</p>
         </div>
         <button id="newBtn">+ Crea BOT</button>
       </div>
@@ -37,7 +37,7 @@
       <section class="card editor-card" id="editor" style="display:none">
         <div class="section-heading">
           <div><span class="step-number">01</span><h2 id="editorTitle">Nuovo BOT</h2></div>
-          <p>Le credenziali AI vengono cifrate prima di essere salvate.</p>
+          <span class="section-note">Configurazione e automazioni</span>
         </div>
         <div class="grid-2">
           <div class="form-field">
@@ -98,7 +98,6 @@
       <section class="card" id="docsCard" style="display:none">
         <div class="section-heading">
           <div><span class="step-number">02</span><h2>Base di conoscenza</h2></div>
-          <p>I PDF vengono estratti e indicizzati direttamente in PostgreSQL.</p>
         </div>
         <div class="upload-row">
           <input id="pdfFile" type="file" accept="application/pdf" />

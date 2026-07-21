@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Broadcast · UN Whatsapp Manager</title>
+  <title>UN WhatsApp Manager — Broadcast</title>
+  <meta name="theme-color" content="#151923" />
   <link href="/css/app.css" rel="stylesheet" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="UN Whatsapp Manager, home">
+      <a class="brand" href="/" aria-label="UN WhatsApp Manager, home">
         <span class="brand-mark">UN</span>
-        <span><strong>Whatsapp Manager</strong><small>United Network</small></span>
+        <span><strong>WhatsApp Manager</strong><small>United Network</small></span>
       </a>
       <nav aria-label="Navigazione principale">
         <a href="/" data-permission="chat:read">Conversazioni</a>
@@ -24,10 +25,10 @@
 
     <main class="page-shell broadcast-page">
       <div class="page-heading">
-        <div><span class="eyebrow">Twilio Content Templates</span><h1>Nuovo broadcast</h1><p>Importa i contatti, personalizza le variabili e avvia l'invio in background.</p></div>
+        <div><span class="eyebrow">Twilio Content</span><h1>Nuovo broadcast</h1></div>
         <div class="toolbar">
           <button id="newTemplateBtn" data-permission="broadcast:write">+ Crea template</button>
-          <div class="privacy-note"><strong>Solo template approvati</strong><span>Per avviare conversazioni WhatsApp fuori dalla finestra di 24 ore.</span></div>
+          <div class="privacy-note"><strong>Template approvati</strong><span>Necessari fuori dalla finestra di 24 ore.</span></div>
         </div>
       </div>
 
@@ -37,8 +38,8 @@
           <button class="ghost" id="closeTemplateBtn">Chiudi</button>
         </div>
         <div class="info-banner">
-          <strong>Creazione e approvazione senza uscire dall’app</strong>
-          <span>I template personalizzati richiedono un mittente WhatsApp Business di produzione. Nel Sandbox restano disponibili solo i template di test Twilio.</span>
+          <strong>Richiede un mittente WhatsApp di produzione</strong>
+          <span>Il Sandbox usa solo i template di test Twilio.</span>
         </div>
         <div class="grid-2">
           <div class="form-field"><label for="templateName">Nome template</label><input id="templateName" placeholder="promemoria_evento" /><small>Solo minuscole, numeri e underscore.</small></div>

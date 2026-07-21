@@ -1,4 +1,4 @@
-# UN Whatsapp Manager
+# UN WhatsApp Manager
 
 Webapp per gestire più BOT WhatsApp Twilio, le conversazioni con gli operatori e gli invii broadcast da CSV. Il progetto è portabile e non dipende da uno specifico provider di hosting.
 
@@ -13,7 +13,7 @@ Webapp per gestire più BOT WhatsApp Twilio, le conversazioni con gli operatori 
 - template testuali, con media, call to action, risposte rapide e card;
 - broadcast asincroni, ripresa dopo riavvio, avanzamento e dettaglio errori per destinatario;
 - chat operatore con testo, immagini, documenti, audio, video e pulsanti interattivi;
-- interfaccia “UN Whatsapp Manager” ispirata al design system di [United Network](https://www.unitednetwork.it/en/home-en/).
+- interfaccia “UN WhatsApp Manager” ispirata al design system di [United Network](https://www.unitednetwork.it/en/home-en/).
 - accesso con username e password, sessioni revocabili e ruoli `admin`, `operator`, `broadcaster` e `viewer`;
 - configurazione Twilio cifrata dalla pagina **Impostazioni**, senza modificare il file `.env`.
 

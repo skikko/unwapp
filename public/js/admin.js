@@ -51,21 +51,21 @@ function renderBots() {
     return;
   }
   el.innerHTML = state.bots.map((c) => `
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-weight:600;font-size:16px">${escape(c.name)}</div>
-          <div style="color:var(--muted);font-size:12px;margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            ${escape(c.twilio_number)} · ${c.manual_only ? 'solo operatore' : `${escape(c.provider)} / ${escape(c.model)}`} · lang ${escape(c.language)}
-            · <span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'attivo' : 'inattivo'}</span>
-            · <span class="badge">${c.rag_enabled ? 'RAG on' : 'RAG off'}</span>
-            · <span class="badge ${c.api_key_configured ? 'on' : 'off'}">${c.api_key_configured ? 'AI configurata' : 'Solo operatore'}</span>
-          </div>
+    <div class="card bot-card">
+      <div class="bot-card-main">
+        <div class="bot-card-name">${escape(c.name)}</div>
+        <div class="bot-card-meta">
+          <span>${escape(c.twilio_number)}</span>
+          <span>${c.manual_only ? 'Solo operatore' : `${escape(c.provider)} · ${escape(c.model)}`}</span>
+          <span>${escape(c.language).toUpperCase()}</span>
+          <span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'attivo' : 'inattivo'}</span>
+          <span class="badge">${c.rag_enabled ? 'RAG on' : 'RAG off'}</span>
+          <span class="badge ${c.api_key_configured ? 'on' : 'off'}">${c.api_key_configured ? 'AI configurata' : 'Solo operatore'}</span>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="secondary" data-edit="${c.id}">Modifica</button>
-          <button data-docs="${c.id}" ${!c.api_key_configured || c.provider !== 'openai' ? 'disabled title="Richiede una chiave OpenAI"' : ''}>Documenti</button>
-        </div>
+      </div>
+      <div class="bot-card-actions">
+        <button class="secondary" data-edit="${c.id}">Modifica</button>
+        <button data-docs="${c.id}" ${!c.api_key_configured || c.provider !== 'openai' ? 'disabled title="Richiede una chiave OpenAI"' : ''}>Documenti</button>
       </div>
     </div>
   `).join('');

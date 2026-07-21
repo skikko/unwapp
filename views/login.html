@@ -3,22 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Accedi · UN Whatsapp Manager</title>
+  <title>UN WhatsApp Manager</title>
+  <meta name="theme-color" content="#151923" />
   <link href="/css/app.css" rel="stylesheet" />
 </head>
 <body class="login-body">
   <main class="login-layout">
-    <section class="login-brand-panel">
-      <span class="brand-mark large">UN</span>
-      <span class="eyebrow">United Network</span>
-      <h1>Whatsapp<br />Manager</h1>
-      <p>Conversazioni, BOT e broadcast in un unico spazio protetto.</p>
-    </section>
     <section class="login-form-panel">
       <form id="loginForm" class="login-card">
-        <span class="eyebrow">Area riservata</span>
-        <h2>Accedi al manager</h2>
-        <p>Usa l’account assegnato dall’amministratore.</p>
+        <a class="login-brand" href="/" aria-label="UN WhatsApp Manager">
+          <span class="brand-mark large">UN</span>
+          <span><strong>WhatsApp Manager</strong><small>United Network</small></span>
+        </a>
+        <h1>Accedi</h1>
         <div class="form-field"><label for="username">Nome utente</label><input id="username" name="username" autocomplete="username" required autofocus /></div>
         <div class="form-field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required /></div>
         <div id="loginError" class="form-error" hidden></div>

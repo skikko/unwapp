@@ -1,4 +1,4 @@
--- Portable PostgreSQL 15 schema for UN Whatsapp Manager.
+-- Portable PostgreSQL 15 schema for UN WhatsApp Manager.
 -- Requires the pgvector extension.
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_bot_recent
   ON conversations (bot_id, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_bot_status_recent
+  ON conversations (bot_id, status, last_message_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -117,6 +119,8 @@ CREATE TABLE IF NOT EXISTS broadcast_campaigns (
 );
 CREATE INDEX IF NOT EXISTS idx_broadcast_campaigns_recent
   ON broadcast_campaigns (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_broadcast_campaigns_bot_recent
+  ON broadcast_campaigns (bot_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS broadcast_recipients (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -135,6 +139,8 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
 );
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_pending
   ON broadcast_recipients (campaign_id, status, row_number);
+CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_phone
+  ON broadcast_recipients (phone_number, campaign_id);
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key                TEXT PRIMARY KEY,

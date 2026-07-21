@@ -8,6 +8,10 @@ const state = {
   socket: null,
   mediaFile: null,
   chatActions: [],
+  conversationFilters: { templates: [], campaigns: [] },
+  conversationRequest: 0,
+  canWrite: false,
+  canDelete: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -39,14 +43,18 @@ async function loadMe() {
   try {
     const { user } = await api('/api/me');
     const can = (permission) => user.permissions.includes('*') || user.permissions.includes(permission);
+    state.canWrite = can('chat:write');
+    state.canDelete = can('admin');
     document.querySelectorAll('[data-permission]').forEach((item) => { item.hidden = !can(item.dataset.permission); });
     $('userEmail').innerHTML = `<span>${escape(user.displayName || user.username)}</span><button class="user-logout" id="logoutBtn">Esci</button>`;
     $('logoutBtn').addEventListener('click', logout);
     if (!can('chat:write')) {
       $('msgInput').disabled = true; $('sendBtn').disabled = true; $('closeBtn').hidden = true;
+      $('deleteConversationBtn').hidden = true;
       $('attachBtn').disabled = true; $('addChatActionBtn').disabled = true;
       $('modeSwitch').hidden = true; $('inputHint').textContent = 'Accesso in sola lettura';
     }
+    $('deleteConversationBtn').hidden = !state.canDelete;
   } catch (_) {}
 }
 
@@ -84,6 +92,12 @@ async function selectBot(botId) {
   state.messages = [];
   clearChatAttachment();
   state.chatActions = [];
+  $('conversationSearch').value = '';
+  $('conversationStatus').value = '';
+  $('conversationBroadcast').value = '';
+  $('conversationSearch').disabled = false;
+  $('conversationStatus').disabled = false;
+  $('conversationBroadcast').disabled = false;
   renderChatActions();
   renderChat();
   document.querySelectorAll('#botsList .list-item').forEach((n) =>
@@ -96,15 +110,28 @@ async function selectBot(botId) {
 async function loadConversations() {
   const cid = state.selectedBotId;
   if (!cid) return;
-  const { conversations } = await api(`/api/chat/conversations?botId=${cid}`);
+  const requestId = ++state.conversationRequest;
+  const params = new URLSearchParams({ botId: cid });
+  const search = $('conversationSearch').value.trim();
+  const status = $('conversationStatus').value;
+  const broadcast = $('conversationBroadcast').value;
+  if (search) params.set('search', search);
+  if (status) params.set('status', status);
+  if (broadcast) params.set('broadcast', broadcast);
+  const { conversations, filters = {} } = await api(`/api/chat/conversations?${params}`);
+  if (requestId !== state.conversationRequest || cid !== state.selectedBotId) return;
   state.conversations = conversations;
+  state.conversationFilters = filters;
+  renderConversationFilterOptions();
   const el = $('conversationsList');
   if (!conversations.length) {
-    el.innerHTML = '<div class="empty-list">Nessuna conversazione</div>';
+    const hasFilters = Boolean(search || status || broadcast);
+    el.innerHTML = `<div class="empty-list">${hasFilters ? 'Nessun risultato' : 'Nessuna conversazione'}</div>`;
     return;
   }
   el.innerHTML = conversations.map((c) => {
     const last = c.last_message ? escape(String(c.last_message).slice(0, 90)) : '';
+    const linkedTemplate = Array.isArray(c.broadcast_templates) ? c.broadcast_templates[0] : null;
     const statusBadge = c.status === 'human'
       ? '<span class="badge human">👤 Operatore</span>'
       : c.status === 'closed'
@@ -116,6 +143,7 @@ async function loadConversations() {
         <div class="sub">${last || '<em style="opacity:0.5">nessun messaggio</em>'}</div>
         <div class="meta">
           ${statusBadge}
+          ${linkedTemplate ? `<span class="conversation-template" title="Template broadcast: ${escape(linkedTemplate.name)}">${escape(linkedTemplate.name)}</span>` : ''}
           <span>${timeAgo(c.last_message_at)}</span>
         </div>
       </div>
@@ -124,6 +152,27 @@ async function loadConversations() {
   el.querySelectorAll('.list-item').forEach((n) =>
     n.addEventListener('click', () => selectConversation(n.dataset.id))
   );
+}
+
+function renderConversationFilterOptions() {
+  const select = $('conversationBroadcast');
+  const selected = select.value;
+  const templates = Array.isArray(state.conversationFilters.templates) ? state.conversationFilters.templates : [];
+  const campaigns = Array.isArray(state.conversationFilters.campaigns) ? state.conversationFilters.campaigns : [];
+  const templateOptions = templates.map((template) =>
+    `<option value="template:${escape(template.sid)}">${escape(template.name || template.sid)}</option>`
+  ).join('');
+  const campaignOptions = campaigns.map((campaign) => {
+    const date = new Date(campaign.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+    const source = campaign.source_filename ? ` · ${campaign.source_filename}` : '';
+    return `<option value="campaign:${escape(campaign.id)}">${escape(campaign.name || campaign.template_sid)}${escape(source)} · ${date}</option>`;
+  }).join('');
+  select.innerHTML = `
+    <option value="">Tutti i broadcast</option>
+    ${templateOptions ? `<optgroup label="Template">${templateOptions}</optgroup>` : ''}
+    ${campaignOptions ? `<optgroup label="Campagne">${campaignOptions}</optgroup>` : ''}
+  `;
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
 }
 
 async function selectConversation(id) {
@@ -158,8 +207,8 @@ function renderChat() {
   const statusBar = $('statusBar');
   statusBar.className = `status-bar ${isHuman ? 'human' : 'bot'}`;
   $('statusText').textContent = isHuman
-    ? 'OPERATORE ATTIVO — il bot è in pausa'
-    : 'BOT AI ATTIVO — risponde automaticamente';
+    ? 'Operatore attivo'
+    : 'BOT attivo';
 
   const sw = $('modeSwitch');
   sw.querySelectorAll('button').forEach((b) => {
@@ -169,8 +218,8 @@ function renderChat() {
   });
 
   $('inputHint').textContent = isHuman
-    ? 'Il bot è in pausa — stai rispondendo come operatore'
-    : 'Inviando un messaggio passerai in modalità operatore';
+    ? 'Rispondi come operatore'
+    : 'L’invio passa all’operatore';
 
   // Messages
   const body = $('chatBody');
@@ -320,7 +369,7 @@ function renderChatActions() {
       renderChatActions();
     });
   });
-  $('addChatActionBtn').disabled = state.chatActions.length >= 3;
+  $('addChatActionBtn').disabled = !state.canWrite || state.chatActions.length >= 3;
 }
 
 function updateChatAction(index, field, value) {
@@ -385,6 +434,27 @@ async function closeConversation() {
   renderChat();
 }
 
+async function deleteConversation() {
+  if (!state.selectedConversationId || !state.currentConversation) return;
+  const id = state.selectedConversationId;
+  const phone = state.currentConversation.phone_number;
+  if (!confirm(`Eliminare definitivamente la conversazione con ${phone}?\n\nI messaggi saranno cancellati. Lo storico dei broadcast resterà disponibile.`)) return;
+  try {
+    await api(`/api/chat/conversations/${id}`, { method: 'DELETE' });
+    state.selectedConversationId = null;
+    state.currentConversation = null;
+    state.messages = [];
+    clearChatAttachment();
+    state.chatActions = [];
+    renderChatActions();
+    renderChat();
+    await loadConversations();
+    toast('Conversazione eliminata');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 function subscribeSocket() {
   if (!state.socket) {
     state.socket = io({ transports: ['websocket', 'polling'] });
@@ -414,6 +484,16 @@ function subscribeSocket() {
       if (state.selectedConversationId) selectConversation(state.selectedConversationId);
       loadConversations();
     });
+    state.socket.on('conversation-deleted', (ev) => {
+      if (ev.botId !== state.selectedBotId) return;
+      if (ev.conversationId === state.selectedConversationId) {
+        state.selectedConversationId = null;
+        state.currentConversation = null;
+        state.messages = [];
+        renderChat();
+      }
+      loadConversations();
+    });
   }
   state.socket.emit('join-bot', state.selectedBotId);
 }
@@ -436,6 +516,7 @@ function escape(s) {
 $('refreshBtn').addEventListener('click', loadConversations);
 $('sendBtn').addEventListener('click', sendOperatorMessage);
 $('closeBtn').addEventListener('click', closeConversation);
+$('deleteConversationBtn').addEventListener('click', deleteConversation);
 $('attachBtn').addEventListener('click', selectChatAttachment);
 $('chatMediaFile').addEventListener('change', updateChatAttachment);
 $('addChatActionBtn').addEventListener('click', addChatAction);
@@ -445,5 +526,13 @@ $('msgInput').addEventListener('keydown', (e) => {
 document.querySelectorAll('#modeSwitch button').forEach((b) =>
   b.addEventListener('click', () => setMode(b.dataset.mode))
 );
+
+let searchTimer;
+$('conversationSearch').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadConversations, 300);
+});
+$('conversationStatus').addEventListener('change', loadConversations);
+$('conversationBroadcast').addEventListener('change', loadConversations);
 
 (async () => { await loadMe(); await loadBots(); })();
