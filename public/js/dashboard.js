@@ -236,8 +236,10 @@ function renderChat() {
 }
 
 function safeUrl(value, protocols = ['https:']) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
   try {
-    const url = new URL(value, location.origin);
+    const url = new URL(raw, location.origin);
     return protocols.includes(url.protocol) ? url.toString() : '';
   } catch { return ''; }
 }
