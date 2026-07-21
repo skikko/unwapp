@@ -5,7 +5,6 @@ services:
     plan: free
     region: frankfurt
     healthCheckPath: /health
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
         value: "production"
