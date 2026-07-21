@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BOT · UN Whatsapp Manager</title>
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="UN Whatsapp Manager, home">
+        <span class="brand-mark">UN</span>
+        <span><strong>Whatsapp Manager</strong><small>United Network</small></span>
+      </a>
+      <nav aria-label="Navigazione principale">
+        <a href="/" data-permission="chat:read">Conversazioni</a>
+        <a href="/broadcast" data-permission="broadcast:read">Broadcast</a>
+        <a href="/admin" class="active" data-permission="admin">BOT</a>
+        <a href="/settings" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="admin page-shell">
+      <div class="page-heading">
+        <div>
+          <span class="eyebrow">Configurazione</span>
+          <h1>I tuoi BOT</h1>
+          <p>Gestisci numeri WhatsApp, comportamento AI e base di conoscenza.</p>
+        </div>
+        <button id="newBtn">+ Crea BOT</button>
+      </div>
+
+      <div id="botsGrid" class="cards-grid"></div>
+
+      <section class="card editor-card" id="editor" style="display:none">
+        <div class="section-heading">
+          <div><span class="step-number">01</span><h2 id="editorTitle">Nuovo BOT</h2></div>
+          <p>Le credenziali AI vengono cifrate prima di essere salvate.</p>
+        </div>
+        <div class="grid-2">
+          <div class="form-field">
+            <label for="f_name">Nome BOT</label>
+            <input id="f_name" placeholder="es. Assistenza IMUN" />
+          </div>
+          <div class="form-field">
+            <label for="f_slug">Identificativo</label>
+            <input id="f_slug" placeholder="assistenza-imun" />
+          </div>
+          <div class="form-field">
+            <label for="f_twilio">Numero Twilio WhatsApp</label>
+            <input id="f_twilio" placeholder="whatsapp:+39..." />
+          </div>
+          <div class="form-field">
+            <label for="f_language">Lingua</label>
+            <select id="f_language">
+              <option value="it">Italiano</option><option value="en">English</option>
+              <option value="es">Español</option><option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="f_provider">Provider AI</label>
+            <select id="f_provider"><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select>
+          </div>
+          <div class="form-field">
+            <label for="f_model">Modello</label>
+            <input id="f_model" placeholder="gpt-4o" />
+          </div>
+          <div class="form-field">
+            <label for="f_api_key">API key</label>
+            <input id="f_api_key" type="password" autocomplete="new-password" placeholder="Inserisci la chiave del provider" />
+            <small id="apiKeyHint">Obbligatoria alla creazione. Non sarà mai mostrata di nuovo.</small>
+          </div>
+          <div class="form-field">
+            <label for="f_temperature">Temperatura</label>
+            <input id="f_temperature" type="number" step="0.1" min="0" max="2" />
+          </div>
+          <div class="form-field">
+            <label for="f_transfer">Trigger passaggio a operatore</label>
+            <input id="f_transfer" placeholder="operatore, urgente, reclamo" />
+          </div>
+          <div class="form-field span-2">
+            <label for="f_prompt">Istruzioni del BOT</label>
+            <textarea id="f_prompt" rows="6" placeholder="Definisci tono, obiettivi e limiti delle risposte..."></textarea>
+          </div>
+          <label class="check-field"><input id="f_rag" type="checkbox" /> Base di conoscenza attiva <small id="ragHint"></small></label>
+          <label class="check-field"><input id="f_active" type="checkbox" /> BOT attivo</label>
+        </div>
+        <div class="form-actions">
+          <button id="saveBtn">Salva BOT</button>
+          <button class="secondary" id="cancelBtn">Annulla</button>
+          <button class="danger" id="deleteBtn" style="margin-left:auto;display:none">Elimina BOT</button>
+        </div>
+      </section>
+
+      <section class="card" id="docsCard" style="display:none">
+        <div class="section-heading">
+          <div><span class="step-number">02</span><h2>Base di conoscenza</h2></div>
+          <p>I PDF vengono estratti e indicizzati direttamente in PostgreSQL.</p>
+        </div>
+        <div class="upload-row">
+          <input id="pdfFile" type="file" accept="application/pdf" />
+          <button id="uploadBtn">Carica PDF</button>
+        </div>
+        <div id="docsList"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

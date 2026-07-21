@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Broadcast · UN Whatsapp Manager</title>
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="UN Whatsapp Manager, home">
+        <span class="brand-mark">UN</span>
+        <span><strong>Whatsapp Manager</strong><small>United Network</small></span>
+      </a>
+      <nav aria-label="Navigazione principale">
+        <a href="/" data-permission="chat:read">Conversazioni</a>
+        <a href="/broadcast" class="active" data-permission="broadcast:read">Broadcast</a>
+        <a href="/admin" data-permission="admin">BOT</a>
+        <a href="/settings" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="page-shell broadcast-page">
+      <div class="page-heading">
+        <div><span class="eyebrow">Twilio Content Templates</span><h1>Nuovo broadcast</h1><p>Importa i contatti, personalizza le variabili e avvia l'invio in background.</p></div>
+        <div class="privacy-note"><strong>Solo template approvati</strong><span>Per avviare conversazioni WhatsApp fuori dalla finestra di 24 ore.</span></div>
+      </div>
+
+      <div class="broadcast-layout">
+        <section class="card compose-card" data-write="broadcast:write">
+          <div class="form-section">
+            <div class="section-heading compact"><div><span class="step-number">01</span><h2>Sorgente e template</h2></div></div>
+            <div class="grid-2">
+              <div class="form-field"><label for="botSelect">BOT mittente</label><select id="botSelect"><option value="">Seleziona un BOT</option></select></div>
+              <div class="form-field"><label for="templateSelect">Template Twilio</label><select id="templateSelect"><option value="">Caricamento template...</option></select></div>
+              <div class="form-field span-2" id="manualSidField" style="display:none">
+                <label for="manualSid">Content SID</label><input id="manualSid" placeholder="HX..." />
+                <small>Inseriscilo manualmente se il template non compare nell'elenco.</small>
+              </div>
+              <div class="form-field span-2" id="manualVariablesField" style="display:none">
+                <label for="manualVariables">Variabili template</label><input id="manualVariables" placeholder="1, 2, 3" />
+                <small>Numeri dei placeholder da collegare alle colonne CSV.</small>
+              </div>
+            </div>
+            <div id="templatePreview" class="template-preview" style="display:none"></div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-heading compact"><div><span class="step-number">02</span><h2>Contatti CSV</h2></div></div>
+            <label class="dropzone" for="csvFile">
+              <span class="dropzone-icon">CSV</span><strong>Seleziona il file dei contatti</strong>
+              <span>Virgola, punto e virgola o tab · massimo 10.000 righe</span>
+              <input id="csvFile" type="file" accept=".csv,text/csv" />
+            </label>
+            <div id="fileMeta" class="file-meta" style="display:none"></div>
+            <div class="form-field" id="phoneField" style="display:none">
+              <label for="phoneColumn">Colonna numero WhatsApp</label><select id="phoneColumn"></select>
+              <small>I numeri devono includere il prefisso internazionale, ad esempio +393331234567.</small>
+            </div>
+          </div>
+
+          <div class="form-section" id="mappingSection" style="display:none">
+            <div class="section-heading compact"><div><span class="step-number">03</span><h2>Personalizzazione</h2></div><p>Collega i placeholder del template ai dati del CSV.</p></div>
+            <div id="variableMapping" class="mapping-grid"></div>
+          </div>
+
+          <div class="form-actions broadcast-actions">
+            <button id="sendBroadcastBtn" disabled>Avvia broadcast</button>
+            <span id="sendSummary">Carica un CSV per continuare.</span>
+          </div>
+        </section>
+
+        <aside class="card preview-card">
+          <div class="section-heading compact"><div><span class="step-number">04</span><h2>Anteprima contatti</h2></div></div>
+          <div id="contactsPreview" class="preview-empty"><span>Nessun file caricato</span><p>Qui vedrai le prime righe e il controllo qualità dei numeri.</p></div>
+        </aside>
+      </div>
+
+      <section class="campaigns-section">
+        <div class="section-heading"><div><span class="eyebrow">Attività</span><h2>Broadcast recenti</h2></div><button class="secondary" id="refreshCampaigns">Aggiorna</button></div>
+        <div id="campaignsList" class="campaigns-list"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/broadcast.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Impostazioni · UN Whatsapp Manager</title>
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>Whatsapp Manager</strong><small>United Network</small></span></a>
+      <nav aria-label="Navigazione principale">
+        <a href="/" data-permission="chat:read">Conversazioni</a>
+        <a href="/broadcast" data-permission="broadcast:read">Broadcast</a>
+        <a href="/admin" data-permission="admin">BOT</a>
+        <a href="/settings" class="active" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="page-shell settings-page">
+      <div class="page-heading"><div><span class="eyebrow">Configurazione</span><h1>Impostazioni</h1><p>Credenziali Twilio, webhook e accessi degli utenti.</p></div></div>
+
+      <section class="card settings-card">
+        <div class="section-heading"><div><span class="step-number">01</span><h2>Account Twilio</h2></div><span class="badge" id="twilioStatus">Non configurato</span></div>
+        <div class="info-banner"><strong>Per test e produzione</strong><span>Account SID e Auth Token sono necessari. Una API Key separata è consigliata per gli invii in produzione.</span></div>
+        <div class="grid-2">
+          <div class="form-field"><label for="twilioAccountSid">Account SID</label><input id="twilioAccountSid" placeholder="AC..." autocomplete="off" /></div>
+          <div class="form-field"><label for="twilioAuthToken">Auth Token</label><input id="twilioAuthToken" type="password" placeholder="Lascia vuoto per non modificarlo" autocomplete="new-password" /><small id="authTokenHint"></small></div>
+          <div class="form-field"><label for="twilioApiKeySid">API Key SID <span class="optional">opzionale</span></label><input id="twilioApiKeySid" placeholder="SK..." autocomplete="off" /></div>
+          <div class="form-field"><label for="twilioApiSecret">API Secret <span class="optional">opzionale</span></label><input id="twilioApiSecret" type="password" placeholder="Lascia vuoto per non modificarlo" autocomplete="new-password" /><small id="apiSecretHint"></small></div>
+          <div class="form-field span-2"><label for="publicBaseUrl">URL pubblico della webapp</label><input id="publicBaseUrl" type="url" placeholder="https://manager.example.com" /><small>Serve per costruire URL webhook identici a quelli firmati da Twilio.</small></div>
+        </div>
+        <div class="webhook-grid">
+          <div><span>Messaggi in entrata</span><code id="inboundWebhook">—</code><button class="secondary copy-btn" data-copy="inboundWebhook">Copia</button></div>
+          <div><span>Callback stato</span><code id="statusCallback">—</code><button class="secondary copy-btn" data-copy="statusCallback">Copia</button></div>
+        </div>
+        <div class="form-actions"><button id="saveTwilioBtn">Salva configurazione</button><button class="secondary" id="testTwilioBtn">Verifica connessione</button></div>
+      </section>
+
+      <section class="card settings-card">
+        <div class="section-heading"><div><span class="step-number">02</span><h2>Account e permessi</h2></div><button id="newUserBtn">+ Nuovo account</button></div>
+        <div class="role-legend">
+          <div><strong>Amministratore</strong><span>Accesso completo</span></div>
+          <div><strong>Operatore</strong><span>Conversazioni e risposte</span></div>
+          <div><strong>Broadcast</strong><span>Import e invii massivi</span></div>
+          <div><strong>Sola lettura</strong><span>Consultazione senza modifiche</span></div>
+        </div>
+        <div id="userEditor" class="user-editor" hidden>
+          <div class="grid-2">
+            <div class="form-field"><label for="newUsername">Nome utente</label><input id="newUsername" autocomplete="off" /></div>
+            <div class="form-field"><label for="newDisplayName">Nome visualizzato</label><input id="newDisplayName" /></div>
+            <div class="form-field"><label for="newPassword">Password</label><input id="newPassword" type="password" autocomplete="new-password" /><small>Almeno 10 caratteri.</small></div>
+            <div class="form-field"><label for="newRole">Ruolo</label><select id="newRole"><option value="operator">Operatore</option><option value="broadcaster">Responsabile broadcast</option><option value="viewer">Sola lettura</option><option value="admin">Amministratore</option></select></div>
+          </div>
+          <div class="form-actions"><button id="createUserBtn">Crea account</button><button class="secondary" id="cancelUserBtn">Annulla</button></div>
+        </div>
+        <div id="usersList" class="users-list"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/settings.js"></script>
+</body>
+</html>

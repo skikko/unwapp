@@ -1,0 +1,31 @@
+{
+  "name": "un-whatsapp-manager",
+  "version": "2.0.0",
+  "description": "UN Whatsapp Manager: BOT WhatsApp, operator dashboard and Twilio broadcasts",
+  "main": "src/app.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "openai": "^5.10.2",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1",
+    "twilio": "^5.8.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

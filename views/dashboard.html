@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conversazioni · UN Whatsapp Manager</title>
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="UN Whatsapp Manager, home">
+        <span class="brand-mark">UN</span>
+        <span><strong>Whatsapp Manager</strong><small>United Network</small></span>
+      </a>
+      <nav aria-label="Navigazione principale">
+        <a href="/" class="active" data-permission="chat:read">Conversazioni</a>
+        <a href="/broadcast" data-permission="broadcast:read">Broadcast</a>
+        <a href="/admin" data-permission="admin">BOT</a>
+        <a href="/settings" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="dash">
+      <aside class="col bots-column">
+        <div class="col-header"><span>BOT</span><a class="text-link" href="/admin">Gestisci</a></div>
+        <div class="col-body" id="botsList"></div>
+      </aside>
+
+      <aside class="col conversations-column">
+        <div class="col-header"><span>Conversazioni</span><button class="icon-button" id="refreshBtn" title="Ricarica" aria-label="Ricarica">↻</button></div>
+        <div class="col-body" id="conversationsList"><div class="empty-list">Seleziona un BOT</div></div>
+      </aside>
+
+      <section class="chat" id="chat">
+        <div class="chat-empty" id="chatEmpty"><span class="empty-icon">UN</span><h2>La conversazione inizia qui</h2><p>Seleziona un contatto per leggere e rispondere ai messaggi.</p></div>
+        <div id="chatView" style="display:none;height:100%;flex-direction:column">
+          <div class="chat-header">
+            <div><h3 id="chatTitle"></h3><div class="chat-subtitle" id="chatSubtitle"></div></div>
+            <div class="switch" id="modeSwitch"><button data-mode="bot">BOT</button><button data-mode="human">Operatore</button></div>
+          </div>
+          <div class="status-bar" id="statusBar">
+            <div class="label"><span class="dot"></span><span id="statusText"></span></div>
+            <button class="ghost" id="closeBtn">Chiudi conversazione</button>
+          </div>
+          <div class="chat-body" id="chatBody"></div>
+          <div class="chat-input">
+            <div class="row"><textarea id="msgInput" placeholder="Scrivi come operatore..."></textarea><button id="sendBtn">Invia</button></div>
+            <div class="hint"><span id="inputHint">L'invio attiva la modalità operatore</span><span>Invio per mandare · Maiusc + Invio per andare a capo</span></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
