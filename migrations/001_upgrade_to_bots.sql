@@ -10,16 +10,17 @@ END $$;
 
 DO $$
 DECLARE
-  table_name TEXT;
+  target_table TEXT;
   old_column TEXT := 'cour' || 'se_id';
 BEGIN
-  FOREACH table_name IN ARRAY ARRAY['conversations', 'documents', 'chunks'] LOOP
+  FOREACH target_table IN ARRAY ARRAY['conversations', 'documents', 'chunks'] LOOP
     IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'public' AND information_schema.columns.table_name = table_name
-        AND column_name = old_column
+      SELECT 1 FROM information_schema.columns AS column_info
+      WHERE column_info.table_schema = 'public'
+        AND column_info.table_name = target_table
+        AND column_info.column_name = old_column
     ) THEN
-      EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO bot_id', table_name, old_column);
+      EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO bot_id', target_table, old_column);
     END IF;
   END LOOP;
 END $$;
