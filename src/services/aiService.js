@@ -8,6 +8,10 @@ function apiKeyFor(bot) {
   return secretService.decrypt(bot.ai_api_key_encrypted);
 }
 
+function isConfigured(bot) {
+  return Boolean(bot && bot.ai_api_key_encrypted);
+}
+
 const FALLBACK_PROMPT_BY_LANG = {
   en: 'You are a helpful virtual assistant. Answer concisely and politely.',
   it: 'Sei un assistente virtuale disponibile. Rispondi in modo chiaro e cortese.',
@@ -36,6 +40,10 @@ async function buildUserPrompt(bot, userMessage, history, ragContext) {
 }
 
 async function generateResponse(bot, conversation, userMessage) {
+  if (!isConfigured(bot)) {
+    throw new Error('BOT senza chiave AI: è attiva la modalità solo operatore');
+  }
+
   const history = await messageRepo.recentHistoryText(conversation.id, 20);
 
   let ragContext = '';
@@ -121,4 +129,5 @@ module.exports = {
   generateResponse,
   shouldTransferToHuman,
   systemPromptFor,
+  isConfigured,
 };

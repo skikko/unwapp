@@ -56,15 +56,15 @@ function renderBots() {
         <div>
           <div style="font-weight:600;font-size:16px">${escape(c.name)}</div>
           <div style="color:var(--muted);font-size:12px;margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            ${escape(c.twilio_number)} · ${escape(c.provider)} / ${escape(c.model)} · lang ${escape(c.language)}
+            ${escape(c.twilio_number)} · ${c.manual_only ? 'solo operatore' : `${escape(c.provider)} / ${escape(c.model)}`} · lang ${escape(c.language)}
             · <span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'attivo' : 'inattivo'}</span>
             · <span class="badge">${c.rag_enabled ? 'RAG on' : 'RAG off'}</span>
-            · <span class="badge ${c.api_key_configured ? 'on' : 'off'}">API key ${c.api_key_configured ? 'configurata' : 'mancante'}</span>
+            · <span class="badge ${c.api_key_configured ? 'on' : 'off'}">${c.api_key_configured ? 'AI configurata' : 'Solo operatore'}</span>
           </div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="secondary" data-edit="${c.id}">Modifica</button>
-          <button data-docs="${c.id}">Documenti</button>
+          <button data-docs="${c.id}" ${!c.api_key_configured || c.provider !== 'openai' ? 'disabled title="Richiede una chiave OpenAI"' : ''}>Documenti</button>
         </div>
       </div>
     </div>
@@ -95,10 +95,10 @@ function openEditor(bot) {
   $('f_provider').value = v.provider;
   $('f_model').value = v.model;
   $('f_api_key').value = '';
-  $('f_api_key').required = !bot;
+  $('f_api_key').required = false;
   $('apiKeyHint').textContent = bot && v.api_key_configured
     ? 'Chiave configurata. Lascia vuoto per mantenerla invariata.'
-    : 'Obbligatoria alla creazione. Non sarà mai mostrata di nuovo.';
+    : 'Opzionale. Senza chiave il BOT funziona in modalità solo operatore.';
   $('f_temperature').value = v.temperature;
   $('f_language').value = v.language;
   $('f_prompt').value = v.system_prompt;
@@ -132,9 +132,11 @@ function collectForm() {
 
 function syncProviderOptions() {
   const isOpenAi = $('f_provider').value === 'openai';
-  $('f_rag').disabled = !isOpenAi;
-  if (!isOpenAi) $('f_rag').checked = false;
-  $('ragHint').textContent = isOpenAi ? '' : '(disponibile con OpenAI)';
+  const hasApiKey = Boolean(state.editing?.api_key_configured || $('f_api_key').value.trim());
+  const canUseRag = isOpenAi && hasApiKey;
+  $('f_rag').disabled = !canUseRag;
+  if (!canUseRag) $('f_rag').checked = false;
+  $('ragHint').textContent = canUseRag ? '' : '(richiede una chiave OpenAI)';
 }
 
 async function save() {
@@ -229,5 +231,6 @@ $('cancelBtn').addEventListener('click', () => { $('editor').style.display = 'no
 $('deleteBtn').addEventListener('click', remove);
 $('uploadBtn').addEventListener('click', upload);
 $('f_provider').addEventListener('change', syncProviderOptions);
+$('f_api_key').addEventListener('input', syncProviderOptions);
 
 (async () => { await loadMe(); await loadBots(); })();

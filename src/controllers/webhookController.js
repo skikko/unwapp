@@ -33,6 +33,31 @@ async function handleIncomingMessage(req, res) {
       });
     }
 
+    // A BOT without an AI key remains fully usable for operator-managed chats.
+    // Move the conversation to human mode so the dashboard reflects the real
+    // state and never attempts an external AI request.
+    if (!aiService.isConfigured(bot)) {
+      if (conversation.status !== 'human') {
+        await conversationRepo.setStatus(conversation.id, 'human');
+        if (io) {
+          io.to(`bot:${bot.id}`).emit('operator-mode-changed', {
+            conversationId: conversation.id,
+            status: 'human',
+            reason: 'ai_not_configured',
+          });
+        }
+      }
+      if (io) {
+        io.to(`bot:${bot.id}`).emit('attention-required', {
+          conversationId: conversation.id,
+          botId: bot.id,
+          phoneNumber: fromPhone,
+          reason: 'manual_only',
+        });
+      }
+      return res.status(200).send('OK');
+    }
+
     // Skip AI if a human operator has taken over
     if (conversation.status === 'human') {
       return res.status(200).send('OK');

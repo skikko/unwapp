@@ -4,7 +4,12 @@ const secretService = require('../services/secretService');
 function publicBot(bot) {
   if (!bot) return bot;
   const { ai_api_key_encrypted, ...safe } = bot;
-  return { ...safe, api_key_configured: Boolean(ai_api_key_encrypted) };
+  const apiKeyConfigured = Boolean(ai_api_key_encrypted);
+  return {
+    ...safe,
+    api_key_configured: apiKeyConfigured,
+    manual_only: !apiKeyConfigured,
+  };
 }
 
 function validate(body, { partial = false } = {}) {
@@ -43,11 +48,14 @@ async function getOne(req, res) {
 
 async function create(req, res) {
   const errors = validate(req.body);
-  if (!req.body.ai_api_key) errors.push('ai_api_key is required');
   if (errors.length) return res.status(400).json({ errors });
   try {
-    const input = { ...req.body, ai_api_key_encrypted: secretService.encrypt(req.body.ai_api_key) };
-    if (input.provider === 'gemini') input.rag_enabled = false;
+    const apiKey = String(req.body.ai_api_key || '').trim();
+    const input = {
+      ...req.body,
+      ai_api_key_encrypted: apiKey ? secretService.encrypt(apiKey) : null,
+    };
+    if (!apiKey || input.provider === 'gemini') input.rag_enabled = false;
     delete input.ai_api_key;
     const bot = await botRepo.create(input);
     res.status(201).json({ bot: publicBot(bot) });
@@ -65,7 +73,11 @@ async function update(req, res) {
   try {
     const input = { ...req.body };
     if (input.provider === 'gemini') input.rag_enabled = false;
-    if (input.ai_api_key) input.ai_api_key_encrypted = secretService.encrypt(input.ai_api_key);
+    if (Object.prototype.hasOwnProperty.call(input, 'ai_api_key')) {
+      const apiKey = String(input.ai_api_key || '').trim();
+      input.ai_api_key_encrypted = apiKey ? secretService.encrypt(apiKey) : null;
+      if (!apiKey) input.rag_enabled = false;
+    }
     delete input.ai_api_key;
     const bot = await botRepo.update(req.params.id, input);
     if (!bot) return res.status(404).json({ error: 'not found' });
