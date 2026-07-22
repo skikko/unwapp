@@ -2,6 +2,10 @@
 
 Webapp per gestire più BOT WhatsApp Twilio, le conversazioni con gli operatori e gli invii broadcast da CSV. Il progetto è portabile e non dipende da uno specifico provider di hosting.
 
+## Manuale operativo
+
+La guida completa alla configurazione Twilio, agli endpoint dei nuovi numeri e all'utilizzo della webapp è disponibile in [output/pdf/UN-WhatsApp-Manager-Manuale-configurazione-e-utilizzo.pdf](output/pdf/UN-WhatsApp-Manager-Manuale-configurazione-e-utilizzo.pdf).
+
 ## Funzioni
 
 - creazione di BOT con numero WhatsApp Twilio, provider AI, modello, prompt e lingua;
@@ -57,12 +61,12 @@ Lo script applica lo schema corrente e tutte le migrazioni presenti nella cartel
 La prima riga deve contenere le intestazioni. Sono accettati separatori virgola, punto e virgola e tab. Una colonna deve contenere il numero WhatsApp completo di prefisso internazionale.
 
 ```csv
-telefono,nome,citta
-+393331234567,Mario,Roma
-+393491234567,Giulia,Milano
+Numero di telefono,Nome,Cognome,Citta
++393331234567,Mario,Rossi,Roma
++393491234567,Giulia,Bianchi,Milano
 ```
 
-Le colonne aggiuntive possono essere collegate ai placeholder `{{1}}`, `{{2}}`, ecc. del template Twilio.
+Le colonne `Nome` e `Cognome` vengono associate alla conversazione e mostrate sopra il numero di telefono. Le colonne aggiuntive possono essere collegate ai placeholder `{{1}}`, `{{2}}`, ecc. del template Twilio.
 
 ## Template Twilio e messaggi evoluti
 
@@ -111,10 +115,6 @@ Per pubblicare:
 6. accedere e configurare Twilio dalla pagina **Impostazioni**.
 
 Il piano gratuito è adatto esclusivamente al test: il Web Service si sospende dopo 15 minuti senza traffico e il database gratuito scade dopo 30 giorni. Prima della scadenza è possibile aggiornare separatamente Web Service e database senza cambiare applicazione.
-
-### Netlify
-
-La versione attuale non è adatta a un deploy completo direttamente su Netlify: usa Socket.IO, un processo broadcast persistente e un server Express sempre attivo. Netlify può ospitare il frontend, ma API, WebSocket e worker devono restare su un servizio Node/container con PostgreSQL. Per un test completo è più semplice usare un host compatibile con Docker o processi Node persistenti.
 
 ## Account e permessi
 
