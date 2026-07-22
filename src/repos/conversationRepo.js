@@ -2,10 +2,20 @@ const db = require('../config/db');
 
 async function upsert(botId, phoneNumber) {
   const { rows } = await db.query(
-    `INSERT INTO conversations (bot_id, phone_number)
-     VALUES ($1, $2)
+    `INSERT INTO conversations (bot_id, phone_number, contact_name)
+     VALUES ($1, $2, (
+       SELECT br.contact_name
+       FROM broadcast_recipients br
+       JOIN broadcast_campaigns bc ON bc.id = br.campaign_id
+       WHERE bc.bot_id = $1
+         AND br.phone_number = $2
+         AND NULLIF(BTRIM(br.contact_name), '') IS NOT NULL
+       ORDER BY bc.created_at DESC, br.row_number DESC
+       LIMIT 1
+     ))
      ON CONFLICT (bot_id, phone_number)
-     DO UPDATE SET last_message_at = now()
+     DO UPDATE SET last_message_at = now(),
+                   contact_name = COALESCE(EXCLUDED.contact_name, conversations.contact_name)
      RETURNING *`,
     [botId, phoneNumber]
   );
@@ -68,6 +78,7 @@ async function listByBot(botId, { limit = 100, search = '', status = '', broadca
      FROM conversations c
      WHERE c.bot_id = $1
        AND ($2::text = '' OR c.phone_number ILIKE '%' || $2 || '%'
+         OR c.contact_name ILIKE '%' || $2 || '%'
          OR EXISTS (SELECT 1 FROM messages sm WHERE sm.conversation_id = c.id AND sm.content ILIKE '%' || $2 || '%')
          OR EXISTS (
            SELECT 1 FROM broadcast_recipients sbr

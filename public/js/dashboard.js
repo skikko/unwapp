@@ -12,6 +12,7 @@ const state = {
   conversationRequest: 0,
   canWrite: false,
   canDelete: false,
+  botsCollapsed: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -72,17 +73,21 @@ async function loadBots() {
     return;
   }
   el.innerHTML = bots.map((c) => `
-    <div class="list-item ${c.id === state.selectedBotId ? 'active' : ''}" data-id="${c.id}">
-      <div class="title">${escape(c.name)}</div>
-      <div class="sub">${escape(c.twilio_number)}</div>
-      <div class="meta">
-        <span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'attivo' : 'inattivo'}</span>
+    <div class="list-item bot-list-item ${c.id === state.selectedBotId ? 'active' : ''}" data-id="${c.id}" title="${escape(c.name)}" aria-label="${escape(c.name)}">
+      <div class="bot-item-row">
+        <span class="bot-avatar" aria-hidden="true">${escape(initials(c.name))}</span>
+        <div class="bot-copy">
+          <div class="title">${escape(c.name)}</div>
+          <div class="sub">${escape(c.twilio_number)}</div>
+        </div>
+        <span class="bot-status-dot ${c.active ? 'on' : 'off'}" title="${c.active ? 'Attivo' : 'Inattivo'}" aria-label="${c.active ? 'Attivo' : 'Inattivo'}"></span>
       </div>
     </div>
   `).join('');
   el.querySelectorAll('.list-item').forEach((n) =>
     n.addEventListener('click', () => selectBot(n.dataset.id))
   );
+  if (!state.selectedBotId) await selectBot(bots[0].id);
 }
 
 async function selectBot(botId) {
@@ -131,6 +136,10 @@ async function loadConversations() {
   }
   el.innerHTML = conversations.map((c) => {
     const last = c.last_message ? escape(String(c.last_message).slice(0, 90)) : '';
+    const contactName = String(c.contact_name || '').trim();
+    const identity = contactName
+      ? `<div class="title">${escape(contactName)}</div><div class="contact-phone">${escape(c.phone_number)}</div>`
+      : `<div class="title">${escape(c.phone_number)}</div>`;
     const linkedTemplate = Array.isArray(c.broadcast_templates) ? c.broadcast_templates[0] : null;
     const statusBadge = c.status === 'human'
       ? '<span class="badge human">👤 Operatore</span>'
@@ -139,7 +148,7 @@ async function loadConversations() {
       : '<span class="badge bot">🤖 Bot</span>';
     return `
       <div class="list-item ${c.id === state.selectedConversationId ? 'active' : ''}" data-id="${c.id}">
-        <div class="title">${escape(c.phone_number)}</div>
+        ${identity}
         <div class="sub">${last || '<em style="opacity:0.5">nessun messaggio</em>'}</div>
         <div class="meta">
           ${statusBadge}
@@ -199,8 +208,12 @@ function renderChat() {
   if (!hasConv) return;
 
   const conv = state.currentConversation;
-  $('chatTitle').textContent = conv.phone_number;
-  $('chatSubtitle').textContent = conv.operator_email ? `controllato da ${conv.operator_email}` : '';
+  const contactName = String(conv.contact_name || '').trim();
+  $('chatTitle').textContent = contactName || conv.phone_number;
+  $('chatSubtitle').textContent = [
+    contactName ? conv.phone_number : '',
+    conv.operator_email ? `controllato da ${conv.operator_email}` : '',
+  ].filter(Boolean).join(' · ');
 
   // Status bar + mode switch
   const isHuman = conv.status === 'human';
@@ -509,6 +522,27 @@ function timeAgo(iso) {
   return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
 }
 
+function initials(value) {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : words[0]?.slice(0, 2) || 'BT').toUpperCase();
+}
+
+function applyBotsColumnState() {
+  $('dashboard').classList.toggle('bots-collapsed', state.botsCollapsed);
+  const button = $('toggleBotsBtn');
+  button.textContent = state.botsCollapsed ? '›' : '‹';
+  const label = state.botsCollapsed ? 'Espandi colonna BOT' : 'Riduci colonna BOT';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-expanded', String(!state.botsCollapsed));
+}
+
+function toggleBotsColumn() {
+  state.botsCollapsed = !state.botsCollapsed;
+  try { localStorage.setItem('un-bots-collapsed', state.botsCollapsed ? '1' : '0'); } catch {}
+  applyBotsColumnState();
+}
+
 function escape(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -536,5 +570,11 @@ $('conversationSearch').addEventListener('input', () => {
 });
 $('conversationStatus').addEventListener('change', loadConversations);
 $('conversationBroadcast').addEventListener('change', loadConversations);
+$('toggleBotsBtn').addEventListener('click', toggleBotsColumn);
 
-(async () => { await loadMe(); await loadBots(); })();
+(async () => {
+  try { state.botsCollapsed = localStorage.getItem('un-bots-collapsed') === '1'; } catch {}
+  applyBotsColumnState();
+  await loadMe();
+  await loadBots();
+})();

@@ -105,6 +105,29 @@ function normalizePhone(value) {
   return phone;
 }
 
+function normalizeHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function extractContactName(data = {}) {
+  const values = new Map(
+    Object.entries(data).map(([key, value]) => [normalizeHeader(key), String(value || '').trim()])
+  );
+  const firstValue = (aliases) => aliases.map((alias) => values.get(alias)).find(Boolean) || '';
+  const fullName = firstValue(['nome_cognome', 'full_name', 'fullname', 'display_name']);
+  if (fullName) return fullName.replace(/\s+/g, ' ').slice(0, 180);
+
+  const firstName = firstValue(['nome', 'name', 'first_name', 'firstname', 'given_name']);
+  const lastName = firstValue(['cognome', 'surname', 'last_name', 'lastname', 'family_name']);
+  return [firstName, lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 180);
+}
+
 function prepareContacts(parsed, phoneColumn, variableMapping = {}) {
   if (!parsed.headers.includes(phoneColumn)) throw new Error('Seleziona una colonna telefono valida');
   const seen = new Set();
@@ -128,9 +151,15 @@ function prepareContacts(parsed, phoneColumn, variableMapping = {}) {
     for (const [key, column] of Object.entries(variableMapping || {})) {
       if (column && parsed.headers.includes(column)) variables[key] = row.data[column] || '';
     }
-    contacts.push({ rowNumber: row.rowNumber, phone, data: row.data, variables });
+    contacts.push({
+      rowNumber: row.rowNumber,
+      phone,
+      contactName: extractContactName(row.data),
+      data: row.data,
+      variables,
+    });
   }
   return { contacts, invalid, duplicates };
 }
 
-module.exports = { detectDelimiter, parseCsv, normalizePhone, prepareContacts };
+module.exports = { detectDelimiter, parseCsv, normalizePhone, extractContactName, prepareContacts };

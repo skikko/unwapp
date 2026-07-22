@@ -28,12 +28,14 @@ CREATE TABLE IF NOT EXISTS conversations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   bot_id          UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
   phone_number       TEXT NOT NULL,
+  contact_name       TEXT,
   status             TEXT NOT NULL DEFAULT 'active',
   operator_email     TEXT,
   last_message_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (bot_id, phone_number)
 );
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS contact_name TEXT;
 CREATE INDEX IF NOT EXISTS idx_conversations_bot_recent
   ON conversations (bot_id, last_message_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_bot_status_recent
@@ -127,6 +129,7 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
   campaign_id        UUID NOT NULL REFERENCES broadcast_campaigns(id) ON DELETE CASCADE,
   row_number         INT NOT NULL,
   phone_number       TEXT NOT NULL,
+  contact_name       TEXT,
   contact_data       JSONB NOT NULL DEFAULT '{}',
   content_variables  JSONB NOT NULL DEFAULT '{}',
   status             TEXT NOT NULL DEFAULT 'pending'
@@ -137,6 +140,7 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
   sent_at            TIMESTAMPTZ,
   UNIQUE (campaign_id, row_number)
 );
+ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS contact_name TEXT;
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_pending
   ON broadcast_recipients (campaign_id, status, row_number);
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_phone

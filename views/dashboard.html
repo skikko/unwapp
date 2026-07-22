@@ -23,9 +23,15 @@
       <div class="user" id="userEmail"></div>
     </header>
 
-    <main class="dash">
+    <main class="dash" id="dashboard">
       <aside class="col bots-column">
-        <div class="col-header"><span>BOT</span><a class="text-link" href="/admin" data-permission="admin">Gestisci</a></div>
+        <div class="col-header">
+          <span class="col-title"><span class="bot-header-icon" aria-hidden="true">◆</span><span class="col-label">BOT</span></span>
+          <span class="col-actions">
+            <a class="header-icon-link" href="/admin" data-permission="admin" title="Gestisci BOT" aria-label="Gestisci BOT">⚙</a>
+            <button class="icon-button" id="toggleBotsBtn" type="button" title="Riduci colonna BOT" aria-label="Riduci colonna BOT">‹</button>
+          </span>
+        </div>
         <div class="col-body" id="botsList"></div>
       </aside>
 
@@ -34,7 +40,7 @@
         <div class="conversation-filters">
           <label class="search-field" for="conversationSearch">
             <span aria-hidden="true">⌕</span>
-            <input id="conversationSearch" type="search" placeholder="Cerca numero o messaggio" autocomplete="off" disabled />
+            <input id="conversationSearch" type="search" placeholder="Cerca nome, numero o messaggio" autocomplete="off" disabled />
           </label>
           <div class="filter-row">
             <select id="conversationStatus" aria-label="Filtra per stato" disabled>

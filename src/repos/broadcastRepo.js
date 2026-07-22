@@ -18,11 +18,22 @@ async function createCampaign(input, contacts) {
     for (const contact of contacts) {
       await client.query(
         `INSERT INTO broadcast_recipients
-         (campaign_id, row_number, phone_number, contact_data, content_variables)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [campaign.id, contact.rowNumber, contact.phone, contact.data, contact.variables]
+         (campaign_id, row_number, phone_number, contact_name, contact_data, content_variables)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [campaign.id, contact.rowNumber, contact.phone, contact.contactName || null,
+         contact.data, contact.variables]
       );
     }
+    await client.query(
+      `UPDATE conversations c
+       SET contact_name = br.contact_name
+       FROM broadcast_recipients br
+       WHERE br.campaign_id = $1
+         AND c.bot_id = $2
+         AND c.phone_number = br.phone_number
+         AND NULLIF(BTRIM(br.contact_name), '') IS NOT NULL`,
+      [campaign.id, input.botId]
+    );
     await client.query('COMMIT');
     return campaign;
   } catch (error) {
