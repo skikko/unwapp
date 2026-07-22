@@ -1,0 +1,9 @@
+BEGIN;
+
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+UPDATE bots
+SET ai_enabled = FALSE
+WHERE ai_api_key_encrypted IS NULL;
+
+COMMIT;

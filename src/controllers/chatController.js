@@ -3,6 +3,7 @@ const conversationRepo = require('../repos/conversationRepo');
 const messageRepo = require('../repos/messageRepo');
 const twilioService = require('../services/twilioService');
 const contentService = require('../services/contentService');
+const aiService = require('../services/aiService');
 
 async function listConversations(req, res) {
   const botId = req.query.botId;
@@ -122,8 +123,14 @@ async function sendOperatorMessage(req, res) {
 
 async function releaseOperator(req, res) {
   const { id } = req.params;
+  const current = await conversationRepo.getById(id);
+  if (!current) return res.status(404).json({ error: 'not found' });
+  const bot = await botRepo.getById(current.bot_id);
+  if (!bot) return res.status(404).json({ error: 'bot not found' });
+  if (!aiService.isConfigured(bot)) {
+    return res.status(409).json({ error: 'Attiva le risposte AI nelle impostazioni del BOT prima di rilasciare la conversazione' });
+  }
   const conv = await conversationRepo.setOperator(id, null);
-  if (!conv) return res.status(404).json({ error: 'not found' });
   const io = req.app.get('io');
   if (io) {
     io.to(`bot:${conv.bot_id}`).emit('operator-mode-changed', {

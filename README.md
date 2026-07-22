@@ -9,6 +9,7 @@ La guida completa alla configurazione Twilio, agli endpoint dei nuovi numeri e a
 ## Funzioni
 
 - creazione di BOT con numero WhatsApp Twilio, provider AI, modello, prompt e lingua;
+- passaggio tra risposte AI e modalità solo operatore senza eliminare la chiave API;
 - API key OpenAI o Gemini per singolo BOT, cifrata nel database e mai restituita al browser;
 - webhook Twilio firmati, risposte automatiche e passaggio a operatore;
 - base di conoscenza PDF con testo ed embedding conservati in PostgreSQL/pgvector;

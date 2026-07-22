@@ -80,7 +80,7 @@ async function loadBots() {
           <div class="title">${escape(c.name)}</div>
           <div class="sub">${escape(c.twilio_number)}</div>
         </div>
-        <span class="bot-status-dot ${c.active ? 'on' : 'off'}" title="${c.active ? 'Attivo' : 'Inattivo'}" aria-label="${c.active ? 'Attivo' : 'Inattivo'}"></span>
+        <span class="bot-status-dot ${c.active ? (c.manual_only ? 'manual' : 'on') : 'off'}" title="${c.active ? (c.manual_only ? 'Solo operatore' : 'Risposte AI attive') : 'Inattivo'}" aria-label="${c.active ? (c.manual_only ? 'Solo operatore' : 'Risposte AI attive') : 'Inattivo'}"></span>
       </div>
     </div>
   `).join('');
@@ -216,11 +216,13 @@ function renderChat() {
   ].filter(Boolean).join(' · ');
 
   // Status bar + mode switch
-  const isHuman = conv.status === 'human';
+  const selectedBot = state.bots.find((bot) => bot.id === state.selectedBotId);
+  const manualOnly = Boolean(selectedBot?.manual_only);
+  const isHuman = conv.status === 'human' || manualOnly;
   const statusBar = $('statusBar');
   statusBar.className = `status-bar ${isHuman ? 'human' : 'bot'}`;
   $('statusText').textContent = isHuman
-    ? 'Operatore attivo'
+    ? (manualOnly ? 'Solo operatore' : 'Operatore attivo')
     : 'BOT attivo';
 
   const sw = $('modeSwitch');
@@ -228,6 +230,8 @@ function renderChat() {
     b.classList.toggle('on', b.dataset.mode === (isHuman ? 'human' : 'bot'));
     b.classList.toggle('bot', b.dataset.mode === 'bot');
     b.classList.toggle('human', b.dataset.mode === 'human');
+    b.disabled = b.dataset.mode === 'bot' && manualOnly;
+    b.title = b.disabled ? 'Attiva le risposte AI dalla pagina BOT' : '';
   });
 
   $('inputHint').textContent = isHuman

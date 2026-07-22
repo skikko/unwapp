@@ -56,11 +56,12 @@ function renderBots() {
         <div class="bot-card-name">${escape(c.name)}</div>
         <div class="bot-card-meta">
           <span>${escape(c.twilio_number)}</span>
-          <span>${c.manual_only ? 'Solo operatore' : `${escape(c.provider)} · ${escape(c.model)}`}</span>
+          <span>${escape(c.provider)} · ${escape(c.model)}</span>
           <span>${escape(c.language).toUpperCase()}</span>
           <span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'attivo' : 'inattivo'}</span>
           <span class="badge">${c.rag_enabled ? 'RAG on' : 'RAG off'}</span>
-          <span class="badge ${c.api_key_configured ? 'on' : 'off'}">${c.api_key_configured ? 'AI configurata' : 'Solo operatore'}</span>
+          <span class="badge ${c.api_key_configured ? 'on' : 'off'}">${c.api_key_configured ? 'Chiave AI salvata' : 'Nessuna chiave'}</span>
+          <span class="badge ${c.manual_only ? 'warn' : 'on'}">${c.manual_only ? 'Solo operatore' : 'Risposte AI attive'}</span>
         </div>
       </div>
       <div class="bot-card-actions">
@@ -87,7 +88,7 @@ function openEditor(bot) {
     name: '', slug: '', twilio_number: '',
     provider: 'openai', model: 'gpt-4o', temperature: 0.7,
     language: 'it', system_prompt: '', transfer_keywords: [],
-    rag_enabled: true, active: true,
+    rag_enabled: true, ai_enabled: false, active: true,
   };
   $('f_name').value = v.name;
   $('f_slug').value = v.slug;
@@ -104,6 +105,7 @@ function openEditor(bot) {
   $('f_prompt').value = v.system_prompt;
   $('f_transfer').value = (v.transfer_keywords || []).join(',');
   $('f_rag').checked = !!v.rag_enabled;
+  $('f_ai_enabled').checked = Boolean(v.ai_enabled && v.api_key_configured);
   $('f_active').checked = !!v.active;
   syncProviderOptions();
 
@@ -123,6 +125,7 @@ function collectForm() {
     system_prompt: $('f_prompt').value,
     transfer_keywords: $('f_transfer').value.split(',').map((s) => s.trim()).filter(Boolean),
     rag_enabled: $('f_rag').checked,
+    ai_enabled: $('f_ai_enabled').checked,
     active: $('f_active').checked,
   };
   const apiKey = $('f_api_key').value.trim();
@@ -134,6 +137,9 @@ function syncProviderOptions() {
   const isOpenAi = $('f_provider').value === 'openai';
   const hasApiKey = Boolean(state.editing?.api_key_configured || $('f_api_key').value.trim());
   const canUseRag = isOpenAi && hasApiKey;
+  $('f_ai_enabled').disabled = !hasApiKey;
+  if (!hasApiKey) $('f_ai_enabled').checked = false;
+  $('aiModeHint').textContent = hasApiKey ? '' : '(richiede una chiave AI)';
   $('f_rag').disabled = !canUseRag;
   if (!canUseRag) $('f_rag').checked = false;
   $('ragHint').textContent = canUseRag ? '' : '(richiede una chiave OpenAI)';
@@ -231,6 +237,11 @@ $('cancelBtn').addEventListener('click', () => { $('editor').style.display = 'no
 $('deleteBtn').addEventListener('click', remove);
 $('uploadBtn').addEventListener('click', upload);
 $('f_provider').addEventListener('change', syncProviderOptions);
-$('f_api_key').addEventListener('input', syncProviderOptions);
+$('f_api_key').addEventListener('input', () => {
+  if (!state.editing?.api_key_configured && $('f_api_key').value.trim()) {
+    $('f_ai_enabled').checked = true;
+  }
+  syncProviderOptions();
+});
 
 (async () => { await loadMe(); await loadBots(); })();

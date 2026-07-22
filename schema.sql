@@ -17,12 +17,14 @@ CREATE TABLE IF NOT EXISTS bots (
   language           TEXT NOT NULL DEFAULT 'it',
   transfer_keywords  TEXT[] NOT NULL DEFAULT '{}',
   rag_enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+  ai_enabled         BOOLEAN NOT NULL DEFAULT TRUE,
   active             BOOLEAN NOT NULL DEFAULT TRUE,
   ai_api_key_encrypted TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS ai_api_key_encrypted TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS conversations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -157,6 +157,16 @@ async function setStatus(id, status) {
   return rows[0] || null;
 }
 
+async function setManualByBot(botId) {
+  const { rowCount } = await db.query(
+    `UPDATE conversations
+     SET status = 'human'
+     WHERE bot_id = $1 AND status = 'active'`,
+    [botId]
+  );
+  return rowCount;
+}
+
 module.exports = {
   upsert,
   touch,
@@ -166,5 +176,6 @@ module.exports = {
   parseBroadcastFilter,
   setOperator,
   setStatus,
+  setManualByBot,
   remove,
 };

@@ -9,7 +9,7 @@ function apiKeyFor(bot) {
 }
 
 function isConfigured(bot) {
-  return Boolean(bot && bot.ai_api_key_encrypted);
+  return Boolean(bot && bot.ai_enabled !== false && bot.ai_api_key_encrypted);
 }
 
 const FALLBACK_PROMPT_BY_LANG = {
@@ -96,7 +96,7 @@ async function shouldTransferToHuman(bot, conversation, userMessage) {
   if (kws.some((k) => k && lower.includes(k))) return true;
 
   // 2) LLM check (only for openai provider — cheap call)
-  if (bot.provider !== 'openai' || !bot.ai_api_key_encrypted) return false;
+  if (bot.provider !== 'openai' || !isConfigured(bot)) return false;
 
   try {
     const history = await messageRepo.recentHistoryText(conversation.id, 10);

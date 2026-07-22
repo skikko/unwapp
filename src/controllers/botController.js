@@ -1,14 +1,17 @@
 const botRepo = require('../repos/botRepo');
+const conversationRepo = require('../repos/conversationRepo');
 const secretService = require('../services/secretService');
 
 function publicBot(bot) {
   if (!bot) return bot;
   const { ai_api_key_encrypted, ...safe } = bot;
   const apiKeyConfigured = Boolean(ai_api_key_encrypted);
+  const aiEnabled = bot.ai_enabled !== false;
   return {
     ...safe,
+    ai_enabled: aiEnabled,
     api_key_configured: apiKeyConfigured,
-    manual_only: !apiKeyConfigured,
+    manual_only: !apiKeyConfigured || !aiEnabled,
   };
 }
 
@@ -55,7 +58,12 @@ async function create(req, res) {
       ...req.body,
       ai_api_key_encrypted: apiKey ? secretService.encrypt(apiKey) : null,
     };
-    if (!apiKey || input.provider === 'gemini') input.rag_enabled = false;
+    if (!apiKey) {
+      input.ai_enabled = false;
+      input.rag_enabled = false;
+    } else if (input.provider === 'gemini') {
+      input.rag_enabled = false;
+    }
     delete input.ai_api_key;
     const bot = await botRepo.create(input);
     res.status(201).json({ bot: publicBot(bot) });
@@ -76,11 +84,25 @@ async function update(req, res) {
     if (Object.prototype.hasOwnProperty.call(input, 'ai_api_key')) {
       const apiKey = String(input.ai_api_key || '').trim();
       input.ai_api_key_encrypted = apiKey ? secretService.encrypt(apiKey) : null;
-      if (!apiKey) input.rag_enabled = false;
+      if (!apiKey) {
+        input.ai_enabled = false;
+        input.rag_enabled = false;
+      }
     }
     delete input.ai_api_key;
     const bot = await botRepo.update(req.params.id, input);
     if (!bot) return res.status(404).json({ error: 'not found' });
+    if (bot.ai_enabled === false) {
+      await conversationRepo.setManualByBot(bot.id);
+      const io = req.app?.get('io');
+      if (io) {
+        io.to(`bot:${bot.id}`).emit('operator-mode-changed', {
+          botId: bot.id,
+          status: 'human',
+          reason: 'ai_disabled',
+        });
+      }
+    }
     res.json({ bot: publicBot(bot) });
   } catch (err) {
     if (err.code === '23505') {

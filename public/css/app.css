@@ -211,6 +211,7 @@ textarea { resize: vertical; line-height: 1.55; }
 .bot-copy .title, .bot-copy .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--danger); }
 .bot-status-dot.on { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
+.bot-status-dot.manual { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
 .dash.bots-collapsed .bots-column .col-label,
 .dash.bots-collapsed .bots-column .bot-copy,
 .dash.bots-collapsed .bots-column .bot-status-dot,

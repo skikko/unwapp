@@ -39,25 +39,25 @@ async function create(input) {
     name, slug, twilio_number,
     provider = 'openai', model = 'gpt-4o', temperature = 0.7,
     system_prompt = '', language = 'it',
-    transfer_keywords = [], rag_enabled = true, active = true,
+    transfer_keywords = [], rag_enabled = true, ai_enabled = true, active = true,
     ai_api_key_encrypted = null,
   } = input;
 
   const { rows } = await db.query(
     `INSERT INTO bots
      (name, slug, twilio_number, provider, model, temperature,
-      system_prompt, language, transfer_keywords, rag_enabled, active, ai_api_key_encrypted)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      system_prompt, language, transfer_keywords, rag_enabled, ai_enabled, active, ai_api_key_encrypted)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [name, slug, normalizeNumber(twilio_number), provider, model, temperature,
-     system_prompt, language, transfer_keywords, rag_enabled, active, ai_api_key_encrypted]
+     system_prompt, language, transfer_keywords, rag_enabled, ai_enabled, active, ai_api_key_encrypted]
   );
   return rows[0];
 }
 
 const UPDATABLE = [
   'name','slug','twilio_number','provider','model','temperature',
-  'system_prompt','language','transfer_keywords','rag_enabled','active','ai_api_key_encrypted',
+  'system_prompt','language','transfer_keywords','rag_enabled','ai_enabled','active','ai_api_key_encrypted',
 ];
 
 async function update(id, patch) {
