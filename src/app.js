@@ -8,6 +8,7 @@ require('dotenv').config();
 const db = require('./config/db');
 const { requireAuth, requirePage } = require('./middleware/auth');
 const authService = require('./services/authService');
+const broadcastService = require('./services/broadcastService');
 
 const app = express();
 app.set('trust proxy', true);
@@ -31,6 +32,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.set('io', io);
+broadcastService.setSocketServer(io);
 
 app.get('/health', async (_req, res) => {
   try {
@@ -102,7 +104,7 @@ async function start() {
     console.log('✅ Postgres reachable');
     const bootstrapped = await authService.ensureBootstrapAdmin();
     if (bootstrapped) console.log('🔐 Bootstrap administrator created');
-    const resumed = await require('./services/broadcastService').resumePending();
+    const resumed = await broadcastService.resumePending();
     if (resumed) console.log(`↻ ${resumed} broadcast ripresi`);
   } catch (err) {
     console.error('❌ Postgres not reachable:', err.message);

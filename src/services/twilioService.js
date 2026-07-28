@@ -62,7 +62,31 @@ async function sendTemplate({ from, to, contentSid, contentVariables }) {
 async function listTemplates() {
   const twilioClient = await client();
   const contents = await twilioClient.content.v1.contentAndApprovals.list({ limit: 200 });
-  return contents.map(normalizeContent).sort((a, b) => a.name.localeCompare(b.name));
+  const templates = await Promise.all(contents.map((content) => normalizeContentWithApproval(twilioClient, content)));
+  return templates.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getTemplate(contentSid) {
+  const twilioClient = await client();
+  const content = await twilioClient.content.v1.contents(contentSid).fetch();
+  return normalizeContent(content);
+}
+
+async function normalizeContentWithApproval(twilioClient, content) {
+  const summaryApproval = content.approvalRequests?.whatsapp;
+  if (summaryApproval?.status) {
+    return normalizeContent(content, summaryApproval);
+  }
+
+  try {
+    const approval = await twilioClient.content.v1.contents(content.sid).approvalFetch.fetch();
+    return normalizeContent(content, approval.whatsapp);
+  } catch (error) {
+    if (error.status === 404 || error.code === 20404) {
+      return normalizeContent(content);
+    }
+    throw error;
+  }
 }
 
 function normalizeContent(content, approvalOverride = null) {
@@ -136,6 +160,7 @@ module.exports = {
   sendMessage,
   sendTemplate,
   listTemplates,
+  getTemplate,
   createTemplate,
   createRichContent,
   addWhatsAppPrefix,
