@@ -79,7 +79,7 @@ async function normalizeContentWithApproval(twilioClient, content) {
   }
 
   try {
-    const approval = await twilioClient.content.v1.contents(content.sid).approvalFetch.fetch();
+    const approval = await twilioClient.content.v1.contents(content.sid).approvalFetch().fetch();
     return normalizeContent(content, approval.whatsapp);
   } catch (error) {
     if (error.status === 404 || error.code === 20404) {

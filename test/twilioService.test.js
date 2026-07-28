@@ -31,7 +31,7 @@ test('resolves missing WhatsApp approval statuses from the template endpoint', a
           list: async () => contents,
         },
         contents: (sid) => ({
-          approvalFetch: {
+          approvalFetch: () => ({
             fetch: async () => {
               fetchedSids.push(sid);
               if (sid === 'HX_APPROVED') {
@@ -42,7 +42,7 @@ test('resolves missing WhatsApp approval statuses from the template endpoint', a
               error.code = 20404;
               throw error;
             },
-          },
+          }),
         }),
       },
     },
