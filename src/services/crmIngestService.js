@@ -15,9 +15,48 @@ function digest(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function isChecked(value) {
+  return ['1', 'true', 'yes', 'on', 'accepted', 'accettato'].includes(String(value || '').trim().toLowerCase());
+}
+
+function adaptExternalContact(item, receivedAt = new Date()) {
+  const names = item.nome_cognome && typeof item.nome_cognome === 'object'
+    ? item.nome_cognome : {};
+  const fluentPayload = Boolean(item.nome_cognome)
+    && Object.prototype.hasOwnProperty.call(item, 'privacy_cookie_consent');
+  const marketingConsent = isChecked(item.marketing_consent);
+  let emailStatus = item.emailStatus ?? item.email_status;
+  if (emailStatus === undefined && fluentPayload) {
+    emailStatus = marketingConsent ? 'subscribed' : 'unsubscribed';
+  }
+  let consentAt = item.consentAt ?? item.consent_at;
+  let consentSource = item.consentSource ?? item.consent_source;
+  if (marketingConsent) {
+    if (consentAt === undefined) consentAt = receivedAt.toISOString();
+    if (consentSource === undefined) consentSource = 'fluent-forms';
+  }
+  const consentProof = item.consentProof && typeof item.consentProof === 'object'
+    ? item.consentProof : {};
+  return {
+    ...item,
+    firstName: item.firstName ?? item.first_name ?? names.first_name,
+    lastName: item.lastName ?? item.last_name ?? names.last_name,
+    contactType: item.contactType ?? item.contact_type ?? item.genitore_studente,
+    webinarRegisteredAt: item.webinarRegisteredAt ?? item.webinar_registered_at ?? item.data_scelta,
+    emailStatus,
+    consentAt: consentAt ?? null,
+    consentSource: consentSource ?? null,
+    consentProof: fluentPayload ? {
+      ...consentProof,
+      privacyConsent: isChecked(item.privacy_cookie_consent),
+      marketingConsent,
+    } : consentProof,
+  };
+}
+
 async function ingest({ items, source, apiClient, idempotencyKey }) {
   const normalized = items.map((item) => crmService.normalizeContact({
-    ...item,
+    ...adaptExternalContact(item),
     source,
   }, { defaultSource: source }));
   const requestHash = digest(canonicalJson({ source, contacts: items }));
@@ -80,4 +119,4 @@ async function ingest({ items, source, apiClient, idempotencyKey }) {
   }
 }
 
-module.exports = { canonicalJson, ingest };
+module.exports = { canonicalJson, adaptExternalContact, ingest };
