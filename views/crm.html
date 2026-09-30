@@ -143,7 +143,7 @@
             <div class="contact-profile-grid" id="contactProfileSummary"></div>
             <div class="contact-profile-sections" id="contactProfileSections"></div>
           </section>
-          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
+          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Tipo</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
         </section>
 
         <section class="crm-panel" id="panel-lists" role="tabpanel" hidden>
@@ -254,6 +254,10 @@
               <div class="form-field"><label for="sequenceDescription">Descrizione</label><input id="sequenceDescription" /></div>
               <div class="form-field"><label for="sequenceTriggerType">Trigger</label><select id="sequenceTriggerType"><option value="list_joined">Contatto entrato in una lista</option><option value="manual">Iscrizione manuale</option></select></div>
               <div class="form-field" id="sequenceTriggerListWrap"><label for="sequenceTriggerList">Lista del trigger</label><select id="sequenceTriggerList"></select><small>Si applica ai contatti che entrano nella lista dopo il salvataggio.</small></div>
+              <section class="sequence-conditions span-2" id="sequenceConditionsWrap">
+                <div class="section-heading compact"><div><h3>Condizioni aggiuntive</h3><span>Tutte le condizioni devono essere soddisfatte al momento dell'ingresso nella lista.</span></div><button class="secondary" type="button" id="addSequenceCondition">Aggiungi condizione</button></div>
+                <div id="sequenceConditions"></div>
+              </section>
               <label class="check-field span-2"><input id="sequenceActive" type="checkbox" checked /> Sequenza attiva e disponibile per nuove iscrizioni</label>
             </div>
             <div class="sequence-builder-header"><div><span class="eyebrow">Workflow</span><h3>Percorso email</h3></div><div><strong id="sequenceStepCount">0 passaggi</strong><span id="sequenceTotalDuration">Durata immediata</span></div></div>

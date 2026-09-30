@@ -649,6 +649,13 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .sequence-builder-header > div:last-child { display: grid; justify-items: end; gap: 4px; }
 .sequence-builder-header > div:last-child span { color: var(--muted); font-size: 11px; }
 .sequence-steps { display: grid; gap: 10px; margin: 0 0 12px; }
+.sequence-conditions { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.sequence-conditions .section-heading { margin-bottom: 10px; }
+.sequence-conditions .section-heading span { color: var(--muted); font-size: 11px; }
+.sequence-conditions > div:last-child { display: grid; gap: 8px; }
+.sequence-condition { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(130px, .7fr) minmax(170px, 1fr) auto; gap: 8px; align-items: end; }
+.sequence-condition label { display: grid; gap: 5px; color: var(--ink-soft); font-size: 11px; font-weight: 750; }
+.sequence-condition button { min-height: 45px; }
 .sequence-step { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 14px; align-items: stretch; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
 .sequence-step-marker { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .sequence-step-marker i { width: 2px; flex: 1; min-height: 34px; background: var(--line); }
@@ -668,6 +675,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .sequence-trigger { margin-top: 16px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line-soft)); border-radius: 11px; background: color-mix(in srgb, var(--accent) 5%, white); }
 .sequence-trigger span { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .sequence-trigger strong { font-size: 12px; text-align: right; }
+.sequence-trigger strong small { display: block; max-width: 680px; margin-top: 5px; color: var(--muted); font-size: 10px; font-weight: 650; line-height: 1.45; }
 .sequence-card-stats { margin: 16px 0; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line-soft); border-radius: 11px; overflow: hidden; }
 .sequence-card-stats div { padding: 12px; display: grid; gap: 3px; text-align: center; border-right: 1px solid var(--line-soft); }
 .sequence-card-stats div:last-child { border: 0; }
@@ -788,6 +796,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .sequence-step { grid-template-columns: 42px minmax(0, 1fr); }
   .sequence-step-actions { grid-column: 2; flex-wrap: wrap; }
   .sequence-delay { grid-template-columns: 1fr; }
+  .sequence-condition { grid-template-columns: 1fr; }
   .crm-object-meta, .crm-inline-action { align-items: stretch; flex-direction: column; }
   .crm-inline-action select { min-width: 0; width: 100%; }
 }

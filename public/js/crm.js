@@ -73,6 +73,35 @@ function contactTypeLabel(contactType, fallback = 'n/a') {
   return fallback;
 }
 
+const sequenceConditionFields = {
+  contactType: { label: 'Tipo contatto', operators: ['equals', 'not_equals'] },
+  contactStatusId: { label: 'Stato contatto', operators: ['equals', 'not_equals'] },
+  emailStatus: { label: 'Stato email', operators: ['equals', 'not_equals'] },
+  source: { label: 'Origine', operators: ['equals', 'not_equals', 'contains'] },
+  firstName: { label: 'Nome', operators: ['equals', 'not_equals', 'contains'] },
+  lastName: { label: 'Cognome', operators: ['equals', 'not_equals', 'contains'] },
+  email: { label: 'Email', operators: ['equals', 'not_equals', 'contains'] },
+  phone: { label: 'Telefono', operators: ['equals', 'not_equals', 'contains'] },
+  tags: { label: 'Tag', operators: ['contains', 'not_contains'] },
+  webinarRegisteredAt: { label: 'Data iscrizione webinar', operators: ['equals', 'before', 'after', 'is_set', 'is_not_set'] },
+  utmSource: { label: 'UTM source', operators: ['equals', 'not_equals', 'contains'] },
+  utmMedium: { label: 'UTM medium', operators: ['equals', 'not_equals', 'contains'] },
+  utmCampaign: { label: 'UTM campaign', operators: ['equals', 'not_equals', 'contains'] },
+  utmTerm: { label: 'UTM term', operators: ['equals', 'not_equals', 'contains'] },
+  utmContent: { label: 'UTM content', operators: ['equals', 'not_equals', 'contains'] },
+};
+
+const sequenceConditionOperatorLabels = {
+  equals: 'è uguale a',
+  not_equals: 'è diverso da',
+  contains: 'contiene',
+  not_contains: 'non contiene',
+  before: 'è precedente a',
+  after: 'è successiva a',
+  is_set: 'è valorizzata',
+  is_not_set: 'non è valorizzata',
+};
+
 async function loadMe() {
   const { user } = await api('/api/me');
   state.user = user;
@@ -117,6 +146,7 @@ async function loadContacts() {
     return `<tr>
       ${can('crm:write') ? `<td><input type="checkbox" data-select-contact="${contact.id}" aria-label="Seleziona ${esc(fullName)}"></td>` : '<td hidden></td>'}
       <td><div class="crm-contact-name"><strong>${esc(fullName)}</strong><small>${esc(new Date(contact.created_at).toLocaleDateString('it-IT'))}</small></div></td>
+      <td>${esc(contactTypeLabel(contact.contact_type))}</td>
       <td>${esc(contact.email || 'n/a')}</td>
       <td>${esc(contact.phone || 'n/a')}</td>
       <td><span class="crm-source">${esc(contact.source)}</span></td>
@@ -126,7 +156,7 @@ async function loadContacts() {
       <td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td>
       <td><div class="row-actions"><button class="secondary" data-view-contact="${contact.id}">Profilo</button>${can('crm:write') ? `<button class="secondary" data-edit-contact="${contact.id}">Modifica</button><button class="danger" data-delete-contact="${contact.id}">Elimina</button>` : ''}</div></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="10"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
+  }).join('') : '<tr><td colspan="11"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
 
   document.querySelectorAll('[data-view-contact]').forEach((button) => button.addEventListener('click', () => loadContactProfile(button.dataset.viewContact)));
   document.querySelectorAll('[data-edit-contact]').forEach((button) => button.addEventListener('click', () => editContact(button.dataset.editContact)));
@@ -882,6 +912,87 @@ function renderSequenceSteps() {
   });
 }
 
+function sequenceConditionFieldOptions(selected = '') {
+  return Object.entries(sequenceConditionFields).map(([value, config]) => (
+    `<option value="${value}" ${value === selected ? 'selected' : ''}>${esc(config.label)}</option>`
+  )).join('');
+}
+
+function sequenceConditionOperatorOptions(field, selected = '') {
+  return sequenceConditionFields[field].operators.map((operator) => (
+    `<option value="${operator}" ${operator === selected ? 'selected' : ''}>${esc(sequenceConditionOperatorLabels[operator])}</option>`
+  )).join('');
+}
+
+function sequenceConditionValueControl(field, value = '') {
+  if (field === 'contactType') {
+    return `<select data-condition-value><option value="parent" ${value === 'parent' ? 'selected' : ''}>Genitore</option><option value="student" ${value === 'student' ? 'selected' : ''}>Studente</option></select>`;
+  }
+  if (field === 'contactStatusId') {
+    return `<select data-condition-value>${state.contactStatuses.map((status) => `<option value="${status.id}" ${value === status.id ? 'selected' : ''}>${esc(status.name)}</option>`).join('')}</select>`;
+  }
+  if (field === 'emailStatus') {
+    const statuses = [['unknown', 'Email assente'], ['subscribed', 'Iscritto'], ['unsubscribed', 'Disiscritto'], ['bounced', 'Non recapitabile']];
+    return `<select data-condition-value>${statuses.map(([status, label]) => `<option value="${status}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
+  }
+  const type = field === 'webinarRegisteredAt' ? 'date' : 'text';
+  return `<input data-condition-value type="${type}" value="${esc(value)}" />`;
+}
+
+function syncSequenceCondition(row, condition = {}) {
+  const field = row.querySelector('[data-condition-field]').value;
+  const operatorSelect = row.querySelector('[data-condition-operator]');
+  const operator = sequenceConditionFields[field].operators.includes(condition.operator)
+    ? condition.operator
+    : sequenceConditionFields[field].operators[0];
+  operatorSelect.innerHTML = sequenceConditionOperatorOptions(field, operator);
+  const valueWrap = row.querySelector('[data-condition-value-wrap]');
+  const noValue = operator === 'is_set' || operator === 'is_not_set';
+  valueWrap.hidden = noValue;
+  valueWrap.innerHTML = noValue ? '' : `<span>Valore</span>${sequenceConditionValueControl(field, condition.value || '')}`;
+}
+
+function addSequenceCondition(condition = {}) {
+  if (document.querySelectorAll('.sequence-condition').length >= 10) {
+    toast('Puoi aggiungere al massimo 10 condizioni', 'err');
+    return;
+  }
+  const field = sequenceConditionFields[condition.field] ? condition.field : 'contactType';
+  const row = document.createElement('div');
+  row.className = 'sequence-condition';
+  row.innerHTML = `<label><span>Campo</span><select data-condition-field>${sequenceConditionFieldOptions(field)}</select></label><label><span>Operatore</span><select data-condition-operator></select></label><label data-condition-value-wrap></label><button class="danger" type="button" data-remove-condition>Rimuovi</button>`;
+  syncSequenceCondition(row, condition);
+  row.querySelector('[data-condition-field]').addEventListener('change', () => syncSequenceCondition(row));
+  row.querySelector('[data-condition-operator]').addEventListener('change', () => {
+    const currentValue = row.querySelector('[data-condition-value]')?.value || '';
+    syncSequenceCondition(row, { operator: row.querySelector('[data-condition-operator]').value, value: currentValue });
+  });
+  row.querySelector('[data-remove-condition]').addEventListener('click', () => row.remove());
+  $('sequenceConditions').appendChild(row);
+}
+
+function readSequenceConditions() {
+  return [...document.querySelectorAll('.sequence-condition')].map((row) => ({
+    field: row.querySelector('[data-condition-field]').value,
+    operator: row.querySelector('[data-condition-operator]').value,
+    value: row.querySelector('[data-condition-value]')?.value || null,
+  }));
+}
+
+function sequenceConditionSummary(conditions = []) {
+  if (!conditions.length) return '';
+  return conditions.map((condition) => {
+    const field = sequenceConditionFields[condition.field]?.label || condition.field;
+    const operator = sequenceConditionOperatorLabels[condition.operator] || condition.operator;
+    let value = condition.value;
+    if (condition.field === 'contactType') value = contactTypeLabel(value);
+    if (condition.field === 'contactStatusId') {
+      value = state.contactStatuses.find((status) => status.id === value)?.name || 'stato rimosso';
+    }
+    return `${esc(field)} ${esc(operator)}${value ? ` ${esc(value)}` : ''}`;
+  }).join(' AND ');
+}
+
 async function loadSequences() {
   const { sequences } = await api('/api/crm/sequences');
   state.sequences = sequences;
@@ -897,10 +1008,11 @@ async function loadSequences() {
     const triggerLabel = automaticTrigger
       ? `Contatto entrato nella lista ${esc(sequence.trigger_list_name || 'rimossa')}`
       : 'Iscrizione manuale';
+    const conditionsLabel = sequenceConditionSummary(sequence.trigger_conditions || []);
     const manualEnrollment = !automaticTrigger && can('crm:write')
       ? `<select data-enroll-list="${sequence.id}">${listOptions}</select><button data-enroll-sequence="${sequence.id}" ${state.lists.length && sequence.active ? '' : 'disabled'}>Iscrivi lista</button>`
       : '';
-    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><button class="badge ${sequence.active ? 'on' : 'off'}" data-toggle-sequence="${sequence.id}" data-active="${sequence.active}">${sequence.active ? 'Attiva' : 'In pausa'}</button></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${can('crm:write') ? `<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>` : ''}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
+    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><button class="badge ${sequence.active ? 'on' : 'off'}" data-toggle-sequence="${sequence.id}" data-active="${sequence.active}">${sequence.active ? 'Attiva' : 'In pausa'}</button></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${can('crm:write') ? `<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>` : ''}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono sequenze.</div>';
   document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
   document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
@@ -919,6 +1031,8 @@ function editSequence(id) {
   $('sequenceActive').checked = sequence.active;
   $('sequenceTriggerType').value = sequence.trigger_type || 'manual';
   $('sequenceTriggerList').value = sequence.trigger_list_id || '';
+  $('sequenceConditions').innerHTML = '';
+  (sequence.trigger_conditions || []).forEach((condition) => addSequenceCondition(condition));
   syncSequenceTriggerFields();
   $('sequenceSteps').innerHTML = '';
   sequence.steps.forEach((step) => addSequenceStep(step.templateId, step.delayMinutes));
@@ -954,6 +1068,7 @@ async function saveSequence(event) {
         trigger: {
           type: $('sequenceTriggerType').value,
           listId: $('sequenceTriggerList').value,
+          conditions: readSequenceConditions(),
         },
         steps,
       }),
@@ -1083,6 +1198,7 @@ async function loadContactStatuses() {
 function syncSequenceTriggerFields() {
   const automatic = $('sequenceTriggerType').value === 'list_joined';
   $('sequenceTriggerListWrap').hidden = !automatic;
+  $('sequenceConditionsWrap').hidden = !automatic;
   $('sequenceTriggerList').required = automatic;
 }
 
@@ -1252,6 +1368,7 @@ function resetSequenceEditor() {
   $('sequenceTriggerType').value = state.lists.length ? 'list_joined' : 'manual';
   syncSequenceTriggerFields();
   $('sequenceSteps').innerHTML = '';
+  $('sequenceConditions').innerHTML = '';
   $('sequenceEditorTitle').textContent = 'Configura la sequenza';
   $('saveSequenceBtn').textContent = 'Crea sequenza';
   addSequenceStep();
@@ -1313,6 +1430,7 @@ $('newTemplateBtn').addEventListener('click', resetTemplateEditor);
 $('newSequenceBtn').addEventListener('click', resetSequenceEditor);
 $('newCampaignBtn').addEventListener('click', resetCampaignEditor);
 $('addSequenceStep').addEventListener('click', () => addSequenceStep());
+$('addSequenceCondition').addEventListener('click', () => addSequenceCondition());
 $('sequenceTriggerType').addEventListener('change', syncSequenceTriggerFields);
 $('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
 $('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);

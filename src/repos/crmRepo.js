@@ -51,6 +51,60 @@ function compileListFilter(list, startIndex = 1) {
   };
 }
 
+const SEQUENCE_CONDITION_COLUMNS = {
+  contactType: 'c.contact_type',
+  contactStatusId: 'c.contact_status_id',
+  emailStatus: 'c.email_status',
+  source: 'c.source',
+  firstName: 'c.first_name',
+  lastName: 'c.last_name',
+  email: 'c.email',
+  phone: 'c.phone',
+  webinarRegisteredAt: 'c.webinar_registered_at',
+  utmSource: 'c.utm_source',
+  utmMedium: 'c.utm_medium',
+  utmCampaign: 'c.utm_campaign',
+  utmTerm: 'c.utm_term',
+  utmContent: 'c.utm_content',
+};
+
+function compileSequenceConditions(conditions = [], startIndex = 1) {
+  const clauses = [];
+  const values = [];
+  const add = (value) => {
+    values.push(value);
+    return `$${startIndex + values.length - 1}`;
+  };
+  for (const condition of conditions) {
+    if (condition.field === 'tags') {
+      const token = add(condition.value);
+      clauses.push(condition.operator === 'not_contains'
+        ? `NOT (${token} = ANY(c.tags))`
+        : `${token} = ANY(c.tags)`);
+      continue;
+    }
+    const column = SEQUENCE_CONDITION_COLUMNS[condition.field];
+    if (condition.operator === 'is_set') {
+      clauses.push(`${column} IS NOT NULL`);
+      continue;
+    }
+    if (condition.operator === 'is_not_set') {
+      clauses.push(`${column} IS NULL`);
+      continue;
+    }
+    const token = add(condition.value);
+    const typedToken = condition.field === 'contactStatusId'
+      ? `${token}::uuid`
+      : condition.field === 'webinarRegisteredAt' ? `${token}::date` : token;
+    if (condition.operator === 'not_equals') clauses.push(`${column} IS DISTINCT FROM ${typedToken}`);
+    else if (condition.operator === 'contains') clauses.push(`COALESCE(${column}::text, '') ILIKE '%' || ${token} || '%'`);
+    else if (condition.operator === 'before') clauses.push(`${column} < ${typedToken}`);
+    else if (condition.operator === 'after') clauses.push(`${column} > ${typedToken}`);
+    else clauses.push(`${column} = ${typedToken}`);
+  }
+  return { clause: clauses.length ? clauses.join(' AND ') : 'TRUE', values };
+}
+
 async function addContactEvent(client, contactId, eventType, eventData = {}, actor = null) {
   await client.query(
     `INSERT INTO crm_contact_events (contact_id,event_type,event_data,actor)
@@ -593,11 +647,11 @@ async function createSequence(input) {
     }
     const sequenceResult = await client.query(
       `INSERT INTO crm_sequences
-       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,created_by)
-       VALUES ($1,$2,$3,$4,$5,CASE WHEN $4='list_joined' THEN now() ELSE NULL END,$6)
+       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,created_by)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN $4='list_joined' THEN now() ELSE NULL END,$6,$7)
        RETURNING *`,
       [input.name, input.description || null, input.active, input.triggerType,
-       input.triggerListId, input.createdBy]
+       input.triggerListId, JSON.stringify(input.triggerConditions), input.createdBy]
     );
     const sequence = sequenceResult.rows[0];
     for (const [position, step] of input.steps.entries()) {
@@ -644,9 +698,11 @@ async function updateSequence(id, input) {
       `UPDATE crm_sequences SET
          name=$2,description=$3,active=$4,trigger_type=$5,trigger_list_id=$6,
          trigger_started_at=CASE WHEN $5='list_joined' THEN now() ELSE NULL END,
+         trigger_conditions=$7,
          updated_at=now()
        WHERE id=$1 RETURNING *`,
-      [id, input.name, input.description || null, input.active, input.triggerType, input.triggerListId]
+      [id, input.name, input.description || null, input.active, input.triggerType,
+       input.triggerListId, JSON.stringify(input.triggerConditions)]
     );
     await client.query('DELETE FROM crm_sequence_steps WHERE sequence_id=$1', [id]);
     await client.query('DELETE FROM crm_sequence_trigger_state WHERE sequence_id=$1', [id]);
@@ -837,7 +893,7 @@ async function enrollContacts(client, sequenceId, firstStep, contacts) {
 
 async function processSequenceTriggers() {
   const { rows: sequences } = await db.query(
-    `SELECT s.id,s.trigger_started_at,l.id AS list_id,l.filter_json,
+    `SELECT s.id,s.trigger_started_at,s.trigger_conditions,l.id AS list_id,l.filter_json,
             st.id AS step_id,st.template_id,st.delay_minutes
      FROM crm_sequences s
      JOIN crm_lists l ON l.id=s.trigger_list_id
@@ -847,13 +903,17 @@ async function processSequenceTriggers() {
   let enrolled = 0;
   for (const sequence of sequences) {
     const compiled = compileListFilter({ id: sequence.list_id, filter_json: sequence.filter_json || {} });
+    const conditionFilter = compileSequenceConditions(
+      sequence.trigger_conditions || [],
+      compiled.values.length + 1
+    );
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
       const current = await client.query(
-        `SELECT c.id,c.email_normalized,c.email_status
+        `SELECT c.id,c.email_normalized,c.email_status,(${conditionFilter.clause}) AS matches_conditions
          FROM crm_contacts c WHERE ${compiled.clause}`,
-        compiled.values
+        [...compiled.values, ...conditionFilter.values]
       );
       const currentIds = current.rows.map((contact) => contact.id);
       const previous = currentIds.length ? await client.query(
@@ -863,7 +923,7 @@ async function processSequenceTriggers() {
       ) : { rows: [] };
       const activeBefore = new Set(previous.rows.filter((item) => item.is_member).map((item) => item.contact_id));
       const entered = current.rows.filter((contact) => !activeBefore.has(contact.id)
-        && contact.email_normalized && contact.email_status === 'subscribed');
+        && contact.matches_conditions && contact.email_normalized && contact.email_status === 'subscribed');
       if (currentIds.length) {
         await client.query(
           `INSERT INTO crm_sequence_trigger_state (sequence_id,contact_id,is_member)
@@ -1202,6 +1262,7 @@ async function summary() {
 module.exports = {
   compileContactFilters,
   compileListFilter,
+  compileSequenceConditions,
   upsertContactWithClient,
   upsertContact,
   listContacts,

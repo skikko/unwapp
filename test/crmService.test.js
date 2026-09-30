@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crmService = require('../src/services/crmService');
+const crmRepo = require('../src/repos/crmRepo');
 const crmImportService = require('../src/services/crmImportService');
 const csvService = require('../src/services/csvService');
 const emailService = require('../src/services/emailService');
@@ -108,6 +109,58 @@ test('richiede una lista per il trigger di ingresso', () => {
     trigger: { type: 'list_joined' },
     steps: [{ templateId: 'template-1' }],
   }), /list is required/i);
+});
+
+test('normalizza condizioni concatenate del trigger di sequenza', () => {
+  const sequence = crmService.validateSequence({
+    name: 'Genitori webinar',
+    trigger: {
+      type: 'list_joined',
+      listId: 'list-1',
+      conditions: [
+        { field: 'contactType', operator: 'equals', value: 'Genitore' },
+        { field: 'utmCampaign', operator: 'contains', value: 'open-day' },
+        { field: 'webinarRegisteredAt', operator: 'is_set' },
+      ],
+    },
+    steps: [{ templateId: 'template-1' }],
+  });
+  assert.deepEqual(sequence.triggerConditions, [
+    { field: 'contactType', operator: 'equals', value: 'parent' },
+    { field: 'utmCampaign', operator: 'contains', value: 'open-day' },
+    { field: 'webinarRegisteredAt', operator: 'is_set', value: null },
+  ]);
+});
+
+test('rifiuta campi e operatori non previsti nelle condizioni di sequenza', () => {
+  assert.throws(() => crmService.validateSequence({
+    name: 'Sequenza non valida',
+    trigger: {
+      type: 'list_joined',
+      listId: 'list-1',
+      conditions: [{ field: 'sql', operator: 'equals', value: 'TRUE' }],
+    },
+    steps: [{ templateId: 'template-1' }],
+  }), /Invalid sequence trigger condition/);
+});
+
+test('compila le condizioni di sequenza con parametri SQL tipizzati', () => {
+  const result = crmRepo.compileSequenceConditions([
+    { field: 'contactType', operator: 'equals', value: 'parent' },
+    { field: 'contactStatusId', operator: 'not_equals', value: '123e4567-e89b-12d3-a456-426614174000' },
+    { field: 'webinarRegisteredAt', operator: 'after', value: '2026-09-30' },
+    { field: 'tags', operator: 'contains', value: 'webinar' },
+  ], 3);
+  assert.match(result.clause, /c\.contact_type = \$3/);
+  assert.match(result.clause, /c\.contact_status_id IS DISTINCT FROM \$4::uuid/);
+  assert.match(result.clause, /c\.webinar_registered_at > \$5::date/);
+  assert.match(result.clause, /\$6 = ANY\(c\.tags\)/);
+  assert.deepEqual(result.values, [
+    'parent',
+    '123e4567-e89b-12d3-a456-426614174000',
+    '2026-09-30',
+    'webinar',
+  ]);
 });
 
 test('normalizza le modifiche massive dei contatti', () => {

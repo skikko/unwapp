@@ -9,6 +9,23 @@ const CONTACT_TYPES = new Map([
   ['student', 'student'],
 ]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SEQUENCE_CONDITION_FIELDS = new Map([
+  ['contactType', new Set(['equals', 'not_equals'])],
+  ['contactStatusId', new Set(['equals', 'not_equals'])],
+  ['emailStatus', new Set(['equals', 'not_equals'])],
+  ['source', new Set(['equals', 'not_equals', 'contains'])],
+  ['firstName', new Set(['equals', 'not_equals', 'contains'])],
+  ['lastName', new Set(['equals', 'not_equals', 'contains'])],
+  ['email', new Set(['equals', 'not_equals', 'contains'])],
+  ['phone', new Set(['equals', 'not_equals', 'contains'])],
+  ['tags', new Set(['contains', 'not_contains'])],
+  ['webinarRegisteredAt', new Set(['equals', 'before', 'after', 'is_set', 'is_not_set'])],
+  ['utmSource', new Set(['equals', 'not_equals', 'contains'])],
+  ['utmMedium', new Set(['equals', 'not_equals', 'contains'])],
+  ['utmCampaign', new Set(['equals', 'not_equals', 'contains'])],
+  ['utmTerm', new Set(['equals', 'not_equals', 'contains'])],
+  ['utmContent', new Set(['equals', 'not_equals', 'contains'])],
+]);
 
 function normalizeEmail(value) {
   const email = String(value || '').trim().toLowerCase();
@@ -209,6 +226,9 @@ function validateSequence(input = {}) {
   })) : [];
   const triggerType = input.trigger?.type === 'list_joined' ? 'list_joined' : 'manual';
   const triggerListId = triggerType === 'list_joined' ? String(input.trigger?.listId || '').trim() : null;
+  const triggerConditions = triggerType === 'list_joined'
+    ? normalizeSequenceConditions(input.trigger?.conditions)
+    : [];
   if (!name || !steps.length || steps.some((step) => !step.templateId)) {
     throw Object.assign(new Error('Sequence name and at least one valid step are required'), { status: 400 });
   }
@@ -221,8 +241,40 @@ function validateSequence(input = {}) {
     active: input.active !== false,
     triggerType,
     triggerListId,
+    triggerConditions,
     steps,
   };
+}
+
+function normalizeSequenceConditions(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 10) {
+    throw Object.assign(new Error('Sequence trigger conditions must be an array with at most 10 items'), { status: 400 });
+  }
+  return value.map((condition) => {
+    const field = String(condition?.field || '').trim();
+    const operator = String(condition?.operator || '').trim();
+    const operators = SEQUENCE_CONDITION_FIELDS.get(field);
+    if (!operators || !operators.has(operator)) {
+      throw Object.assign(new Error('Invalid sequence trigger condition'), { status: 400 });
+    }
+    if (operator === 'is_set' || operator === 'is_not_set') return { field, operator, value: null };
+    let normalizedValue = String(condition?.value || '').trim();
+    if (!normalizedValue) {
+      throw Object.assign(new Error('A value is required for each sequence trigger condition'), { status: 400 });
+    }
+    if (field === 'contactType') normalizedValue = normalizeContactType(normalizedValue);
+    if (field === 'contactStatusId') normalizedValue = normalizeContactStatusId(normalizedValue);
+    if (field === 'emailStatus' && !EMAIL_STATUSES.has(normalizedValue)) {
+      throw Object.assign(new Error('Invalid email status in sequence trigger condition'), { status: 400 });
+    }
+    if (field === 'webinarRegisteredAt') normalizedValue = normalizeWebinarDate(normalizedValue);
+    if (field === 'tags') normalizedValue = normalizeTags([normalizedValue])[0];
+    if (!normalizedValue) {
+      throw Object.assign(new Error('A value is required for each sequence trigger condition'), { status: 400 });
+    }
+    return { field, operator, value: normalizedValue.slice(0, 255) };
+  });
 }
 
 function normalizeBulkContactChanges(input = {}) {
@@ -279,6 +331,7 @@ module.exports = {
   sanitizeEmailHtml,
   validateTemplate,
   validateSequence,
+  normalizeSequenceConditions,
   normalizeBulkContactChanges,
   contactFiltersFromQuery,
 };
