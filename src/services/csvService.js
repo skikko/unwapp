@@ -162,4 +162,16 @@ function prepareContacts(parsed, phoneColumn, variableMapping = {}) {
   return { contacts, invalid, duplicates };
 }
 
-module.exports = { detectDelimiter, parseCsv, normalizePhone, extractContactName, prepareContacts };
+function csvCell(value) {
+  let text = value === null || value === undefined ? '' : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function stringifyCsv(headers, rows) {
+  const lines = [headers.map(csvCell).join(',')];
+  for (const row of rows) lines.push(headers.map((header) => csvCell(row[header])).join(','));
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
+}
+
+module.exports = { detectDelimiter, parseCsv, normalizePhone, extractContactName, prepareContacts, stringifyCsv };

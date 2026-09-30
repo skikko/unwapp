@@ -1,0 +1,1243 @@
+const state = {
+  user: null,
+  contacts: [],
+  lists: [],
+  templates: [],
+  sequences: [],
+  campaigns: [],
+  contactImport: null,
+  selectedContacts: new Set(),
+  selectAllMatching: false,
+  totalContacts: 0,
+};
+
+const $ = (id) => document.getElementById(id);
+let savedEditorRange = null;
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[character]));
+
+function can(permission) {
+  return state.user?.permissions.includes('*') || state.user?.permissions.includes(permission);
+}
+
+function toast(message, type = 'ok') {
+  const item = document.createElement('div');
+  item.className = `toast ${type}`;
+  item.textContent = message;
+  document.body.appendChild(item);
+  setTimeout(() => item.remove(), 4000);
+}
+
+async function api(path, options = {}) {
+  const headers = options.body instanceof FormData
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const response = await fetch(path, {
+    credentials: 'same-origin',
+    headers,
+    ...options,
+  });
+  const payload = response.status === 204 ? {} : await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.error || `Request failed with status ${response.status}`);
+  return payload;
+}
+
+function localDateTimeValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function statusLabel(status) {
+  return {
+    unknown: 'Email assente',
+    subscribed: 'Iscritto',
+    unsubscribed: 'Disiscritto',
+    bounced: 'Non recapitabile',
+    queued: 'In coda',
+    pending: 'In attesa',
+    sending: 'Invio in corso',
+    sent: 'Inviato',
+    running: 'In corso',
+    completed: 'Completato',
+    completed_with_errors: 'Completato con errori',
+    failed: 'Fallito',
+    cancelled: 'Annullato',
+  }[status] || status;
+}
+
+async function loadMe() {
+  const { user } = await api('/api/me');
+  state.user = user;
+  document.querySelectorAll('[data-permission]').forEach((item) => { item.hidden = !can(item.dataset.permission); });
+  document.querySelectorAll('[data-write]').forEach((item) => { item.hidden = !can('crm:write'); });
+  $('userEmail').innerHTML = `<span>${esc(user.displayName || user.username)}</span><button class="user-logout" id="logoutBtn">Esci</button>`;
+  $('logoutBtn').addEventListener('click', async () => {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    location.href = '/login';
+  });
+}
+
+function currentFilters() {
+  const filters = new URLSearchParams();
+  if ($('filterQuery').value.trim()) filters.set('query', $('filterQuery').value.trim());
+  if ($('filterSource').value.trim()) filters.set('source', $('filterSource').value.trim());
+  if ($('filterStatus').value) filters.set('emailStatus', $('filterStatus').value);
+  if ($('filterTags').value.trim()) filters.set('tags', $('filterTags').value.trim());
+  return filters;
+}
+
+async function loadSummary() {
+  const { summary } = await api('/api/crm/summary');
+  $('summaryContacts').textContent = summary.contacts;
+  $('summaryLists').textContent = summary.lists;
+  $('summaryTemplates').textContent = summary.templates;
+  $('summaryJobs').textContent = summary.pending_jobs;
+}
+
+async function loadContacts() {
+  const { contacts, total } = await api(`/api/crm/contacts?${currentFilters()}`);
+  state.contacts = contacts;
+  state.totalContacts = total;
+  state.selectedContacts.clear();
+  state.selectAllMatching = false;
+  $('contactsCount').textContent = `${total} ${total === 1 ? 'contatto' : 'contatti'}`;
+  $('contactsBody').innerHTML = contacts.length ? contacts.map((contact) => {
+    const fullName = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+    const tags = (contact.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join('');
+    const lists = (contact.lists || []).map((list) => `<span>${esc(list.name)}</span>`).join('');
+    return `<tr>
+      ${can('crm:write') ? `<td><input type="checkbox" data-select-contact="${contact.id}" aria-label="Seleziona ${esc(fullName)}"></td>` : '<td hidden></td>'}
+      <td><div class="crm-contact-name"><strong>${esc(fullName)}</strong><small>${esc(new Date(contact.created_at).toLocaleDateString('it-IT'))}</small></div></td>
+      <td>${esc(contact.email || 'n/a')}</td>
+      <td>${esc(contact.phone || 'n/a')}</td>
+      <td><span class="crm-source">${esc(contact.source)}</span></td>
+      <td><div class="crm-tags">${tags || '<span>n/a</span>'}</div></td>
+      <td><div class="crm-lists">${lists || '<span>n/a</span>'}</div></td>
+      <td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td>
+      <td><div class="row-actions"><button class="secondary" data-view-contact="${contact.id}">Profilo</button>${can('crm:write') ? `<button class="secondary" data-edit-contact="${contact.id}">Modifica</button><button class="danger" data-delete-contact="${contact.id}">Elimina</button>` : ''}</div></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="9"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
+
+  document.querySelectorAll('[data-view-contact]').forEach((button) => button.addEventListener('click', () => loadContactProfile(button.dataset.viewContact)));
+  document.querySelectorAll('[data-edit-contact]').forEach((button) => button.addEventListener('click', () => editContact(button.dataset.editContact)));
+  document.querySelectorAll('[data-delete-contact]').forEach((button) => button.addEventListener('click', () => removeContact(button.dataset.deleteContact)));
+  document.querySelectorAll('[data-select-contact]').forEach((checkbox) => checkbox.addEventListener('change', () => {
+    state.selectAllMatching = false;
+    if (checkbox.checked) state.selectedContacts.add(checkbox.dataset.selectContact);
+    else state.selectedContacts.delete(checkbox.dataset.selectContact);
+    updateContactSelectionUi();
+  }));
+  updateContactSelectionUi();
+}
+
+function profileSection(title, rows, emptyMessage) {
+  return `<section><div class="section-heading compact"><div><h3>${esc(title)}</h3></div></div>${rows || `<div class="crm-empty">${esc(emptyMessage)}</div>`}</section>`;
+}
+
+async function loadContactProfile(id) {
+  $('contactProfile').hidden = false;
+  $('contactProfileTitle').textContent = 'Profilo contatto';
+  $('contactProfileMeta').textContent = 'Caricamento...';
+  $('contactProfileSummary').innerHTML = '';
+  $('contactProfileSections').innerHTML = '';
+  try {
+    const profile = await api(`/api/crm/contacts/${id}/profile`);
+    const contact = profile.contact;
+    const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+    $('contactProfileTitle').textContent = name;
+    $('contactProfileMeta').textContent = `Creato ${new Date(contact.created_at).toLocaleString('it-IT')}`;
+    $('contactProfileSummary').innerHTML = `
+      <div><span>Email</span><strong>${esc(contact.email || 'n/a')}</strong></div>
+      <div><span>Telefono</span><strong>${esc(contact.phone || 'n/a')}</strong></div>
+      <div><span>Origine</span><strong>${esc(contact.source)}</strong></div>
+      <div><span>Stato email</span><strong>${esc(statusLabel(contact.email_status))}</strong></div>
+      <div><span>Liste</span><strong>${esc((contact.lists || []).map((list) => list.name).join(', ') || 'n/a')}</strong></div>
+      <div><span>Consenso</span><strong>${contact.consent_at ? esc(new Date(contact.consent_at).toLocaleString('it-IT')) : 'Non registrato'}</strong><small>${esc(contact.consent_source || '')}</small></div>`;
+    const eventRows = profile.events.map((event) => `<tr><td>${esc(new Date(event.created_at).toLocaleString('it-IT'))}</td><td>${esc(event.event_type)}</td><td>${esc(event.actor || 'sistema')}</td><td>${esc(JSON.stringify(event.event_data || {}))}</td></tr>`).join('');
+    const messageRows = profile.messages.map((message) => `<tr><td>${esc(new Date(message.created_at).toLocaleString('it-IT'))}</td><td>${esc(message.bot_name)}</td><td>${esc(message.role)}</td><td>${esc(message.content)}</td><td>${esc(message.provider_status || 'n/a')}</td></tr>`).join('');
+    const emailRows = profile.emailJobs.map((job) => `<tr><td>${esc(new Date(job.scheduled_at).toLocaleString('it-IT'))}</td><td>${esc(job.campaign_name || job.sequence_name || job.kind)}</td><td>${esc(job.template_name)}</td><td>${esc(statusLabel(job.status))}</td><td>${esc(job.last_error || '')}</td></tr>`).join('');
+    const enrollmentRows = profile.enrollments.map((enrollment) => `<tr><td>${esc(enrollment.sequence_name)}</td><td>${esc(enrollmentStatusLabel(enrollment.status))}</td><td>${enrollment.next_run_at ? esc(new Date(enrollment.next_run_at).toLocaleString('it-IT')) : 'n/a'}</td><td>${esc(enrollment.last_error || '')}</td></tr>`).join('');
+    $('contactProfileSections').innerHTML = [
+      profileSection('Storico', eventRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Evento</th><th>Autore</th><th>Dettagli</th></tr></thead><tbody>${eventRows}</tbody></table></div>` : '', 'Nessun evento registrato.'),
+      profileSection('Messaggi WhatsApp', messageRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>BOT</th><th>Ruolo</th><th>Messaggio</th><th>Consegna</th></tr></thead><tbody>${messageRows}</tbody></table></div>` : '', 'Nessun messaggio associato.'),
+      profileSection('Invii email', emailRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Invio</th><th>Template</th><th>Stato</th><th>Errore</th></tr></thead><tbody>${emailRows}</tbody></table></div>` : '', 'Nessuna email associata.'),
+      profileSection('Sequenze', enrollmentRows ? `<div class="table-wrap"><table><thead><tr><th>Sequenza</th><th>Stato</th><th>Prossima attività</th><th>Errore</th></tr></thead><tbody>${enrollmentRows}</tbody></table></div>` : '', 'Nessuna sequenza associata.'),
+    ].join('');
+    $('contactProfile').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    $('contactProfileMeta').textContent = '';
+    $('contactProfileSections').innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function updateContactSelectionUi() {
+  const selected = state.selectAllMatching ? state.totalContacts : state.selectedContacts.size;
+  $('contactBulkBar').hidden = !selected;
+  $('contactBulkCount').textContent = state.selectAllMatching
+    ? `${selected} risultati selezionati`
+    : `${selected} ${selected === 1 ? 'contatto selezionato' : 'contatti selezionati'}`;
+  $('selectAllFilteredBtn').hidden = state.selectAllMatching || selected === state.totalContacts;
+  $('selectPageContacts').checked = Boolean(state.contacts.length)
+    && state.contacts.every((contact) => state.selectedContacts.has(contact.id));
+  $('selectPageContacts').indeterminate = !state.selectAllMatching && selected > 0 && !$('selectPageContacts').checked;
+}
+
+function clearContactSelection() {
+  state.selectedContacts.clear();
+  state.selectAllMatching = false;
+  document.querySelectorAll('[data-select-contact]').forEach((checkbox) => { checkbox.checked = false; });
+  $('contactBulkEditor').hidden = true;
+  updateContactSelectionUi();
+}
+
+function selectAllFilteredContacts() {
+  state.selectedContacts.clear();
+  state.selectAllMatching = state.totalContacts > 0;
+  document.querySelectorAll('[data-select-contact]').forEach((checkbox) => { checkbox.checked = true; });
+  updateContactSelectionUi();
+}
+
+function openBulkContactEditor() {
+  $('contactBulkEditor').reset();
+  $('contactBulkScope').textContent = state.selectAllMatching
+    ? `La modifica verrà applicata a tutti i ${state.totalContacts} risultati filtrati.`
+    : `La modifica verrà applicata a ${state.selectedContacts.size} contatti.`;
+  openEditor('contactBulkEditor');
+}
+
+async function saveBulkContacts(event) {
+  event.preventDefault();
+  try {
+    const result = await api('/api/crm/contacts/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        allMatching: state.selectAllMatching,
+        ids: [...state.selectedContacts],
+        filters: Object.fromEntries(currentFilters()),
+        changes: {
+          source: $('bulkContactSource').value,
+          emailStatus: $('bulkContactStatus').value,
+          addTags: $('bulkContactAddTags').value,
+          removeTags: $('bulkContactRemoveTags').value,
+          listAction: $('bulkContactListAction').value,
+          listId: $('bulkContactList').value,
+        },
+      }),
+    });
+    toast(`${result.updated} contatti aggiornati`);
+    $('contactBulkEditor').hidden = true;
+    await Promise.all([loadContacts(), loadLists(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function downloadCsv(path, fallbackName) {
+  const response = await fetch(path, { credentials: 'same-origin' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Request failed with status ${response.status}`);
+  }
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportFilteredContacts() {
+  try {
+    await downloadCsv(`/api/crm/contacts/export?${currentFilters()}`, 'contatti-crm.csv');
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+function downloadContactTemplate() {
+  const csv = '\uFEFFemail,telefono,nome,cognome,origine,stato_email,tag\n'
+    + 'mario.rossi@example.com,+393331234567,Mario,Rossi,evento,subscribed,"newsletter|webinar"\n'
+    + 'giulia.bianchi@example.com,+393491234567,Giulia,Bianchi,partner,unknown,lead\n';
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'modello-import-contatti-crm.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function importMapping() {
+  return Object.fromEntries([...document.querySelectorAll('[data-import-field]')].map((select) => [
+    select.dataset.importField,
+    select.value,
+  ]));
+}
+
+function contactImportFormData() {
+  const [file] = $('contactCsvFile').files;
+  if (!file) throw new Error('Select a CSV file');
+  const form = new FormData();
+  form.append('contacts', file);
+  form.append('mapping', JSON.stringify(importMapping()));
+  form.append('source', $('contactImportSource').value.trim());
+  form.append('tags', $('contactImportTags').value.trim());
+  form.append('listId', $('contactImportList').value);
+  return form;
+}
+
+function importColumnOptions(headers, selected = '') {
+  return `<option value="">Non importare</option>${headers.map((header) => `<option value="${esc(header)}" ${header === selected ? 'selected' : ''}>${esc(header)}</option>`).join('')}`;
+}
+
+function renderContactImportPreview(result) {
+  state.contactImport = result;
+  $('contactImportMapping').hidden = false;
+  $('contactImportPreview').hidden = false;
+  $('contactImportFilename').textContent = `${result.filename} | separatore ${result.delimiter === 'tab' ? 'tab' : result.delimiter}`;
+  document.querySelectorAll('[data-import-field]').forEach((select) => {
+    select.innerHTML = importColumnOptions(result.headers, result.mapping[select.dataset.importField]);
+  });
+  $('importTotalCount').textContent = result.totalRows;
+  $('importValidCount').textContent = result.validCount;
+  $('importDuplicateCount').textContent = result.duplicateCount;
+  $('importInvalidCount').textContent = result.invalidCount;
+  $('contactImportPreviewBody').innerHTML = result.preview.length ? result.preview.map((contact) => `<tr><td>${contact.rowNumber}</td><td>${esc([contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'n/a')}</td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contact.source)}</td><td>${esc((contact.tags || []).join(', ') || 'n/a')}</td></tr>`).join('') : '<tr><td colspan="6">Nessun contatto valido.</td></tr>';
+  $('contactImportErrors').hidden = !result.invalid.length;
+  $('contactImportErrors').innerHTML = result.invalid.length
+    ? `<strong>Righe da correggere</strong><span>${result.invalid.map((item) => `Riga ${item.rowNumber}: ${esc(item.error)}`).join('<br>')}</span>`
+    : '';
+  $('runContactImportBtn').disabled = !result.validCount;
+}
+
+async function previewContactImport() {
+  $('previewContactImportBtn').disabled = true;
+  $('runContactImportBtn').disabled = true;
+  try {
+    const result = await api('/api/crm/contacts/import/preview', { method: 'POST', body: contactImportFormData() });
+    renderContactImportPreview(result);
+    toast(`${result.validCount} contatti pronti per l’importazione`);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    $('previewContactImportBtn').disabled = false;
+  }
+}
+
+async function runContactImport(event) {
+  event.preventDefault();
+  if (!state.contactImport) {
+    await previewContactImport();
+    return;
+  }
+  $('runContactImportBtn').disabled = true;
+  try {
+    const result = await api('/api/crm/contacts/import', { method: 'POST', body: contactImportFormData() });
+    $('contactImportEditor').hidden = true;
+    toast(`${result.imported} contatti importati: ${result.created} nuovi, ${result.updated} aggiornati`);
+    await Promise.all([loadContacts(), loadLists(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+    $('runContactImportBtn').disabled = false;
+  }
+}
+
+function resetContactImport(listId = '') {
+  $('contactImportEditor').reset();
+  $('contactImportSource').value = 'csv';
+  $('contactImportMapping').hidden = true;
+  $('contactImportPreview').hidden = true;
+  $('contactImportPreviewBody').innerHTML = '';
+  $('runContactImportBtn').disabled = true;
+  state.contactImport = null;
+  refreshSelects();
+  if (listId && state.lists.some((list) => list.id === listId)) $('contactImportList').value = listId;
+  openEditor('contactImportEditor');
+}
+
+function editContact(id) {
+  const contact = state.contacts.find((item) => item.id === id);
+  if (!contact) return;
+  $('contactId').value = contact.id;
+  $('contactFirstName').value = contact.first_name || '';
+  $('contactLastName').value = contact.last_name || '';
+  $('contactEmail').value = contact.email || '';
+  $('contactPhone').value = contact.phone || '';
+  $('contactSource').value = contact.source || 'manual';
+  $('contactEmailStatus').value = contact.email_status;
+  $('contactTags').value = (contact.tags || []).join(', ');
+  $('contactConsentAt').value = contact.consent_at ? localDateTimeValue(new Date(contact.consent_at)) : '';
+  $('contactConsentSource').value = contact.consent_source || '';
+  $('contactEditorTitle').textContent = 'Modifica contatto';
+  $('contactEditor').hidden = false;
+  $('contactFirstName').focus();
+}
+
+async function removeContact(id) {
+  if (!confirm('Eliminare definitivamente il contatto?')) return;
+  try {
+    await api(`/api/crm/contacts/${id}`, { method: 'DELETE' });
+    toast('Contatto eliminato');
+    await Promise.all([loadContacts(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function saveContact(event) {
+  event.preventDefault();
+  const id = $('contactId').value;
+  const body = {
+    firstName: $('contactFirstName').value,
+    lastName: $('contactLastName').value,
+    email: $('contactEmail').value,
+    phone: $('contactPhone').value,
+    source: $('contactSource').value,
+    emailStatus: $('contactEmailStatus').value,
+    tags: $('contactTags').value,
+    consentAt: $('contactConsentAt').value ? new Date($('contactConsentAt').value).toISOString() : null,
+    consentSource: $('contactConsentSource').value,
+  };
+  try {
+    await api(id ? `/api/crm/contacts/${id}` : '/api/crm/contacts', {
+      method: id ? 'PATCH' : 'POST',
+      body: JSON.stringify(body),
+    });
+    $('contactEditor').hidden = true;
+    toast(id ? 'Contatto aggiornato' : 'Contatto creato');
+    await Promise.all([loadContacts(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function loadLists() {
+  const { lists } = await api('/api/crm/lists');
+  state.lists = lists;
+  $('listsGrid').innerHTML = lists.length ? lists.map((list) => {
+    const filters = list.filter_json || {};
+    const filterText = [filters.source && `Origine: ${filters.source}`, filters.emailStatus && `Stato: ${statusLabel(filters.emailStatus)}`, filters.tags?.length && `Tag: ${filters.tags.join(', ')}`, filters.hasEmail && 'Con email'].filter(Boolean).join(' | ') || 'Tutti i contatti';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista dinamica</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || filterText)}</p><div class="crm-object-meta"><span>${esc(filterText)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista salvando i criteri di filtro.</div>';
+  document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
+  document.querySelectorAll('[data-edit-list]').forEach((button) => button.addEventListener('click', () => editList(button.dataset.editList)));
+  document.querySelectorAll('[data-view-list]').forEach((button) => button.addEventListener('click', () => loadListContacts(button.dataset.viewList)));
+  document.querySelectorAll('[data-export-list]').forEach((button) => button.addEventListener('click', () => exportListContacts(button.dataset.exportList)));
+  document.querySelectorAll('[data-import-list]').forEach((button) => button.addEventListener('click', () => {
+    changeTab('contacts');
+    resetContactImport(button.dataset.importList);
+  }));
+  refreshSelects();
+}
+
+async function loadListContacts(id) {
+  const container = $(`listContacts-${id}`);
+  if (!container) return;
+  if (!container.hidden) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = '<div class="crm-empty">Caricamento contatti...</div>';
+  try {
+    const { contacts, total } = await api(`/api/crm/lists/${id}/contacts?limit=250`);
+    container.innerHTML = contacts.length
+      ? `<div class="section-heading compact"><div><h3>Contatti iscritti</h3><span>${total} ${total === 1 ? 'contatto' : 'contatti'}</span></div></div><div class="table-wrap"><table><thead><tr><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Stato</th></tr></thead><tbody>${contacts.map((contact) => {
+        const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+        return `<tr><td><div class="crm-contact-name"><strong>${esc(name)}</strong><small>${esc(new Date(contact.created_at).toLocaleDateString('it-IT'))}</small></div></td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contact.source)}</td><td><div class="crm-tags">${(contact.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join('') || '<span>n/a</span>'}</div></td><td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td></tr>`;
+      }).join('')}</tbody></table></div>`
+      : '<div class="crm-empty">Nessun contatto è iscritto a questa lista.</div>';
+  } catch (error) {
+    container.innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
+async function exportListContacts(id) {
+  try {
+    await downloadCsv(`/api/crm/lists/${id}/export`, 'contatti-lista.csv');
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function saveList(event) {
+  event.preventDefault();
+  const id = $('listId').value;
+  try {
+    await api(id ? `/api/crm/lists/${id}` : '/api/crm/lists', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify({
+        name: $('listName').value,
+        description: $('listDescription').value,
+        filters: {
+          source: $('listSource').value,
+          emailStatus: $('listEmailStatus').value,
+          tags: $('listTags').value,
+          hasEmail: $('listHasEmail').checked,
+        },
+      }),
+    });
+    $('listEditor').hidden = true;
+    $('listEditor').reset();
+    $('listId').value = '';
+    $('listHasEmail').checked = true;
+    toast(id ? 'Lista aggiornata' : 'Lista creata');
+    await Promise.all([loadLists(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+function resetListEditor() {
+  $('listEditor').reset();
+  $('listId').value = '';
+  $('listHasEmail').checked = true;
+  $('listEditorTitle').textContent = 'Salva una vista filtrata';
+  $('saveListBtn').textContent = 'Crea lista';
+  openEditor('listEditor');
+}
+
+function editList(id) {
+  const list = state.lists.find((item) => item.id === id);
+  if (!list) return;
+  const filters = list.filter_json || {};
+  $('listEditor').reset();
+  $('listId').value = list.id;
+  $('listName').value = list.name;
+  $('listDescription').value = list.description || '';
+  $('listSource').value = filters.source || '';
+  $('listEmailStatus').value = filters.emailStatus || '';
+  $('listTags').value = (filters.tags || []).join(', ');
+  $('listHasEmail').checked = filters.hasEmail === true;
+  $('listEditorTitle').textContent = 'Modifica lista';
+  $('saveListBtn').textContent = 'Salva modifiche';
+  openEditor('listEditor');
+}
+
+async function removeList(id) {
+  if (!confirm('Eliminare la lista? I contatti non verranno eliminati.')) return;
+  try {
+    await api(`/api/crm/lists/${id}`, { method: 'DELETE' });
+    toast('Lista eliminata');
+    await Promise.all([loadLists(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function loadTemplates() {
+  const { templates } = await api('/api/crm/templates');
+  state.templates = templates;
+  $('templatesGrid').innerHTML = templates.length ? templates.map((template) => `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">HTML</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`).join('') : '<div class="crm-empty-card">Non ci sono template email.</div>';
+  document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
+  document.querySelectorAll('[data-delete-template]').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.deleteTemplate)));
+  refreshSelects();
+  renderSequenceSteps();
+}
+
+function sampleTemplate(value) {
+  const samples = {
+    first_name: 'Mario',
+    last_name: 'Rossi',
+    full_name: 'Mario Rossi',
+    email: 'mario.rossi@example.com',
+    phone: '+393331234567',
+    source: 'newsletter',
+  };
+  return String(value || '').replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_match, key) => esc(samples[key] || `{{${key}}}`));
+}
+
+function currentTemplateHtml() {
+  if (!$('templateVisual').hidden) $('templateHtml').value = $('templateVisual').innerHTML.trim();
+  return $('templateHtml').value.trim();
+}
+
+function updateTemplatePreview() {
+  const body = sampleTemplate(currentTemplateHtml()) || '<p style="color:#858b9b">Inizia a scrivere per vedere l’anteprima.</p>';
+  const preheader = sampleTemplate($('templatePreheader').value);
+  $('previewSubject').textContent = sampleTemplate($('templateSubject').value) || 'Oggetto email';
+  $('templatePreview').srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;padding:28px;background:#f3f4f6;color:#171a23;font-family:Arial,sans-serif}.email{max-width:640px;margin:0 auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 4px 18px rgba(23,26,35,.08)}img{max-width:100%;height:auto}a{color:#e64a26}.preheader{display:none!important}</style></head><body><span class="preheader">${preheader}</span><main class="email">${body}</main></body></html>`;
+  $('templateSaveState').textContent = 'Modifiche non salvate';
+}
+
+function setEditorMode(mode) {
+  const visual = mode === 'visual';
+  if (visual) $('templateVisual').innerHTML = $('templateHtml').value;
+  else $('templateHtml').value = $('templateVisual').innerHTML.trim();
+  $('templateVisual').hidden = !visual;
+  $('templateHtml').hidden = visual;
+  $('emailToolbar').hidden = !visual;
+  document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === mode));
+  updateTemplatePreview();
+}
+
+function editorRange() {
+  const selection = window.getSelection();
+  const editor = $('templateVisual');
+  let range = selection.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range || !editor.contains(range.commonAncestorContainer)) {
+    if (!savedEditorRange) return null;
+    range = savedEditorRange.cloneRange();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  return { selection, range, editor };
+}
+
+function rememberEditorRange() {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if ($('templateVisual').contains(range.commonAncestorContainer)) savedEditorRange = range.cloneRange();
+}
+
+function selectAfter(node, selection, range) {
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function wrapEditorSelection(tagName, attributes = {}) {
+  const context = editorRange();
+  if (!context) return;
+  const element = document.createElement(tagName);
+  Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, value));
+  if (context.range.collapsed) {
+    element.appendChild(document.createTextNode('\u200B'));
+  } else {
+    element.appendChild(context.range.extractContents());
+  }
+  context.range.insertNode(element);
+  const nextRange = document.createRange();
+  nextRange.selectNodeContents(element);
+  nextRange.collapse(false);
+  context.selection.removeAllRanges();
+  context.selection.addRange(nextRange);
+}
+
+function insertEditorNode(node) {
+  const context = editorRange();
+  if (!context) return;
+  const lastInserted = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? node.lastChild : node;
+  context.range.deleteContents();
+  context.range.insertNode(node);
+  if (lastInserted) selectAfter(lastInserted, context.selection, context.range);
+}
+
+function selectedEditorBlock() {
+  const context = editorRange();
+  if (!context) return null;
+  let node = context.range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? context.range.startContainer : context.range.startContainer.parentElement;
+  while (node && node.parentElement !== context.editor) node = node.parentElement;
+  return node && node !== context.editor ? node : null;
+}
+
+function runEditorCommand(command, value = null) {
+  $('templateVisual').focus();
+  if (command === 'bold') wrapEditorSelection('strong');
+  else if (command === 'italic') wrapEditorSelection('em');
+  else if (command === 'underline') wrapEditorSelection('u');
+  else if (command === 'createLink') wrapEditorSelection('a', { href: value, rel: 'noopener noreferrer' });
+  else if (command === 'foreColor') wrapEditorSelection('span', { style: `color:${value}` });
+  else if (command === 'insertText') insertEditorNode(document.createTextNode(value));
+  else if (command === 'insertHorizontalRule') insertEditorNode(document.createElement('hr'));
+  else if (command === 'insertHTML') {
+    const template = document.createElement('template');
+    template.innerHTML = value;
+    insertEditorNode(template.content);
+  } else if (command === 'formatBlock') {
+    const block = selectedEditorBlock();
+    if (block) {
+      const replacement = document.createElement(value);
+      replacement.innerHTML = block.innerHTML;
+      block.replaceWith(replacement);
+    }
+  } else if (['justifyLeft', 'justifyCenter', 'justifyRight'].includes(command)) {
+    const block = selectedEditorBlock();
+    if (block) block.style.textAlign = command.replace('justify', '').toLowerCase();
+  } else if (['insertUnorderedList', 'insertOrderedList'].includes(command)) {
+    const block = selectedEditorBlock();
+    if (block) {
+      const list = document.createElement(command === 'insertOrderedList' ? 'ol' : 'ul');
+      const item = document.createElement('li');
+      item.innerHTML = block.innerHTML;
+      list.appendChild(item);
+      block.replaceWith(list);
+    }
+  } else if (command === 'removeFormat') {
+    const context = editorRange();
+    if (context && !context.range.collapsed) {
+      const text = document.createTextNode(context.range.toString());
+      context.range.deleteContents();
+      context.range.insertNode(text);
+      selectAfter(text, context.selection, context.range);
+    }
+  }
+  updateTemplatePreview();
+  rememberEditorRange();
+}
+
+async function uploadTemplateImage(file) {
+  const form = new FormData();
+  form.append('media', file);
+  const { media } = await api('/media/upload/crm', { method: 'POST', body: form });
+  runEditorCommand('insertHTML', `<img src="${esc(media.url)}" alt="${esc(media.name)}" style="display:block;max-width:100%;height:auto;margin:18px auto">`);
+  toast('Immagine inserita');
+}
+
+function templatePayload() {
+  const htmlBody = currentTemplateHtml();
+  const temporary = document.createElement('div');
+  temporary.innerHTML = htmlBody;
+  const textBody = $('templateText').value.trim() || temporary.innerText.trim();
+  return {
+    name: $('templateName').value,
+    subject: $('templateSubject').value,
+    preheader: $('templatePreheader').value,
+    htmlBody,
+    textBody,
+  };
+}
+
+function editTemplate(id) {
+  const template = state.templates.find((item) => item.id === id);
+  if (!template) return;
+  $('templateId').value = template.id;
+  $('templateName').value = template.name;
+  $('templateSubject').value = template.subject;
+  $('templatePreheader').value = template.preheader || '';
+  $('templateHtml').value = template.html_body;
+  $('templateVisual').innerHTML = template.html_body;
+  $('templateText').value = template.text_body || '';
+  $('templateEditorTitle').textContent = 'Modifica template';
+  $('templateEditor').hidden = false;
+  setEditorMode('visual');
+  $('templateSaveState').textContent = `Salvato ${new Date(template.updated_at).toLocaleString('it-IT')}`;
+  $('templateName').focus();
+}
+
+async function saveTemplate(event) {
+  event.preventDefault();
+  const id = $('templateId').value;
+  try {
+    await api(id ? `/api/crm/templates/${id}` : '/api/crm/templates', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(templatePayload()),
+    });
+    $('templateEditor').hidden = true;
+    $('templateEditor').reset();
+    $('templateId').value = '';
+    toast(id ? 'Template aggiornato' : 'Template creato');
+    await Promise.all([loadTemplates(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function sendTemplateTest() {
+  const to = $('templateTestEmail').value.trim();
+  if (!to) {
+    toast('Inserisci l’indirizzo destinatario', 'err');
+    return;
+  }
+  $('sendTemplateTestBtn').disabled = true;
+  try {
+    await api('/api/crm/templates/test', {
+      method: 'POST',
+      body: JSON.stringify({ ...templatePayload(), to }),
+    });
+    toast(`Email di test inviata a ${to}`);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    $('sendTemplateTestBtn').disabled = false;
+  }
+}
+
+async function removeTemplate(id) {
+  if (!confirm('Eliminare il template?')) return;
+  try {
+    await api(`/api/crm/templates/${id}`, { method: 'DELETE' });
+    toast('Template eliminato');
+    await Promise.all([loadTemplates(), loadSummary()]);
+  } catch (error) {
+    toast('Il template è usato da un invio o da una sequenza e non può essere eliminato.', 'err');
+  }
+}
+
+function templateOptions(selected = '') {
+  return state.templates.map((template) => `<option value="${template.id}" ${template.id === selected ? 'selected' : ''}>${esc(template.name)}</option>`).join('');
+}
+
+function addSequenceStep(templateId = '', delayMinutes = 0) {
+  if (!state.templates.length) {
+    toast('Crea prima almeno un template email', 'err');
+    return;
+  }
+  let unit = 'hours';
+  let amount = delayMinutes / 60;
+  if (delayMinutes > 0 && delayMinutes % 1440 === 0) {
+    unit = 'days';
+    amount = delayMinutes / 1440;
+  } else if (delayMinutes > 0 && delayMinutes % 60 !== 0) {
+    unit = 'minutes';
+    amount = delayMinutes;
+  }
+  const row = document.createElement('div');
+  row.className = 'sequence-step';
+  row.innerHTML = `<div class="sequence-step-marker"><span class="sequence-step-index"></span><i></i></div><div class="sequence-step-content"><label><span>Template email</span><select data-step-template required>${templateOptions(templateId)}</select></label><div class="sequence-delay"><label><span>Attesa prima dell’invio</span><input data-step-delay type="number" min="0" step="1" value="${amount}" /></label><label><span>Unità</span><select data-step-unit><option value="minutes" ${unit === 'minutes' ? 'selected' : ''}>Minuti</option><option value="hours" ${unit === 'hours' ? 'selected' : ''}>Ore</option><option value="days" ${unit === 'days' ? 'selected' : ''}>Giorni</option></select></label></div></div><div class="sequence-step-actions"><button class="secondary" type="button" data-move-step="up">Su</button><button class="secondary" type="button" data-move-step="down">Giù</button><button class="danger" type="button" data-remove-step>Rimuovi</button></div>`;
+  row.querySelector('[data-remove-step]').addEventListener('click', () => {
+    row.remove();
+    renumberSequenceSteps();
+  });
+  row.querySelectorAll('[data-move-step]').forEach((button) => button.addEventListener('click', () => {
+    if (button.dataset.moveStep === 'up' && row.previousElementSibling) row.before(row.previousElementSibling);
+    if (button.dataset.moveStep === 'down' && row.nextElementSibling) row.after(row.nextElementSibling);
+    renumberSequenceSteps();
+  }));
+  row.querySelectorAll('input, select').forEach((input) => input.addEventListener('change', renumberSequenceSteps));
+  $('sequenceSteps').appendChild(row);
+  renumberSequenceSteps();
+}
+
+function renumberSequenceSteps() {
+  const rows = [...document.querySelectorAll('.sequence-step')];
+  let totalMinutes = 0;
+  rows.forEach((row, index) => {
+    row.querySelector('.sequence-step-index').textContent = String(index + 1).padStart(2, '0');
+    totalMinutes += sequenceStepMinutes(row);
+    row.querySelector('[data-move-step="up"]').disabled = index === 0;
+    row.querySelector('[data-move-step="down"]').disabled = index === rows.length - 1;
+  });
+  $('sequenceStepCount').textContent = `${rows.length} ${rows.length === 1 ? 'passaggio' : 'passaggi'}`;
+  $('sequenceTotalDuration').textContent = totalMinutes ? `Durata ${formatDuration(totalMinutes)}` : 'Durata immediata';
+}
+
+function sequenceStepMinutes(row) {
+  const amount = Math.max(0, Math.floor(Number(row.querySelector('[data-step-delay]').value || 0)));
+  const unit = row.querySelector('[data-step-unit]').value;
+  if (unit === 'days') return amount * 1440;
+  if (unit === 'hours') return amount * 60;
+  return amount;
+}
+
+function formatDuration(minutes) {
+  if (!minutes) return 'immediata';
+  if (minutes % 1440 === 0) return `${minutes / 1440} ${minutes === 1440 ? 'giorno' : 'giorni'}`;
+  if (minutes % 60 === 0) return `${minutes / 60} ${minutes === 60 ? 'ora' : 'ore'}`;
+  return `${minutes} minuti`;
+}
+
+function enrollmentStatusLabel(status) {
+  return {
+    active: 'In corso',
+    paused: 'In pausa',
+    completed: 'Completata',
+    failed: 'Fallita',
+    cancelled: 'Annullata',
+  }[status] || status;
+}
+
+function renderSequenceSteps() {
+  document.querySelectorAll('[data-step-template]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = templateOptions(selected);
+  });
+}
+
+async function loadSequences() {
+  const { sequences } = await api('/api/crm/sequences');
+  state.sequences = sequences;
+  const listOptions = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  $('sequencesGrid').innerHTML = sequences.length ? sequences.map((sequence) => {
+    let elapsed = 0;
+    const timeline = sequence.steps.map((step, index) => {
+      elapsed += step.delayMinutes;
+      return `<li><span class="sequence-timeline-index">${String(index + 1).padStart(2, '0')}</span><div><strong>${esc(step.templateName)}</strong><span>${step.delayMinutes ? `Attesa ${formatDuration(step.delayMinutes)}` : 'Invio immediato'} | ${elapsed ? `T+ ${formatDuration(elapsed)}` : 'T+ 0'}</span></div></li>`;
+    }).join('');
+    const editDisabled = sequence.enrollment_count > 0;
+    const automaticTrigger = sequence.trigger_type === 'list_joined';
+    const triggerLabel = automaticTrigger
+      ? `Contatto entrato nella lista ${esc(sequence.trigger_list_name || 'rimossa')}`
+      : 'Iscrizione manuale';
+    const manualEnrollment = !automaticTrigger && can('crm:write')
+      ? `<select data-enroll-list="${sequence.id}">${listOptions}</select><button data-enroll-sequence="${sequence.id}" ${state.lists.length && sequence.active ? '' : 'disabled'}>Iscrivi lista</button>`
+      : '';
+    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><button class="badge ${sequence.active ? 'on' : 'off'}" data-toggle-sequence="${sequence.id}" data-active="${sequence.active}">${sequence.active ? 'Attiva' : 'In pausa'}</button></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${can('crm:write') ? `<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>` : ''}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono sequenze.</div>';
+  document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
+  document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
+  document.querySelectorAll('[data-edit-sequence]').forEach((button) => button.addEventListener('click', () => editSequence(button.dataset.editSequence)));
+  document.querySelectorAll('[data-toggle-sequence]').forEach((button) => button.addEventListener('click', () => toggleSequence(button.dataset.toggleSequence, button.dataset.active !== 'true')));
+  document.querySelectorAll('[data-delete-sequence]').forEach((button) => button.addEventListener('click', () => removeSequence(button.dataset.deleteSequence)));
+}
+
+function editSequence(id) {
+  const sequence = state.sequences.find((item) => item.id === id);
+  if (!sequence || sequence.enrollment_count > 0) return;
+  $('sequenceEditor').reset();
+  $('sequenceId').value = sequence.id;
+  $('sequenceName').value = sequence.name;
+  $('sequenceDescription').value = sequence.description || '';
+  $('sequenceActive').checked = sequence.active;
+  $('sequenceTriggerType').value = sequence.trigger_type || 'manual';
+  $('sequenceTriggerList').value = sequence.trigger_list_id || '';
+  syncSequenceTriggerFields();
+  $('sequenceSteps').innerHTML = '';
+  sequence.steps.forEach((step) => addSequenceStep(step.templateId, step.delayMinutes));
+  $('sequenceEditorTitle').textContent = 'Modifica sequenza';
+  $('saveSequenceBtn').textContent = 'Salva modifiche';
+  openEditor('sequenceEditor');
+}
+
+async function toggleSequence(id, active) {
+  try {
+    await api(`/api/crm/sequences/${id}/status`, { method: 'PATCH', body: JSON.stringify({ active }) });
+    toast(active ? 'Sequenza attivata' : 'Sequenza messa in pausa');
+    await loadSequences();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function saveSequence(event) {
+  event.preventDefault();
+  const steps = [...document.querySelectorAll('.sequence-step')].map((row) => ({
+    templateId: row.querySelector('[data-step-template]').value,
+    delayMinutes: sequenceStepMinutes(row),
+  }));
+  const id = $('sequenceId').value;
+  try {
+    await api(id ? `/api/crm/sequences/${id}` : '/api/crm/sequences', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify({
+        name: $('sequenceName').value,
+        description: $('sequenceDescription').value,
+        active: $('sequenceActive').checked,
+        trigger: {
+          type: $('sequenceTriggerType').value,
+          listId: $('sequenceTriggerList').value,
+        },
+        steps,
+      }),
+    });
+    $('sequenceEditor').hidden = true;
+    $('sequenceEditor').reset();
+    $('sequenceSteps').innerHTML = '';
+    $('sequenceId').value = '';
+    toast(id ? 'Sequenza aggiornata' : 'Sequenza creata');
+    await Promise.all([loadSequences(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function loadSequenceEnrollments(id) {
+  const container = $(`sequenceEnrollments-${id}`);
+  if (!container) return;
+  if (!container.hidden) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = '<div class="crm-empty">Caricamento contatti...</div>';
+  try {
+    const { enrollments, total } = await api(`/api/crm/sequences/${id}/enrollments?limit=100`);
+    container.innerHTML = enrollments.length
+      ? `<div class="section-heading compact"><div><h3>Contatti nell’automazione</h3><span>${total} ${total === 1 ? 'contatto' : 'contatti'}</span></div></div><div class="table-wrap"><table><thead><tr><th>Contatto</th><th>Ingresso</th><th>Stato</th><th>Avanzamento</th><th>Prossima attività</th><th>Azioni</th></tr></thead><tbody>${enrollments.map((enrollment) => {
+        const name = [enrollment.first_name, enrollment.last_name].filter(Boolean).join(' ') || enrollment.email || enrollment.phone || 'Senza nome';
+        const progress = enrollment.status === 'completed'
+          ? `${enrollment.step_count}/${enrollment.step_count}`
+          : `${Math.max(0, enrollment.current_step + 1)}/${enrollment.step_count}`;
+        const controls = can('crm:write') && ['active', 'paused'].includes(enrollment.status)
+          ? `<div class="row-actions"><button class="secondary" data-enrollment-status="${enrollment.status === 'active' ? 'paused' : 'active'}" data-sequence-id="${id}" data-enrollment-id="${enrollment.id}">${enrollment.status === 'active' ? 'Pausa' : 'Riprendi'}</button><button class="danger" data-enrollment-status="cancelled" data-sequence-id="${id}" data-enrollment-id="${enrollment.id}">Annulla</button></div>`
+          : 'n/a';
+        return `<tr><td><div class="crm-contact-name"><strong>${esc(name)}</strong><small>${esc(enrollment.email || enrollment.phone || 'n/a')}</small></div></td><td>${esc(new Date(enrollment.created_at).toLocaleString('it-IT'))}</td><td><span class="badge ${enrollment.status === 'completed' ? 'on' : ['failed', 'cancelled'].includes(enrollment.status) ? 'off' : 'warn'}">${esc(enrollmentStatusLabel(enrollment.status))}</span></td><td>${progress}</td><td>${enrollment.next_run_at ? esc(new Date(enrollment.next_run_at).toLocaleString('it-IT')) : 'n/a'}</td><td>${controls}</td></tr>`;
+      }).join('')}</tbody></table></div>`
+      : '<div class="crm-empty">Nessun contatto è ancora entrato nell’automazione.</div>';
+    container.querySelectorAll('[data-enrollment-status]').forEach((button) => button.addEventListener('click', () => updateEnrollmentStatus(
+      button.dataset.sequenceId,
+      button.dataset.enrollmentId,
+      button.dataset.enrollmentStatus
+    )));
+  } catch (error) {
+    container.innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
+async function updateEnrollmentStatus(sequenceId, enrollmentId, status) {
+  if (status === 'cancelled' && !confirm('Annullare definitivamente questo contatto nella sequenza?')) return;
+  try {
+    await api(`/api/crm/sequences/${sequenceId}/enrollments/${enrollmentId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    toast(status === 'active' ? 'Iscrizione ripresa' : status === 'paused' ? 'Iscrizione in pausa' : 'Iscrizione annullata');
+    await loadSequences();
+    await loadSequenceEnrollments(sequenceId);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function enrollSequence(id) {
+  const select = document.querySelector(`[data-enroll-list="${id}"]`);
+  if (!select?.value) return;
+  try {
+    const result = await api(`/api/crm/sequences/${id}/enroll`, { method: 'POST', body: JSON.stringify({ listId: select.value }) });
+    toast(`${result.enrolled} contatti iscritti alla sequenza`);
+    await Promise.all([loadSequences(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function removeSequence(id) {
+  if (!confirm('Eliminare la sequenza e le iscrizioni associate?')) return;
+  try {
+    await api(`/api/crm/sequences/${id}`, { method: 'DELETE' });
+    toast('Sequenza eliminata');
+    await Promise.all([loadSequences(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+function refreshSelects() {
+  $('campaignList').innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  $('campaignTemplate').innerHTML = templateOptions();
+  const importList = $('contactImportList');
+  const selectedList = importList.value;
+  importList.innerHTML = `<option value="">Nessuna lista</option>${state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('')}`;
+  if (state.lists.some((list) => list.id === selectedList)) importList.value = selectedList;
+  const bulkList = $('bulkContactList');
+  const selectedBulkList = bulkList.value;
+  bulkList.innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  if (state.lists.some((list) => list.id === selectedBulkList)) bulkList.value = selectedBulkList;
+  const triggerList = $('sequenceTriggerList');
+  const selectedTriggerList = triggerList.value;
+  triggerList.innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  if (state.lists.some((list) => list.id === selectedTriggerList)) triggerList.value = selectedTriggerList;
+  syncSequenceTriggerFields();
+}
+
+function syncSequenceTriggerFields() {
+  const automatic = $('sequenceTriggerType').value === 'list_joined';
+  $('sequenceTriggerListWrap').hidden = !automatic;
+  $('sequenceTriggerList').required = automatic;
+}
+
+async function loadCampaigns() {
+  const { campaigns } = await api('/api/crm/campaigns');
+  state.campaigns = campaigns;
+  $('campaignsGrid').innerHTML = campaigns.length ? campaigns.map((campaign) => {
+    const done = campaign.sent_count + campaign.failed_count;
+    const percentage = campaign.total_count ? Math.round((done / campaign.total_count) * 100) : 100;
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(new Date(campaign.scheduled_at).toLocaleString('it-IT'))}</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button></div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
+  document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
+}
+
+async function loadCampaignJobs(id) {
+  const container = $(`campaignJobs-${id}`);
+  if (!container) return;
+  if (!container.hidden) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = '<div class="crm-empty">Caricamento destinatari...</div>';
+  try {
+    const { jobs, total } = await api(`/api/crm/campaigns/${id}/jobs?limit=250`);
+    const rows = jobs.map((job) => {
+      const name = [job.first_name, job.last_name].filter(Boolean).join(' ') || job.email;
+      return `<tr><td><strong>${esc(name || 'Senza nome')}</strong><br><small>${esc(job.email || 'n/a')}</small></td><td>${esc(statusLabel(job.status))}</td><td>${job.attempts}</td><td>${job.sent_at ? esc(new Date(job.sent_at).toLocaleString('it-IT')) : 'n/a'}</td><td>${esc(job.last_error || '')}</td></tr>`;
+    }).join('');
+    container.innerHTML = rows
+      ? `<div class="section-heading compact"><div><h3>Destinatari</h3><span>${total} totali</span></div></div><div class="table-wrap"><table><thead><tr><th>Contatto</th><th>Stato</th><th>Tentativi</th><th>Invio</th><th>Errore</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div class="crm-empty">Nessun destinatario.</div>';
+  } catch (error) {
+    container.innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
+async function saveCampaign(event) {
+  event.preventDefault();
+  try {
+    await api('/api/crm/campaigns', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: $('campaignName').value,
+        listId: $('campaignList').value,
+        templateId: $('campaignTemplate').value,
+        scheduledAt: $('campaignSchedule').value ? new Date($('campaignSchedule').value).toISOString() : null,
+      }),
+    });
+    $('campaignEditor').hidden = true;
+    $('campaignEditor').reset();
+    $('campaignSchedule').value = localDateTimeValue();
+    toast('Invio messo in coda');
+    await Promise.all([loadCampaigns(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+function openEditor(id) {
+  $(id).hidden = false;
+  $(id).querySelector('input:not([type="hidden"]), select, textarea')?.focus();
+}
+
+function resetContactEditor() {
+  $('contactEditor').reset();
+  $('contactId').value = '';
+  $('contactSource').value = 'manual';
+  $('contactEmailStatus').value = 'unknown';
+  $('contactEditorTitle').textContent = 'Nuovo contatto';
+  openEditor('contactEditor');
+}
+
+function resetTemplateEditor() {
+  $('templateEditor').reset();
+  $('templateId').value = '';
+  $('templateHtml').value = '<p>Ciao {{first_name}},</p><p>Scrivi qui il contenuto della tua email.</p><p>A presto.</p>';
+  $('templateVisual').innerHTML = $('templateHtml').value;
+  $('templateEditorTitle').textContent = 'Nuovo template';
+  setEditorMode('visual');
+  $('templateSaveState').textContent = 'Nuova bozza';
+  openEditor('templateEditor');
+}
+
+function resetSequenceEditor() {
+  $('sequenceEditor').reset();
+  $('sequenceId').value = '';
+  $('sequenceActive').checked = true;
+  $('sequenceTriggerType').value = state.lists.length ? 'list_joined' : 'manual';
+  syncSequenceTriggerFields();
+  $('sequenceSteps').innerHTML = '';
+  $('sequenceEditorTitle').textContent = 'Configura la sequenza';
+  $('saveSequenceBtn').textContent = 'Crea sequenza';
+  addSequenceStep();
+  openEditor('sequenceEditor');
+}
+
+function changeTab(name) {
+  document.querySelectorAll('.crm-tab').forEach((tab) => {
+    const active = tab.dataset.tab === name;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('.crm-panel').forEach((panel) => {
+    const active = panel.id === `panel-${name}`;
+    panel.hidden = !active;
+    panel.classList.toggle('active', active);
+  });
+}
+
+document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
+document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => { $(button.dataset.close).hidden = true; }));
+$('contactFilters').addEventListener('submit', (event) => { event.preventDefault(); loadContacts().catch((error) => toast(error.message, 'err')); });
+$('contactEditor').addEventListener('submit', saveContact);
+$('contactBulkEditor').addEventListener('submit', saveBulkContacts);
+$('contactImportEditor').addEventListener('submit', runContactImport);
+$('listEditor').addEventListener('submit', saveList);
+$('templateEditor').addEventListener('submit', saveTemplate);
+$('sequenceEditor').addEventListener('submit', saveSequence);
+$('campaignEditor').addEventListener('submit', saveCampaign);
+$('newContactBtn').addEventListener('click', resetContactEditor);
+$('importContactsBtn').addEventListener('click', () => resetContactImport());
+$('downloadContactTemplateBtn').addEventListener('click', downloadContactTemplate);
+$('exportContactsBtn').addEventListener('click', exportFilteredContacts);
+$('selectPageContacts').addEventListener('change', () => {
+  state.selectAllMatching = false;
+  state.contacts.forEach((contact) => {
+    if ($('selectPageContacts').checked) state.selectedContacts.add(contact.id);
+    else state.selectedContacts.delete(contact.id);
+  });
+  document.querySelectorAll('[data-select-contact]').forEach((checkbox) => { checkbox.checked = $('selectPageContacts').checked; });
+  updateContactSelectionUi();
+});
+$('selectAllFilteredBtn').addEventListener('click', selectAllFilteredContacts);
+$('clearContactSelectionBtn').addEventListener('click', clearContactSelection);
+$('openBulkEditorBtn').addEventListener('click', openBulkContactEditor);
+$('previewContactImportBtn').addEventListener('click', previewContactImport);
+$('contactCsvFile').addEventListener('change', () => {
+  state.contactImport = null;
+  $('contactImportMapping').hidden = true;
+  $('contactImportPreview').hidden = true;
+  $('runContactImportBtn').disabled = true;
+});
+document.querySelectorAll('[data-import-field], #contactImportSource, #contactImportTags').forEach((input) => input.addEventListener('change', () => {
+  state.contactImport = null;
+  $('runContactImportBtn').disabled = true;
+}));
+$('newListBtn').addEventListener('click', resetListEditor);
+$('newTemplateBtn').addEventListener('click', resetTemplateEditor);
+$('newSequenceBtn').addEventListener('click', resetSequenceEditor);
+$('newCampaignBtn').addEventListener('click', () => openEditor('campaignEditor'));
+$('addSequenceStep').addEventListener('click', () => addSequenceStep());
+$('sequenceTriggerType').addEventListener('change', syncSequenceTriggerFields);
+$('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
+$('templateVisual').addEventListener('input', updateTemplatePreview);
+$('templateVisual').addEventListener('mouseup', rememberEditorRange);
+$('templateVisual').addEventListener('keyup', rememberEditorRange);
+$('templateHtml').addEventListener('input', updateTemplatePreview);
+$('templateSubject').addEventListener('input', updateTemplatePreview);
+$('templatePreheader').addEventListener('input', updateTemplatePreview);
+document.querySelectorAll('[data-editor-mode]').forEach((button) => button.addEventListener('click', () => setEditorMode(button.dataset.editorMode)));
+document.querySelectorAll('[data-editor-command]').forEach((button) => {
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+  button.addEventListener('click', () => runEditorCommand(button.dataset.editorCommand));
+});
+$('templateBlockFormat').addEventListener('change', () => {
+  runEditorCommand('formatBlock', $('templateBlockFormat').value);
+  $('templateBlockFormat').value = 'p';
+});
+$('templateTextColor').addEventListener('input', () => runEditorCommand('foreColor', $('templateTextColor').value));
+$('templateToken').addEventListener('change', () => {
+  if ($('templateToken').value) runEditorCommand('insertText', $('templateToken').value);
+  $('templateToken').value = '';
+});
+$('insertLinkBtn').addEventListener('click', () => {
+  const value = prompt('Inserisci l’URL completo del link');
+  if (!value) return;
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) throw new Error('Unsupported URL protocol');
+    runEditorCommand('createLink', url.toString());
+  } catch {
+    toast('URL non valido', 'err');
+  }
+});
+$('insertImageBtn').addEventListener('click', () => $('templateImageFile').click());
+$('templateImageFile').addEventListener('change', async () => {
+  const [file] = $('templateImageFile').files;
+  if (!file) return;
+  try {
+    await uploadTemplateImage(file);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    $('templateImageFile').value = '';
+  }
+});
+document.querySelectorAll('[data-preview-size]').forEach((button) => button.addEventListener('click', () => {
+  const mobile = button.dataset.previewSize === 'mobile';
+  $('emailPreviewWrap').classList.toggle('mobile', mobile);
+  document.querySelectorAll('[data-preview-size]').forEach((item) => item.classList.toggle('active', item === button));
+}));
+
+(async () => {
+  try {
+    await loadMe();
+    await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadCampaigns()]);
+    await loadSequences();
+    $('campaignSchedule').value = localDateTimeValue();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+})();

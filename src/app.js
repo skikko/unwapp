@@ -9,6 +9,9 @@ const db = require('./config/db');
 const { requireAuth, requirePage } = require('./middleware/auth');
 const authService = require('./services/authService');
 const broadcastService = require('./services/broadcastService');
+const emailService = require('./services/emailService');
+const encryptionKeyGuard = require('./services/encryptionKeyGuard');
+const objectStorageService = require('./services/objectStorageService');
 
 const app = express();
 app.set('trust proxy', true);
@@ -51,6 +54,8 @@ app.use('/api/bots', require('./routes/bots'));
 app.use('/api/chat', require('./routes/chat'));
 app.use('/api/documents', require('./routes/documents'));
 app.use('/api/broadcast', require('./routes/broadcast'));
+app.use('/api/crm', require('./routes/crm'));
+app.use('/api/ingest', require('./routes/crmIngest'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/auth', require('./routes/auth'));
 
@@ -63,18 +68,51 @@ app.get('/login', (_req, res) => {
   res.sendFile(path.join(__dirname, '../views/login.html'));
 });
 
-// HTML pages protected by application-level sessions and roles.
-app.get('/', requirePage('chat:read'), (_req, res) => {
+// Pagine HTML protette da sessione e permessi applicativi.
+app.get('/', requirePage('authenticated'), (_req, res) => {
+  res.sendFile(path.join(__dirname, '../views/home.html'));
+});
+app.get('/whatsapp', requirePage('chat:read'), (_req, res) => {
   res.sendFile(path.join(__dirname, '../views/dashboard.html'));
 });
-app.get('/admin', requirePage('admin'), (_req, res) => {
+app.get('/whatsapp/bots', requirePage('admin'), (_req, res) => {
   res.sendFile(path.join(__dirname, '../views/admin.html'));
 });
-app.get('/broadcast', requirePage('broadcast:read'), (_req, res) => {
+app.get('/whatsapp/broadcast', requirePage('broadcast:read'), (_req, res) => {
   res.sendFile(path.join(__dirname, '../views/broadcast.html'));
 });
-app.get('/settings', requirePage('admin'), (_req, res) => {
+app.get('/crm', requirePage('crm:read'), (_req, res) => {
+  res.sendFile(path.join(__dirname, '../views/crm.html'));
+});
+app.get('/whatsapp/settings', requirePage('admin'), (_req, res) => {
   res.sendFile(path.join(__dirname, '../views/settings.html'));
+});
+app.get('/crm/settings', requirePage('admin'), (_req, res) => {
+  res.sendFile(path.join(__dirname, '../views/crm-settings.html'));
+});
+app.get('/users', requirePage('admin'), (_req, res) => {
+  res.sendFile(path.join(__dirname, '../views/users.html'));
+});
+
+app.get('/admin', requirePage('admin'), (_req, res) => res.redirect('/whatsapp/bots'));
+app.get('/broadcast', requirePage('broadcast:read'), (_req, res) => res.redirect('/whatsapp/broadcast'));
+app.get('/settings', requirePage('admin'), (_req, res) => res.redirect('/whatsapp/settings'));
+
+app.use((error, req, res, _next) => {
+  console.error('Request error:', error.message);
+  let databaseStatus = null;
+  let databaseMessage = null;
+  if (error.code === '23505') {
+    databaseStatus = 409;
+    databaseMessage = 'Esiste già un contatto con questa email o questo telefono';
+  } else if (error.code === '23503') {
+    databaseStatus = 409;
+    databaseMessage = 'La risorsa è ancora utilizzata e non può essere eliminata';
+  }
+  if (req.originalUrl.startsWith('/api/')) {
+    return res.status(error.status || databaseStatus || 500).json({ error: databaseMessage || error.message });
+  }
+  return res.status(error.status || 500).send('Internal server error');
 });
 
 io.use(async (socket, next) => {
@@ -101,26 +139,70 @@ const PORT = process.env.PORT || 8080;
 async function start() {
   try {
     await db.ping();
-    console.log('✅ Postgres reachable');
+    console.log('OK Postgres reachable');
+    const encryptionKeyStatus = await encryptionKeyGuard.verifyEncryptionKey();
+    console.log(`OK APP_ENCRYPTION_KEY ${encryptionKeyStatus}`);
+    console.log(`OK Media storage ${objectStorageService.validateConfiguration()}`);
     const bootstrapped = await authService.ensureBootstrapAdmin();
-    if (bootstrapped) console.log('🔐 Bootstrap administrator created');
+    if (bootstrapped) console.log('OK Bootstrap administrator created');
     const resumed = await broadcastService.resumePending();
-    if (resumed) console.log(`↻ ${resumed} broadcast ripresi`);
+    if (resumed) console.log(`OK ${resumed} broadcast resumed`);
+    emailService.startWorker();
   } catch (err) {
-    console.error('❌ Postgres not reachable:', err.message);
+    console.error('ERROR Application startup failed:', err.message);
     process.exit(1);
   }
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server listening on :${PORT}`);
+    console.log(`OK Server listening on :${PORT}`);
   });
 }
 start();
 
-for (const sig of ['SIGTERM', 'SIGINT']) {
-  process.on(sig, async () => {
-    console.log(`🛑 ${sig}, shutting down`);
-    server.close(() => process.exit(0));
-    try { await db.pool.end(); } catch {}
-    setTimeout(() => process.exit(0), 5000).unref();
+let shutdownStarted = false;
+
+function closeHttpServer() {
+  io.disconnectSockets(true);
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
   });
+}
+
+async function shutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  console.log(`WARN ${signal}, graceful shutdown started`);
+  broadcastService.beginShutdown();
+
+  const timeoutMs = 50_000;
+  let timeout;
+  const deadline = new Promise((resolve) => {
+    timeout = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  const drained = Promise.all([
+    closeHttpServer(),
+    broadcastService.waitForIdle(),
+    emailService.stopWorker(),
+  ]).then(() => 'drained');
+
+  try {
+    const result = await Promise.race([drained, deadline]);
+    if (result === 'timeout') {
+      console.error('ERROR Graceful shutdown timed out');
+      process.exit(1);
+    }
+    clearTimeout(timeout);
+    await db.pool.end();
+    console.log('OK Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    console.error('ERROR Graceful shutdown failed:', error.message);
+    process.exit(1);
+  }
+}
+
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => shutdown(sig));
 }

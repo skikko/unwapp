@@ -54,9 +54,25 @@ async function recentHistoryText(conversationId, n = 20) {
     .join('\n');
 }
 
+async function getByTwilioSid(twilioSid) {
+  const { rows } = await db.query('SELECT * FROM messages WHERE twilio_sid=$1', [twilioSid]);
+  return rows[0] || null;
+}
+
+async function updateDeliveryStatus(twilioSid, status) {
+  const { rows } = await db.query(
+    `UPDATE messages SET provider_status=$2,status_updated_at=now()
+     WHERE twilio_sid=$1 RETURNING *`,
+    [twilioSid, status]
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
   add,
   listByConversation,
   remove,
   recentHistoryText,
+  getByTwilioSid,
+  updateDeliveryStatus,
 };

@@ -22,9 +22,12 @@ form.addEventListener('submit', async (event) => {
     const next = params.get('next');
     const permissions = payload.user.permissions || [];
     const can = (permission) => permissions.includes('*') || permissions.includes(permission);
-    const landingPage = can('chat:read') ? '/' : can('broadcast:read') ? '/broadcast' : can('admin') ? '/admin' : '/login';
+    const landingPage = can('chat:read') || can('crm:read') || can('admin') ? '/' : '/login';
     const nextAllowed = next && next.startsWith('/') && !next.startsWith('//') && (
-      (next === '/' && can('chat:read')) ||
+      next === '/' ||
+      (next.startsWith('/whatsapp') && (can('chat:read') || can('broadcast:read') || can('admin'))) ||
+      (next.startsWith('/crm') && (can('crm:read') || can('admin'))) ||
+      (next.startsWith('/users') && can('admin')) ||
       (next.startsWith('/broadcast') && can('broadcast:read')) ||
       ((next.startsWith('/admin') || next.startsWith('/settings')) && can('admin'))
     );

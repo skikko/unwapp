@@ -6,9 +6,8 @@ const COOKIE_NAME = 'un_session';
 const SESSION_HOURS = Math.max(1, Number(process.env.SESSION_HOURS || 12));
 const ROLES = {
   admin: ['*'],
-  operator: ['bots:read', 'chat:read', 'chat:write'],
-  broadcaster: ['bots:read', 'broadcast:read', 'broadcast:write'],
-  viewer: ['bots:read', 'chat:read', 'broadcast:read'],
+  whatsapp_user: ['bots:read', 'chat:read', 'chat:write', 'broadcast:read', 'broadcast:write'],
+  crm_user: ['crm:read', 'crm:write'],
 };
 
 function normalizeUsername(value) {

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UN Platform | Utenti</title>
+  <meta name="theme-color" content="#171a23" />
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>Platform</strong><small>United Network</small></span></a>
+      <nav aria-label="Navigazione principale">
+        <a href="/">Piattaforma</a>
+        <a href="/users" class="active">Utenti</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="page-shell settings-page">
+      <div class="page-heading"><div><span class="eyebrow">Amministrazione</span><h1>Utenti e accessi</h1><p>Ogni utente accede a una sola applicazione, salvo gli amministratori.</p></div><button id="newUserBtn">Nuovo account</button></div>
+
+      <section class="card settings-card">
+        <div class="role-legend platform-roles">
+          <div><strong>Amministratore</strong><span>Accesso completo a entrambe le applicazioni e alle impostazioni.</span></div>
+          <div><strong>WhatsApp User</strong><span>Conversazioni, BOT operativi e broadcast WhatsApp.</span></div>
+          <div><strong>CRM User</strong><span>Contatti, liste, template e invii email.</span></div>
+        </div>
+        <form id="userEditor" class="user-editor" hidden>
+          <div class="grid-2">
+            <div class="form-field"><label for="newUsername">Nome utente</label><input id="newUsername" autocomplete="off" required /></div>
+            <div class="form-field"><label for="newDisplayName">Nome visualizzato</label><input id="newDisplayName" required /></div>
+            <div class="form-field"><label for="newPassword">Password</label><input id="newPassword" type="password" autocomplete="new-password" minlength="10" required /><small>Almeno 10 caratteri.</small></div>
+            <div class="form-field"><label for="newRole">Ruolo</label><select id="newRole"><option value="whatsapp_user">WhatsApp User</option><option value="crm_user">CRM User</option><option value="admin">Amministratore</option></select></div>
+          </div>
+          <div class="form-actions"><button type="submit">Crea account</button><button class="secondary" type="button" id="cancelUserBtn">Annulla</button></div>
+        </form>
+        <div id="usersList" class="users-list"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/users.js"></script>
+</body>
+</html>

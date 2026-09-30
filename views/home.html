@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UN Platform</title>
+  <meta name="theme-color" content="#171a23" />
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body class="platform-home-body">
+  <main class="platform-home">
+    <header class="platform-home-header">
+      <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>Platform</strong><small>United Network</small></span></a>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <section class="platform-intro">
+      <span class="eyebrow">Area di lavoro</span>
+      <h1>Scegli l’applicazione</h1>
+      <p>Ogni area mantiene dati, funzioni e impostazioni separate.</p>
+    </section>
+
+    <section class="platform-apps" aria-label="Applicazioni disponibili">
+      <a class="platform-app-card whatsapp" href="/whatsapp" data-permission="chat:read">
+        <span class="platform-app-code">WA</span>
+        <div><span class="eyebrow">Messaggistica</span><h2>WhatsApp Manager</h2><p>Conversazioni, BOT, template Twilio e broadcast.</p></div>
+        <span class="platform-app-action">Entra in WhatsApp Manager</span>
+      </a>
+      <a class="platform-app-card crm" href="/crm" data-permission="crm:read">
+        <span class="platform-app-code">CRM</span>
+        <div><span class="eyebrow">Contatti e email</span><h2>CRM</h2><p>Liste, template email, single send e sequenze.</p></div>
+        <span class="platform-app-action">Entra nel CRM</span>
+      </a>
+    </section>
+
+    <section class="platform-admin" data-permission="admin" hidden>
+      <div><span class="eyebrow">Amministrazione</span><h2>Utenti e accessi</h2><p>Crea gli account e assegna l’applicazione corretta.</p></div>
+      <a class="button-link secondary" href="/users">Gestisci utenti</a>
+    </section>
+
+    <div class="platform-empty" id="platformEmpty" hidden>Il tuo account non ha accesso ad alcuna applicazione. Contatta un amministratore.</div>
+  </main>
+  <script src="/js/home.js"></script>
+</body>
+</html>

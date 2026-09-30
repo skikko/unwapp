@@ -4,6 +4,8 @@ const messageRepo = require('../repos/messageRepo');
 const twilioService = require('../services/twilioService');
 const aiService = require('../services/aiService');
 const mediaService = require('../services/mediaService');
+const crmService = require('../services/crmService');
+const broadcastRepo = require('../repos/broadcastRepo');
 
 async function handleIncomingMessage(req, res) {
   try {
@@ -13,6 +15,7 @@ async function handleIncomingMessage(req, res) {
     if (!From || !To || (!bodyText && !hasMedia) || !MessageSid) {
       return res.status(400).send('Missing parameters');
     }
+    if (await messageRepo.getByTwilioSid(MessageSid)) return res.status(200).send('OK');
 
     const bot = await botRepo.getByTwilioNumber(To);
     if (!bot || !bot.active) {
@@ -23,6 +26,17 @@ async function handleIncomingMessage(req, res) {
     const fromPhone = twilioService.stripWhatsAppPrefix(From);
 
     const conversation = await conversationRepo.upsert(bot.id, fromPhone);
+
+    try {
+      await crmService.saveContact({
+        firstName: req.body?.ProfileName || null,
+        phone: fromPhone,
+        source: 'whatsapp',
+        customFields: { lastBotId: bot.id },
+      }, { defaultSource: 'whatsapp' });
+    } catch (error) {
+      console.error('[webhook] CRM contact sync error:', error.message);
+    }
 
     let media = {};
     if (hasMedia) {
@@ -166,7 +180,12 @@ async function handleIncomingMessage(req, res) {
 }
 
 async function handleDeliveryStatus(req, res) {
-  const { MessageSid, MessageStatus } = req.body || {};
+  const { MessageSid, MessageStatus, ErrorCode, ErrorMessage } = req.body || {};
+  if (!MessageSid || !MessageStatus) return res.status(400).send('Missing parameters');
+  await Promise.all([
+    messageRepo.updateDeliveryStatus(MessageSid, MessageStatus),
+    broadcastRepo.updateDeliveryStatus(MessageSid, MessageStatus, ErrorCode || null, ErrorMessage || null),
+  ]);
   console.log(`[webhook] status ${MessageSid}: ${MessageStatus}`);
   res.status(200).send('OK');
 }

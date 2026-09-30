@@ -4,10 +4,11 @@ const authService = require('../src/services/authService');
 
 test('i ruoli espongono solo i permessi previsti', () => {
   assert.equal(authService.can({ permissions: ['*'] }, 'admin'), true);
-  assert.equal(authService.can({ permissions: authService.ROLES.operator }, 'chat:write'), true);
-  assert.equal(authService.can({ permissions: authService.ROLES.operator }, 'broadcast:write'), false);
-  assert.equal(authService.can({ permissions: authService.ROLES.broadcaster }, 'broadcast:write'), true);
-  assert.equal(authService.can({ permissions: authService.ROLES.viewer }, 'chat:write'), false);
+  assert.equal(authService.can({ permissions: authService.ROLES.whatsapp_user }, 'chat:write'), true);
+  assert.equal(authService.can({ permissions: authService.ROLES.whatsapp_user }, 'broadcast:write'), true);
+  assert.equal(authService.can({ permissions: authService.ROLES.whatsapp_user }, 'crm:read'), false);
+  assert.equal(authService.can({ permissions: authService.ROLES.crm_user }, 'crm:write'), true);
+  assert.equal(authService.can({ permissions: authService.ROLES.crm_user }, 'chat:read'), false);
 });
 
 test('il cookie di sessione è HttpOnly e viene letto correttamente', () => {

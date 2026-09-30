@@ -69,7 +69,7 @@ async function loadBots() {
   state.bots = bots;
   const el = $('botsList');
   if (!bots.length) {
-    el.innerHTML = '<div class="empty-list">Nessun BOT.<br><br><a class="text-link" href="/admin">Crea un BOT</a></div>';
+    el.innerHTML = '<div class="empty-list">Nessun BOT.<br><br><a class="text-link" href="/whatsapp/bots">Crea un BOT</a></div>';
     return;
   }
   el.innerHTML = bots.map((c) => `

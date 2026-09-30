@@ -76,14 +76,49 @@ async function listRecipients(campaignId, { limit = 200 } = {}) {
   return rows;
 }
 
-async function nextPendingRecipient(campaignId) {
+async function claimNextRecipient(campaignId) {
   const { rows } = await db.query(
-    `SELECT * FROM broadcast_recipients
-     WHERE campaign_id = $1 AND status = 'pending'
-     ORDER BY row_number ASC LIMIT 1`,
+    `WITH next_recipient AS (
+       SELECT id
+       FROM broadcast_recipients
+       WHERE campaign_id = $1 AND status = 'pending'
+       ORDER BY row_number ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT 1
+     )
+     UPDATE broadcast_recipients recipient
+     SET status = 'processing',
+         claimed_at = now(),
+         claim_token = gen_random_uuid(),
+         error_code = NULL,
+         error_message = NULL
+     FROM next_recipient
+     WHERE recipient.id = next_recipient.id
+     RETURNING recipient.*`,
     [campaignId]
   );
   return rows[0] || null;
+}
+
+async function failStaleClaims(timeoutMinutes) {
+  const { rowCount } = await db.query(
+    `UPDATE broadcast_recipients
+     SET status = 'failed',
+         error_code = 'worker_interrupted',
+         error_message = 'Delivery outcome unknown after worker interruption'
+     WHERE status = 'processing'
+       AND claimed_at < now() - ($1 * interval '1 minute')`,
+    [timeoutMinutes]
+  );
+  return rowCount;
+}
+
+async function verifyClaimSchema() {
+  await db.query(
+    `SELECT claimed_at, claim_token
+     FROM broadcast_recipients
+     LIMIT 0`
+  );
 }
 
 async function markRunning(id) {
@@ -95,22 +130,24 @@ async function markRunning(id) {
   );
 }
 
-async function markRecipientSent(id, twilioSid) {
-  await db.query(
+async function markRecipientSent(id, claimToken, twilioSid) {
+  const { rowCount } = await db.query(
     `UPDATE broadcast_recipients
-     SET status = 'sent', twilio_sid = $2, sent_at = now()
-     WHERE id = $1`,
-    [id, twilioSid]
+     SET status = 'sent', twilio_sid = $3, sent_at = now()
+     WHERE id = $1 AND claim_token = $2 AND status = 'processing'`,
+    [id, claimToken, twilioSid]
   );
+  return rowCount === 1;
 }
 
-async function markRecipientFailed(id, error) {
-  await db.query(
+async function markRecipientFailed(id, claimToken, error) {
+  const { rowCount } = await db.query(
     `UPDATE broadcast_recipients
-     SET status = 'failed', error_code = $2, error_message = $3
-     WHERE id = $1`,
-    [id, error.code ? String(error.code) : null, String(error.message || error).slice(0, 1000)]
+     SET status = 'failed', error_code = $3, error_message = $4
+     WHERE id = $1 AND claim_token = $2 AND status = 'processing'`,
+    [id, claimToken, error.code ? String(error.code) : null, String(error.message || error).slice(0, 1000)]
   );
+  return rowCount === 1;
 }
 
 async function refreshCounts(campaignId) {
@@ -131,25 +168,26 @@ async function refreshCounts(campaignId) {
   return rows[0] || null;
 }
 
-async function markCompleted(id) {
-  await refreshCounts(id);
+async function markCompletedIfIdle(id) {
   const { rows } = await db.query(
-    `UPDATE broadcast_campaigns
-     SET status = CASE WHEN failed_count > 0 THEN 'completed_with_errors' ELSE 'completed' END,
+    `WITH counts AS (
+       SELECT count(*) FILTER (WHERE status = 'sent')::int AS sent,
+              count(*) FILTER (WHERE status = 'failed')::int AS failed,
+              count(*) FILTER (WHERE status IN ('pending', 'processing'))::int AS active
+       FROM broadcast_recipients
+       WHERE campaign_id = $1
+     )
+     UPDATE broadcast_campaigns campaign
+     SET sent_count = counts.sent,
+         failed_count = counts.failed,
+         status = CASE WHEN counts.failed > 0 THEN 'completed_with_errors' ELSE 'completed' END,
          completed_at = now()
-     WHERE id = $1 RETURNING *`,
+     FROM counts
+     WHERE campaign.id = $1 AND counts.active = 0
+     RETURNING campaign.*`,
     [id]
   );
-  return rows[0];
-}
-
-async function markFailed(id, message) {
-  await db.query(
-    `UPDATE broadcast_campaigns
-     SET status = 'failed', failure_reason = $2, completed_at = now()
-     WHERE id = $1`,
-    [id, String(message || '').slice(0, 1000)]
-  );
+  return rows[0] || null;
 }
 
 async function pendingCampaignIds() {
@@ -159,8 +197,21 @@ async function pendingCampaignIds() {
   return rows.map((row) => row.id);
 }
 
+async function updateDeliveryStatus(twilioSid, status, errorCode = null, errorMessage = null) {
+  const { rows } = await db.query(
+    `UPDATE broadcast_recipients SET
+       delivery_status=$2,status_updated_at=now(),
+       error_code=COALESCE($3,error_code),error_message=COALESCE($4,error_message)
+     WHERE twilio_sid=$1 RETURNING *`,
+    [twilioSid, status, errorCode, errorMessage]
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
   createCampaign, listCampaigns, getCampaign, listRecipients,
-  nextPendingRecipient, markRunning, markRecipientSent, markRecipientFailed,
-  refreshCounts, markCompleted, markFailed, pendingCampaignIds,
+  claimNextRecipient, failStaleClaims, verifyClaimSchema, markRunning,
+  markRecipientSent, markRecipientFailed, refreshCounts, markCompletedIfIdle,
+  pendingCampaignIds,
+  updateDeliveryStatus,
 };

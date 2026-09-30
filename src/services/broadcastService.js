@@ -3,9 +3,14 @@ const conversationRepo = require('../repos/conversationRepo');
 const messageRepo = require('../repos/messageRepo');
 const twilioService = require('./twilioService');
 
-const running = new Set();
+const running = new Map();
 const delayMs = Math.max(0, Number(process.env.BROADCAST_DELAY_MS || 100));
+const configuredClaimTimeout = Number(process.env.BROADCAST_CLAIM_TIMEOUT_MINUTES || 60);
+const claimTimeoutMinutes = Number.isFinite(configuredClaimTimeout) && configuredClaimTimeout > 0
+  ? configuredClaimTimeout
+  : 60;
 let socketServer = null;
+let stopping = false;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -69,9 +74,7 @@ async function saveChatMessage(campaign, recipient, template, twilioSid) {
   }
 }
 
-async function runCampaign(campaignId) {
-  if (running.has(campaignId)) return;
-  running.add(campaignId);
+async function processCampaign(campaignId) {
   try {
     const campaign = await broadcastRepo.getCampaign(campaignId);
     if (!campaign || !['queued', 'running'].includes(campaign.status)) return;
@@ -83,9 +86,10 @@ async function runCampaign(campaignId) {
       console.warn(`[broadcast:${campaignId}] template fetch failed:`, error.message);
     }
 
-    let recipient = await broadcastRepo.nextPendingRecipient(campaignId);
     let processedSinceRefresh = 0;
-    while (recipient) {
+    while (!stopping) {
+      const recipient = await broadcastRepo.claimNextRecipient(campaignId);
+      if (!recipient) break;
       try {
         const message = await twilioService.sendTemplate({
           from: campaign.twilio_number,
@@ -93,7 +97,12 @@ async function runCampaign(campaignId) {
           contentSid: campaign.template_sid,
           contentVariables: recipient.content_variables || {},
         });
-        await broadcastRepo.markRecipientSent(recipient.id, message.sid);
+        const marked = await broadcastRepo.markRecipientSent(
+          recipient.id,
+          recipient.claim_token,
+          message.sid
+        );
+        if (!marked) throw new Error('Broadcast recipient claim was lost before confirmation');
         try {
           await saveChatMessage(campaign, recipient, template, message.sid);
         } catch (error) {
@@ -101,7 +110,7 @@ async function runCampaign(campaignId) {
         }
       } catch (error) {
         console.error(`[broadcast:${campaignId}] recipient ${recipient.id}:`, error.message);
-        await broadcastRepo.markRecipientFailed(recipient.id, error);
+        await broadcastRepo.markRecipientFailed(recipient.id, recipient.claim_token, error);
       }
 
       processedSinceRefresh += 1;
@@ -110,19 +119,25 @@ async function runCampaign(campaignId) {
         processedSinceRefresh = 0;
       }
       if (delayMs) await wait(delayMs);
-      recipient = await broadcastRepo.nextPendingRecipient(campaignId);
     }
-    await broadcastRepo.markCompleted(campaignId);
+    await broadcastRepo.markCompletedIfIdle(campaignId);
   } catch (error) {
     console.error(`[broadcast:${campaignId}] stopped:`, error);
-    await broadcastRepo.markFailed(campaignId, error.message).catch(() => {});
-  } finally {
-    running.delete(campaignId);
   }
 }
 
+function runCampaign(campaignId) {
+  if (stopping) return Promise.resolve();
+  if (running.has(campaignId)) return running.get(campaignId);
+  const task = processCampaign(campaignId).finally(() => running.delete(campaignId));
+  running.set(campaignId, task);
+  return task;
+}
+
 function enqueue(campaignId) {
+  if (stopping) return false;
   setImmediate(() => runCampaign(campaignId));
+  return true;
 }
 
 function setSocketServer(io) {
@@ -130,9 +145,29 @@ function setSocketServer(io) {
 }
 
 async function resumePending() {
+  await broadcastRepo.verifyClaimSchema();
+  const staleClaims = await broadcastRepo.failStaleClaims(claimTimeoutMinutes);
+  if (staleClaims) {
+    console.warn(`WARN ${staleClaims} stale broadcast claims marked as failed`);
+  }
   const ids = await broadcastRepo.pendingCampaignIds();
   ids.forEach(enqueue);
   return ids.length;
 }
 
-module.exports = { enqueue, runCampaign, resumePending, setSocketServer };
+function beginShutdown() {
+  stopping = true;
+}
+
+async function waitForIdle() {
+  await Promise.allSettled([...running.values()]);
+}
+
+module.exports = {
+  enqueue,
+  runCampaign,
+  resumePending,
+  setSocketServer,
+  beginShutdown,
+  waitForIdle,
+};

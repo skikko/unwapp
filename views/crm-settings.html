@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UN CRM | Impostazioni</title>
+  <meta name="theme-color" content="#171a23" />
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
+      <nav aria-label="Navigazione principale">
+        <a href="/">Piattaforma</a>
+        <a href="/crm" data-permission="crm:read">CRM</a>
+        <a href="/crm/settings" class="active" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="page-shell settings-page">
+      <div class="page-heading"><div><span class="eyebrow">CRM</span><h1>Impostazioni</h1></div><span class="badge" id="senderStatus">Non configurato</span></div>
+      <form class="card settings-card" id="senderEditor">
+        <div class="section-heading"><div><span class="step-number">01</span><h2>Sender email</h2></div></div>
+        <div class="grid-2">
+          <div class="form-field"><label for="senderProvider">Provider</label><select id="senderProvider"><option value="gmail">Gmail</option><option value="smtp">SMTP personalizzato</option></select></div>
+          <div class="form-field"><label for="senderHost">Host SMTP</label><input id="senderHost" /></div>
+          <div class="form-field"><label for="senderPort">Porta</label><input id="senderPort" type="number" min="1" max="65535" /></div>
+          <label class="check-field"><input id="senderSecure" type="checkbox" /> Connessione TLS diretta</label>
+          <div class="form-field"><label for="senderUsername">Username</label><input id="senderUsername" autocomplete="off" /></div>
+          <div class="form-field"><label for="senderPassword">Password o app password</label><input id="senderPassword" type="password" autocomplete="new-password" placeholder="Lascia vuoto per non modificarla" /><small id="senderPasswordHint"></small></div>
+          <div class="form-field"><label for="senderFromName">Nome mittente</label><input id="senderFromName" /></div>
+          <div class="form-field"><label for="senderFromEmail">Email mittente</label><input id="senderFromEmail" type="email" /></div>
+          <div class="form-field span-2"><label for="senderReplyTo">Reply-to</label><input id="senderReplyTo" type="email" /></div>
+        </div>
+        <div class="info-banner"><strong>Gmail</strong><span>Usa una app password con verifica in due passaggi. Non inserire la password principale dell’account.</span></div>
+        <div class="form-actions"><button type="submit">Salva sender</button><button class="secondary" type="button" id="testSenderBtn">Verifica connessione</button></div>
+      </form>
+
+      <section class="card settings-card crm-endpoint-card">
+        <div class="section-heading"><div><span class="step-number">02</span><h2>API contatti</h2></div></div>
+        <p>WordPress, Meta e altri sistemi possono creare o aggiornare contatti con una richiesta autenticata.</p>
+        <pre><code>POST /api/ingest/contacts
+Authorization: Bearer &lt;CRM_API_KEY&gt;
+Idempotency-Key: &lt;identificativo-univoco&gt;
+Content-Type: application/json
+
+{
+  "source": "wordpress",
+  "email": "nome@example.com",
+  "firstName": "Nome",
+  "tags": ["landing"]
+}</code></pre>
+        <p>WhatsApp aggiorna automaticamente la rubrica quando arriva un messaggio.</p>
+      </section>
+
+      <section class="card settings-card">
+        <div class="section-heading"><div><span class="step-number">03</span><h2>Chiavi API</h2></div></div>
+        <form id="apiKeyEditor">
+          <div class="grid-2">
+            <div class="form-field"><label for="apiKeyName">Nome integrazione</label><input id="apiKeyName" placeholder="Form sito istituzionale" required /></div>
+            <div class="form-field"><label for="apiKeySource">Origine contatti</label><input id="apiKeySource" placeholder="wordpress" required /></div>
+            <div class="form-field"><label for="apiKeyExpiresAt">Scadenza opzionale</label><input id="apiKeyExpiresAt" type="date" /></div>
+            <label class="check-field"><input id="apiKeyContactsScope" type="checkbox" checked /> Scrittura contatti</label>
+          </div>
+          <div class="form-actions"><button type="submit">Crea chiave</button></div>
+        </form>
+        <div class="info-banner" id="apiKeySecret" hidden><strong>Nuova chiave</strong><code id="apiKeySecretValue"></code><span>Copiala ora: non verrà mostrata di nuovo.</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Integrazione</th><th>Origine</th><th>Prefisso</th><th>Scope</th><th>Ultimo utilizzo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody id="apiKeysBody"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/crm-settings.js"></script>
+</body>
+</html>

@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS messages (
   media_name         TEXT,
   actions            JSONB NOT NULL DEFAULT '[]'::jsonb,
   content_sid        TEXT,
+  provider_status    TEXT,
+  status_updated_at  TIMESTAMPTZ,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT;
@@ -61,22 +63,30 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS actions JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_sid TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS provider_status TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
   ON messages (conversation_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_twilio_sid
+  ON messages (twilio_sid) WHERE twilio_sid IS NOT NULL;
 
--- Media are stored in PostgreSQL for the initial Render deployment. Public
--- access uses an unguessable token whose hash alone is persisted here.
+-- I media possono risiedere nel database o in uno storage S3 compatibile.
 CREATE TABLE IF NOT EXISTS media_assets (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   token_hash         TEXT UNIQUE NOT NULL,
   filename           TEXT NOT NULL,
   content_type       TEXT NOT NULL,
   byte_size          INT NOT NULL,
-  data               BYTEA NOT NULL,
+  data               BYTEA,
+  storage_provider   TEXT NOT NULL DEFAULT 'database',
+  storage_key        TEXT,
   uploaded_by        TEXT,
   purpose            TEXT NOT NULL DEFAULT 'chat',
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE media_assets ALTER COLUMN data DROP NOT NULL;
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS storage_provider TEXT NOT NULL DEFAULT 'database';
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS storage_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_media_assets_created ON media_assets (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -135,18 +145,31 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
   contact_data       JSONB NOT NULL DEFAULT '{}',
   content_variables  JSONB NOT NULL DEFAULT '{}',
   status             TEXT NOT NULL DEFAULT 'pending'
-                     CHECK (status IN ('pending','sent','failed')),
+                     CHECK (status IN ('pending','processing','sent','failed')),
+  claimed_at         TIMESTAMPTZ,
+  claim_token        UUID,
   twilio_sid         TEXT,
   error_code         TEXT,
   error_message      TEXT,
+  delivery_status    TEXT,
+  status_updated_at  TIMESTAMPTZ,
   sent_at            TIMESTAMPTZ,
   UNIQUE (campaign_id, row_number)
 );
 ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS contact_name TEXT;
+ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS claim_token UUID;
+ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS delivery_status TEXT;
+ALTER TABLE broadcast_recipients ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
+ALTER TABLE broadcast_recipients DROP CONSTRAINT IF EXISTS broadcast_recipients_status_check;
+ALTER TABLE broadcast_recipients ADD CONSTRAINT broadcast_recipients_status_check
+  CHECK (status IN ('pending','processing','sent','failed'));
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_pending
   ON broadcast_recipients (campaign_id, status, row_number);
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_phone
   ON broadcast_recipients (phone_number, campaign_id);
+CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_twilio_sid
+  ON broadcast_recipients (twilio_sid) WHERE twilio_sid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key                TEXT PRIMARY KEY,
@@ -160,8 +183,8 @@ CREATE TABLE IF NOT EXISTS app_users (
   username           TEXT UNIQUE NOT NULL,
   display_name       TEXT NOT NULL,
   password_hash      TEXT NOT NULL,
-  role               TEXT NOT NULL DEFAULT 'viewer'
-                     CHECK (role IN ('admin','operator','broadcaster','viewer')),
+  role               TEXT NOT NULL DEFAULT 'whatsapp_user'
+                     CHECK (role IN ('admin','whatsapp_user','crm_user')),
   active             BOOLEAN NOT NULL DEFAULT TRUE,
   last_login_at      TIMESTAMPTZ,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -178,6 +201,13 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at);
 
+ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check;
+UPDATE app_users
+SET role = 'whatsapp_user'
+WHERE role IN ('operator', 'broadcaster', 'viewer');
+ALTER TABLE app_users ADD CONSTRAINT app_users_role_check
+  CHECK (role IN ('admin', 'whatsapp_user', 'crm_user'));
+
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
@@ -190,4 +220,241 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_app_users_updated_at ON app_users;
 CREATE TRIGGER trg_app_users_updated_at
 BEFORE UPDATE ON app_users
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- CRM leggero per contatti, liste dinamiche, email e sequenze.
+CREATE TABLE IF NOT EXISTS crm_contacts (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name         TEXT,
+  last_name          TEXT,
+  email              TEXT,
+  email_normalized   TEXT UNIQUE,
+  phone              TEXT,
+  phone_normalized   TEXT UNIQUE,
+  source             TEXT NOT NULL DEFAULT 'manual',
+  email_status       TEXT NOT NULL DEFAULT 'unknown'
+                     CHECK (email_status IN ('unknown','subscribed','unsubscribed','bounced')),
+  tags               TEXT[] NOT NULL DEFAULT '{}',
+  custom_fields      JSONB NOT NULL DEFAULT '{}',
+  consent_at         TIMESTAMPTZ,
+  consent_source     TEXT,
+  consent_proof      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (email_normalized IS NOT NULL OR phone_normalized IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_created ON crm_contacts (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_source ON crm_contacts (source);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_status ON crm_contacts (email_status);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_tags ON crm_contacts USING GIN (tags);
+ALTER TABLE crm_contacts DROP CONSTRAINT IF EXISTS crm_contacts_email_status_check;
+ALTER TABLE crm_contacts ADD CONSTRAINT crm_contacts_email_status_check
+  CHECK (email_status IN ('unknown','subscribed','unsubscribed','bounced'));
+
+CREATE TABLE IF NOT EXISTS crm_lists (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  description        TEXT,
+  filter_json        JSONB NOT NULL DEFAULT '{}',
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS crm_list_memberships (
+  list_id            UUID NOT NULL REFERENCES crm_lists(id) ON DELETE CASCADE,
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  source             TEXT NOT NULL DEFAULT 'manual',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (list_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_list_memberships_contact
+  ON crm_list_memberships (contact_id);
+
+CREATE TABLE IF NOT EXISTS crm_list_exclusions (
+  list_id            UUID NOT NULL REFERENCES crm_lists(id) ON DELETE CASCADE,
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  source             TEXT NOT NULL DEFAULT 'manual',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (list_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_list_exclusions_contact
+  ON crm_list_exclusions (contact_id);
+
+CREATE TABLE IF NOT EXISTS crm_contact_events (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  event_type         TEXT NOT NULL,
+  event_data         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  actor              TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_contact_events_contact
+  ON crm_contact_events (contact_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS crm_email_templates (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  subject            TEXT NOT NULL,
+  preheader          TEXT,
+  html_body          TEXT NOT NULL,
+  text_body          TEXT,
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS crm_sequences (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  description        TEXT,
+  active             BOOLEAN NOT NULL DEFAULT TRUE,
+  trigger_type       TEXT NOT NULL DEFAULT 'manual',
+  trigger_list_id    UUID REFERENCES crm_lists(id) ON DELETE RESTRICT,
+  trigger_started_at TIMESTAMPTZ,
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE crm_sequences ADD COLUMN IF NOT EXISTS trigger_type TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE crm_sequences ADD COLUMN IF NOT EXISTS trigger_list_id UUID REFERENCES crm_lists(id) ON DELETE RESTRICT;
+ALTER TABLE crm_sequences ADD COLUMN IF NOT EXISTS trigger_started_at TIMESTAMPTZ;
+ALTER TABLE crm_sequences DROP CONSTRAINT IF EXISTS crm_sequences_trigger_type_check;
+ALTER TABLE crm_sequences ADD CONSTRAINT crm_sequences_trigger_type_check
+  CHECK (trigger_type IN ('manual','list_joined'));
+ALTER TABLE crm_sequences DROP CONSTRAINT IF EXISTS crm_sequences_trigger_configuration_check;
+ALTER TABLE crm_sequences ADD CONSTRAINT crm_sequences_trigger_configuration_check
+  CHECK (
+    (trigger_type = 'manual' AND trigger_list_id IS NULL AND trigger_started_at IS NULL)
+    OR
+    (trigger_type = 'list_joined' AND trigger_list_id IS NOT NULL AND trigger_started_at IS NOT NULL)
+  );
+CREATE INDEX IF NOT EXISTS idx_crm_sequences_trigger_list
+  ON crm_sequences (trigger_list_id) WHERE trigger_type = 'list_joined';
+
+CREATE TABLE IF NOT EXISTS crm_sequence_steps (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sequence_id        UUID NOT NULL REFERENCES crm_sequences(id) ON DELETE CASCADE,
+  position           INT NOT NULL CHECK (position >= 0),
+  delay_minutes      INT NOT NULL DEFAULT 0 CHECK (delay_minutes >= 0),
+  template_id        UUID NOT NULL REFERENCES crm_email_templates(id) ON DELETE RESTRICT,
+  UNIQUE (sequence_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sequence_enrollments (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sequence_id        UUID NOT NULL REFERENCES crm_sequences(id) ON DELETE CASCADE,
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  status             TEXT NOT NULL DEFAULT 'active'
+                     CHECK (status IN ('active','paused','completed','failed','cancelled')),
+  current_step       INT NOT NULL DEFAULT -1,
+  next_run_at        TIMESTAMPTZ,
+  last_error         TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (sequence_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_enrollments_due
+  ON crm_sequence_enrollments (status, next_run_at);
+ALTER TABLE crm_sequence_enrollments DROP CONSTRAINT IF EXISTS crm_sequence_enrollments_status_check;
+ALTER TABLE crm_sequence_enrollments ADD CONSTRAINT crm_sequence_enrollments_status_check
+  CHECK (status IN ('active','paused','completed','failed','cancelled'));
+
+CREATE TABLE IF NOT EXISTS crm_sequence_trigger_state (
+  sequence_id        UUID NOT NULL REFERENCES crm_sequences(id) ON DELETE CASCADE,
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  is_member          BOOLEAN NOT NULL,
+  observed_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (sequence_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_sequence_trigger_state_member
+  ON crm_sequence_trigger_state (sequence_id, is_member);
+
+CREATE TABLE IF NOT EXISTS crm_email_campaigns (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  list_id            UUID REFERENCES crm_lists(id) ON DELETE SET NULL,
+  template_id        UUID REFERENCES crm_email_templates(id) ON DELETE SET NULL,
+  status             TEXT NOT NULL DEFAULT 'queued'
+                     CHECK (status IN ('queued','running','completed','completed_with_errors','failed')),
+  total_count        INT NOT NULL DEFAULT 0,
+  sent_count         INT NOT NULL DEFAULT 0,
+  failed_count       INT NOT NULL DEFAULT 0,
+  scheduled_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at       TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_crm_campaigns_recent ON crm_email_campaigns (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS crm_email_jobs (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind               TEXT NOT NULL CHECK (kind IN ('campaign','sequence')),
+  campaign_id        UUID REFERENCES crm_email_campaigns(id) ON DELETE CASCADE,
+  enrollment_id      UUID REFERENCES crm_sequence_enrollments(id) ON DELETE CASCADE,
+  sequence_step_id   UUID REFERENCES crm_sequence_steps(id) ON DELETE CASCADE,
+  contact_id         UUID NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  template_id        UUID NOT NULL REFERENCES crm_email_templates(id) ON DELETE RESTRICT,
+  status             TEXT NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending','sending','sent','failed','cancelled')),
+  scheduled_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  attempts           INT NOT NULL DEFAULT 0,
+  provider_message_id TEXT,
+  last_error         TEXT,
+  claimed_at         TIMESTAMPTZ,
+  claim_token        UUID,
+  sent_at            TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (enrollment_id, sequence_step_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_email_jobs_due ON crm_email_jobs (status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_crm_email_jobs_campaign ON crm_email_jobs (campaign_id, status);
+ALTER TABLE crm_email_jobs DROP CONSTRAINT IF EXISTS crm_email_jobs_status_check;
+ALTER TABLE crm_email_jobs ADD CONSTRAINT crm_email_jobs_status_check
+  CHECK (status IN ('pending','sending','sent','failed','cancelled'));
+
+CREATE TABLE IF NOT EXISTS crm_api_keys (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  source             TEXT NOT NULL,
+  key_prefix         TEXT NOT NULL,
+  key_hash           TEXT UNIQUE NOT NULL,
+  scopes             TEXT[] NOT NULL DEFAULT ARRAY['contacts:write']::TEXT[],
+  active             BOOLEAN NOT NULL DEFAULT TRUE,
+  last_used_at       TIMESTAMPTZ,
+  expires_at         TIMESTAMPTZ,
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at         TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_crm_api_keys_active ON crm_api_keys (active, source);
+
+CREATE TABLE IF NOT EXISTS crm_ingest_requests (
+  api_key_id          UUID REFERENCES crm_api_keys(id) ON DELETE CASCADE,
+  legacy_source       TEXT,
+  idempotency_key_hash TEXT NOT NULL,
+  request_hash        TEXT NOT NULL,
+  response_json       JSONB,
+  status_code         INT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at        TIMESTAMPTZ,
+  CHECK (api_key_id IS NOT NULL OR legacy_source IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_crm_ingest_requests_key
+  ON crm_ingest_requests (COALESCE(api_key_id::text, 'legacy:' || legacy_source), idempotency_key_hash);
+
+DROP TRIGGER IF EXISTS trg_crm_contacts_updated_at ON crm_contacts;
+CREATE TRIGGER trg_crm_contacts_updated_at BEFORE UPDATE ON crm_contacts
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_crm_lists_updated_at ON crm_lists;
+CREATE TRIGGER trg_crm_lists_updated_at BEFORE UPDATE ON crm_lists
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_crm_templates_updated_at ON crm_email_templates;
+CREATE TRIGGER trg_crm_templates_updated_at BEFORE UPDATE ON crm_email_templates
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_crm_sequences_updated_at ON crm_sequences;
+CREATE TRIGGER trg_crm_sequences_updated_at BEFORE UPDATE ON crm_sequences
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_crm_enrollments_updated_at ON crm_sequence_enrollments;
+CREATE TRIGGER trg_crm_enrollments_updated_at BEFORE UPDATE ON crm_sequence_enrollments
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();

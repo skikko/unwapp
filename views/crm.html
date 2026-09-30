@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UN CRM</title>
+  <meta name="theme-color" content="#171a23" />
+  <link href="/css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
+      <nav aria-label="Navigazione principale">
+        <a href="/">Piattaforma</a>
+        <a href="/crm" class="active" data-permission="crm:read">CRM</a>
+        <a href="/crm/settings" data-permission="admin">Impostazioni</a>
+      </nav>
+      <div class="user" id="userEmail"></div>
+    </header>
+
+    <main class="crm-shell">
+      <aside class="crm-rail" aria-label="Sezioni CRM">
+        <div class="crm-rail-heading"><span class="eyebrow">Workspace</span><h1>CRM</h1><p>Contatti e comunicazioni email.</p></div>
+        <div class="crm-tabs" role="tablist" aria-label="Sezioni CRM">
+          <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="campaigns">Invii</button>
+        </div>
+        <div class="crm-api-note"><strong>API ingest</strong><code>POST /api/ingest/contacts</code><span>Chiavi gestite in Impostazioni</span></div>
+      </aside>
+
+      <div class="crm-workspace">
+        <section class="crm-summary" aria-label="Riepilogo CRM">
+          <article><span>Contatti</span><strong id="summaryContacts">0</strong></article>
+          <article><span>Liste</span><strong id="summaryLists">0</strong></article>
+          <article><span>Template</span><strong id="summaryTemplates">0</strong></article>
+          <article><span>Invii in coda</span><strong id="summaryJobs">0</strong></article>
+        </section>
+
+        <section class="crm-panel active" id="panel-contacts" role="tabpanel">
+          <div class="crm-panel-header"><div><span class="eyebrow">Rubrica unificata</span><h2>Contatti</h2></div><div class="crm-panel-actions"><button class="secondary" type="button" id="exportContactsBtn">Esporta CSV</button><div data-write><button class="secondary" type="button" id="downloadContactTemplateBtn">Scarica modello CSV</button><button class="secondary" type="button" id="importContactsBtn">Importa CSV</button><button type="button" id="newContactBtn">Nuovo contatto</button></div></div></div>
+          <form class="crm-filterbar" id="contactFilters">
+            <label><span>Cerca</span><input id="filterQuery" type="search" placeholder="Nome, email o telefono" /></label>
+            <label><span>Origine</span><input id="filterSource" placeholder="wordpress, meta, whatsapp" /></label>
+            <label><span>Stato email</span><select id="filterStatus"><option value="">Tutti</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></label>
+            <label><span>Tag</span><input id="filterTags" placeholder="evento, alumni" /></label>
+            <button class="secondary" type="submit">Applica filtri</button>
+          </form>
+          <div class="contact-bulk-bar" id="contactBulkBar" hidden data-write>
+            <strong id="contactBulkCount">0 selezionati</strong>
+            <button class="secondary" type="button" id="selectAllFilteredBtn">Seleziona tutti i risultati</button>
+            <button class="secondary" type="button" id="clearContactSelectionBtn">Annulla selezione</button>
+            <button type="button" id="openBulkEditorBtn">Modifica selezionati</button>
+          </div>
+          <form class="card crm-editor" id="contactBulkEditor" hidden>
+            <div class="section-heading compact"><div><h2>Modifica contatti selezionati</h2><span id="contactBulkScope"></span></div><button class="ghost" type="button" data-close="contactBulkEditor">Chiudi</button></div>
+            <div class="contact-bulk-grid">
+              <div class="form-field"><label for="bulkContactSource">Imposta origine</label><input id="bulkContactSource" placeholder="Nessuna modifica" /></div>
+              <div class="form-field"><label for="bulkContactStatus">Imposta stato email</label><select id="bulkContactStatus"><option value="">Nessuna modifica</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="bulkContactAddTags">Aggiungi tag</label><input id="bulkContactAddTags" placeholder="newsletter, evento" /></div>
+              <div class="form-field"><label for="bulkContactRemoveTags">Rimuovi tag</label><input id="bulkContactRemoveTags" placeholder="lead, temporaneo" /></div>
+              <div class="form-field"><label for="bulkContactListAction">Appartenenza manuale</label><select id="bulkContactListAction"><option value="">Nessuna modifica</option><option value="add">Aggiungi alla lista</option><option value="remove">Rimuovi dalla lista</option></select></div>
+              <div class="form-field"><label for="bulkContactList">Lista</label><select id="bulkContactList"></select><small>La rimozione crea un’esclusione anche se il contatto soddisfa i filtri dinamici.</small></div>
+            </div>
+            <div class="form-actions"><button type="submit">Applica modifica massiva</button></div>
+          </form>
+          <form class="card crm-editor contact-import" id="contactImportEditor" hidden>
+            <div class="section-heading compact"><div><h2>Importa contatti da CSV</h2></div><button class="ghost" type="button" data-close="contactImportEditor">Chiudi</button></div>
+            <div class="contact-import-grid">
+              <label class="dropzone compact" for="contactCsvFile">
+                <span class="dropzone-icon">CSV</span><strong>Seleziona il file dei contatti</strong>
+                <span>Virgola, punto e virgola o tab. Massimo 5.000 righe e 5 MB.</span>
+                <input id="contactCsvFile" type="file" accept=".csv,text/csv" required />
+              </label>
+              <div class="contact-import-options">
+                <div class="form-field"><label for="contactImportSource">Origine predefinita</label><input id="contactImportSource" value="csv" placeholder="csv, evento, partner" /></div>
+                <div class="form-field"><label for="contactImportTags">Tag da aggiungere a tutti</label><input id="contactImportTags" placeholder="evento, newsletter" /></div>
+                <div class="form-field"><label for="contactImportList">Aggiungi alla lista</label><select id="contactImportList"><option value="">Nessuna lista</option></select></div>
+              </div>
+            </div>
+            <section class="contact-import-mapping" id="contactImportMapping" hidden>
+              <div class="section-heading compact"><div><h2>Mappatura colonne</h2></div><span id="contactImportFilename"></span></div>
+              <div class="contact-mapping-grid">
+                <div class="form-field"><label for="mapEmail">Email</label><select id="mapEmail" data-import-field="email"></select></div>
+                <div class="form-field"><label for="mapPhone">Telefono</label><select id="mapPhone" data-import-field="phone"></select></div>
+                <div class="form-field"><label for="mapFirstName">Nome</label><select id="mapFirstName" data-import-field="firstName"></select></div>
+                <div class="form-field"><label for="mapLastName">Cognome</label><select id="mapLastName" data-import-field="lastName"></select></div>
+                <div class="form-field"><label for="mapSource">Origine</label><select id="mapSource" data-import-field="source"></select></div>
+                <div class="form-field"><label for="mapEmailStatus">Stato email</label><select id="mapEmailStatus" data-import-field="emailStatus"></select></div>
+                <div class="form-field"><label for="mapTags">Tag nel CSV</label><select id="mapTags" data-import-field="tags"></select></div>
+              </div>
+            </section>
+            <section class="contact-import-preview" id="contactImportPreview" hidden>
+              <div class="contact-import-stats">
+                <div><strong id="importTotalCount">0</strong><span>righe</span></div>
+                <div><strong id="importValidCount">0</strong><span>valide</span></div>
+                <div><strong id="importDuplicateCount">0</strong><span>duplicate</span></div>
+                <div><strong id="importInvalidCount">0</strong><span>non valide</span></div>
+              </div>
+              <div class="table-wrap"><table><thead><tr><th>Riga</th><th>Nome</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th></tr></thead><tbody id="contactImportPreviewBody"></tbody></table></div>
+              <div class="contact-import-errors" id="contactImportErrors" hidden></div>
+            </section>
+            <div class="form-actions"><button class="secondary" type="button" id="previewContactImportBtn">Analizza CSV</button><button type="submit" id="runContactImportBtn" disabled>Importa contatti</button></div>
+          </form>
+          <form class="card crm-editor" id="contactEditor" hidden>
+            <div class="section-heading compact"><div><h2 id="contactEditorTitle">Nuovo contatto</h2></div><button class="ghost" type="button" data-close="contactEditor">Chiudi</button></div>
+            <input id="contactId" type="hidden" />
+            <div class="grid-2">
+              <div class="form-field"><label for="contactFirstName">Nome</label><input id="contactFirstName" /></div>
+              <div class="form-field"><label for="contactLastName">Cognome</label><input id="contactLastName" /></div>
+              <div class="form-field"><label for="contactEmail">Email</label><input id="contactEmail" type="email" /></div>
+              <div class="form-field"><label for="contactPhone">Telefono</label><input id="contactPhone" type="tel" placeholder="+39" /></div>
+              <div class="form-field"><label for="contactSource">Origine</label><input id="contactSource" value="manual" /></div>
+              <div class="form-field"><label for="contactEmailStatus">Stato email</label><select id="contactEmailStatus"><option value="unknown">Email assente</option><option value="subscribed" selected>Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="contactConsentAt">Data consenso</label><input id="contactConsentAt" type="datetime-local" /></div>
+              <div class="form-field"><label for="contactConsentSource">Origine consenso</label><input id="contactConsentSource" placeholder="form wordpress, evento" /></div>
+              <div class="form-field span-2"><label for="contactTags">Tag separati da virgola</label><input id="contactTags" /></div>
+            </div>
+            <div class="form-actions"><button type="submit">Salva contatto</button></div>
+          </form>
+          <section class="card crm-editor" id="contactProfile" hidden>
+            <div class="section-heading compact"><div><h2 id="contactProfileTitle">Profilo contatto</h2><span id="contactProfileMeta"></span></div><button class="ghost" type="button" data-close="contactProfile">Chiudi</button></div>
+            <div class="contact-profile-grid" id="contactProfileSummary"></div>
+            <div class="contact-profile-sections" id="contactProfileSections"></div>
+          </section>
+          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
+        </section>
+
+        <section class="crm-panel" id="panel-lists" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Segmentazione dinamica</span><h2>Liste</h2></div><button id="newListBtn" data-write>Nuova lista</button></div>
+          <form class="card crm-editor" id="listEditor" hidden>
+            <div class="section-heading compact"><div><h2 id="listEditorTitle">Salva una vista filtrata</h2></div><button class="ghost" type="button" data-close="listEditor">Chiudi</button></div>
+            <input id="listId" type="hidden" />
+            <div class="grid-2">
+              <div class="form-field"><label for="listName">Nome</label><input id="listName" required /></div>
+              <div class="form-field"><label for="listSource">Origine</label><input id="listSource" placeholder="meta" /></div>
+              <div class="form-field"><label for="listEmailStatus">Stato email</label><select id="listEmailStatus"><option value="">Qualsiasi</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="listTags">Tag richiesti</label><input id="listTags" placeholder="lead, evento" /></div>
+              <div class="form-field span-2"><label for="listDescription">Descrizione</label><input id="listDescription" /></div>
+              <label class="check-field span-2"><input id="listHasEmail" type="checkbox" checked /> Solo contatti con email</label>
+            </div>
+            <div class="form-actions"><button type="submit" id="saveListBtn">Crea lista</button></div>
+          </form>
+          <div class="crm-card-grid" id="listsGrid"></div>
+        </section>
+
+        <section class="crm-panel" id="panel-templates" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Contenuti riutilizzabili</span><h2>Template email</h2></div><button id="newTemplateBtn" data-write>Nuovo template</button></div>
+          <form class="card crm-editor" id="templateEditor" hidden>
+            <div class="section-heading compact"><div><h2 id="templateEditorTitle">Nuovo template</h2></div><button class="ghost" type="button" data-close="templateEditor">Chiudi</button></div>
+            <input id="templateId" type="hidden" />
+            <div class="grid-2">
+              <div class="form-field"><label for="templateName">Nome interno</label><input id="templateName" required /></div>
+              <div class="form-field"><label for="templateSubject">Oggetto</label><input id="templateSubject" required /></div>
+              <div class="form-field span-2"><label for="templatePreheader">Preheader</label><input id="templatePreheader" /></div>
+            </div>
+            <div class="email-builder">
+              <section class="email-compose-pane">
+                <div class="email-builder-topline">
+                  <div class="email-mode-switch" role="group" aria-label="Modalità editor">
+                    <button class="secondary active" type="button" data-editor-mode="visual">Visuale</button>
+                    <button class="secondary" type="button" data-editor-mode="html">HTML</button>
+                  </div>
+                  <span id="templateSaveState">Bozza non salvata</span>
+                </div>
+                <div class="email-toolbar" id="emailToolbar" role="toolbar" aria-label="Formattazione email">
+                  <select id="templateBlockFormat" aria-label="Formato testo">
+                    <option value="p">Paragrafo</option>
+                    <option value="h1">Titolo 1</option>
+                    <option value="h2">Titolo 2</option>
+                    <option value="h3">Titolo 3</option>
+                    <option value="blockquote">Citazione</option>
+                  </select>
+                  <button class="secondary" type="button" data-editor-command="bold"><strong>Grassetto</strong></button>
+                  <button class="secondary" type="button" data-editor-command="italic"><em>Corsivo</em></button>
+                  <button class="secondary" type="button" data-editor-command="underline"><u>Sottolineato</u></button>
+                  <button class="secondary" type="button" data-editor-command="insertUnorderedList">Elenco</button>
+                  <button class="secondary" type="button" data-editor-command="insertOrderedList">Numeri</button>
+                  <button class="secondary" type="button" data-editor-command="justifyLeft">Sinistra</button>
+                  <button class="secondary" type="button" data-editor-command="justifyCenter">Centro</button>
+                  <button class="secondary" type="button" data-editor-command="justifyRight">Destra</button>
+                  <button class="secondary" type="button" id="insertLinkBtn">Link</button>
+                  <button class="secondary" type="button" id="insertImageBtn">Immagine</button>
+                  <input id="templateImageFile" type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+                  <button class="secondary" type="button" data-editor-command="insertHorizontalRule">Separatore</button>
+                  <label class="email-color-control">Colore <input id="templateTextColor" type="color" value="#171a23" aria-label="Colore testo" /></label>
+                  <select id="templateToken" aria-label="Inserisci variabile">
+                    <option value="">Inserisci variabile</option>
+                    <option value="{{first_name}}">Nome</option>
+                    <option value="{{last_name}}">Cognome</option>
+                    <option value="{{full_name}}">Nome completo</option>
+                    <option value="{{email}}">Email</option>
+                    <option value="{{phone}}">Telefono</option>
+                    <option value="{{source}}">Origine</option>
+                  </select>
+                  <button class="secondary" type="button" data-editor-command="removeFormat">Rimuovi formato</button>
+                </div>
+                <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenuto email"></div>
+                <textarea class="email-html-source" id="templateHtml" rows="18" aria-label="Codice HTML del template" hidden></textarea>
+                <div class="template-token-note">Puoi inserire immagini fino a 5 MB. Le variabili vengono sostituite per ogni contatto.</div>
+                <details class="email-fallback">
+                  <summary>Versione solo testo</summary>
+                  <div class="form-field"><label for="templateText">Corpo testo alternativo</label><textarea id="templateText" rows="7" placeholder="Generato automaticamente se lasciato vuoto"></textarea></div>
+                </details>
+              </section>
+              <aside class="email-preview-pane">
+                <div class="email-preview-header">
+                  <div><span class="eyebrow">Anteprima live</span><strong id="previewSubject">Oggetto email</strong></div>
+                  <div class="email-preview-size" role="group" aria-label="Dimensione anteprima">
+                    <button class="secondary active" type="button" data-preview-size="desktop">Desktop</button>
+                    <button class="secondary" type="button" data-preview-size="mobile">Mobile</button>
+                  </div>
+                </div>
+                <div class="email-preview-frame-wrap" id="emailPreviewWrap"><iframe id="templatePreview" title="Anteprima email" sandbox></iframe></div>
+                <div class="email-test-row">
+                  <div class="form-field"><label for="templateTestEmail">Email di test</label><input id="templateTestEmail" type="email" placeholder="nome@example.com" /></div>
+                  <button class="secondary" type="button" id="sendTemplateTestBtn">Invia test</button>
+                </div>
+              </aside>
+            </div>
+            <div class="form-actions"><button type="submit">Salva template</button></div>
+          </form>
+          <div class="crm-card-grid" id="templatesGrid"></div>
+        </section>
+
+        <section class="crm-panel" id="panel-sequences" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Nurturing compatto</span><h2>Sequenze</h2></div><button id="newSequenceBtn" data-write>Nuova sequenza</button></div>
+          <form class="card crm-editor" id="sequenceEditor" hidden>
+            <div class="section-heading compact"><div><h2 id="sequenceEditorTitle">Configura la sequenza</h2></div><button class="ghost" type="button" data-close="sequenceEditor">Chiudi</button></div>
+            <input id="sequenceId" type="hidden" />
+            <div class="grid-2">
+              <div class="form-field"><label for="sequenceName">Nome</label><input id="sequenceName" required /></div>
+              <div class="form-field"><label for="sequenceDescription">Descrizione</label><input id="sequenceDescription" /></div>
+              <div class="form-field"><label for="sequenceTriggerType">Trigger</label><select id="sequenceTriggerType"><option value="list_joined">Contatto entrato in una lista</option><option value="manual">Iscrizione manuale</option></select></div>
+              <div class="form-field" id="sequenceTriggerListWrap"><label for="sequenceTriggerList">Lista del trigger</label><select id="sequenceTriggerList"></select><small>Si applica ai contatti che entrano nella lista dopo il salvataggio.</small></div>
+              <label class="check-field span-2"><input id="sequenceActive" type="checkbox" checked /> Sequenza attiva e disponibile per nuove iscrizioni</label>
+            </div>
+            <div class="sequence-builder-header"><div><span class="eyebrow">Workflow</span><h3>Percorso email</h3></div><div><strong id="sequenceStepCount">0 passaggi</strong><span id="sequenceTotalDuration">Durata immediata</span></div></div>
+            <div class="sequence-steps" id="sequenceSteps"></div>
+            <button class="secondary" type="button" id="addSequenceStep">Aggiungi email</button>
+            <div class="form-actions"><button type="submit" id="saveSequenceBtn">Crea sequenza</button></div>
+          </form>
+          <div class="crm-card-grid" id="sequencesGrid"></div>
+        </section>
+
+        <section class="crm-panel" id="panel-campaigns" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Single send</span><h2>Invii email</h2></div><button id="newCampaignBtn" data-write>Nuovo invio</button></div>
+          <form class="card crm-editor" id="campaignEditor" hidden>
+            <div class="section-heading compact"><div><h2>Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
+            <div class="grid-2">
+              <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
+              <div class="form-field"><label for="campaignSchedule">Data e ora</label><input id="campaignSchedule" type="datetime-local" /></div>
+              <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
+              <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
+            </div>
+            <div class="form-actions"><button type="submit">Metti in coda</button></div>
+          </form>
+          <div class="crm-card-grid" id="campaignsGrid"></div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+  <script src="/js/crm.js"></script>
+</body>
+</html>

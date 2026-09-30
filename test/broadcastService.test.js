@@ -11,11 +11,10 @@ test('stores every accepted broadcast template in an existing or new conversatio
   const originals = {
     getCampaign: broadcastRepo.getCampaign,
     markRunning: broadcastRepo.markRunning,
-    nextPendingRecipient: broadcastRepo.nextPendingRecipient,
+    claimNextRecipient: broadcastRepo.claimNextRecipient,
     markRecipientSent: broadcastRepo.markRecipientSent,
     refreshCounts: broadcastRepo.refreshCounts,
-    markCompleted: broadcastRepo.markCompleted,
-    markFailed: broadcastRepo.markFailed,
+    markCompletedIfIdle: broadcastRepo.markCompletedIfIdle,
     upsert: conversationRepo.upsert,
     add: messageRepo.add,
     sendTemplate: twilioService.sendTemplate,
@@ -25,11 +24,10 @@ test('stores every accepted broadcast template in an existing or new conversatio
     Object.assign(broadcastRepo, {
       getCampaign: originals.getCampaign,
       markRunning: originals.markRunning,
-      nextPendingRecipient: originals.nextPendingRecipient,
+      claimNextRecipient: originals.claimNextRecipient,
       markRecipientSent: originals.markRecipientSent,
       refreshCounts: originals.refreshCounts,
-      markCompleted: originals.markCompleted,
-      markFailed: originals.markFailed,
+      markCompletedIfIdle: originals.markCompletedIfIdle,
     });
     conversationRepo.upsert = originals.upsert;
     messageRepo.add = originals.add;
@@ -47,8 +45,8 @@ test('stores every accepted broadcast template in an existing or new conversatio
     template_name: 'welcome',
   };
   const recipients = [
-    { id: 'recipient-1', phone_number: '+393331111111', content_variables: { 1: 'Mario', 2: 'A1' } },
-    { id: 'recipient-2', phone_number: '+393332222222', content_variables: { 1: 'Giulia', 2: 'B2' } },
+    { id: 'recipient-1', claim_token: 'claim-1', phone_number: '+393331111111', content_variables: { 1: 'Mario', 2: 'A1' } },
+    { id: 'recipient-2', claim_token: 'claim-2', phone_number: '+393332222222', content_variables: { 1: 'Giulia', 2: 'B2' } },
   ];
   const sentRecipients = [];
   const upserts = [];
@@ -57,11 +55,13 @@ test('stores every accepted broadcast template in an existing or new conversatio
 
   broadcastRepo.getCampaign = async () => campaign;
   broadcastRepo.markRunning = async () => {};
-  broadcastRepo.nextPendingRecipient = async () => recipients.shift() || null;
-  broadcastRepo.markRecipientSent = async (id, sid) => { sentRecipients.push({ id, sid }); };
+  broadcastRepo.claimNextRecipient = async () => recipients.shift() || null;
+  broadcastRepo.markRecipientSent = async (id, claimToken, sid) => {
+    sentRecipients.push({ id, claimToken, sid });
+    return true;
+  };
   broadcastRepo.refreshCounts = async () => {};
-  broadcastRepo.markCompleted = async () => {};
-  broadcastRepo.markFailed = async () => {};
+  broadcastRepo.markCompletedIfIdle = async () => {};
   conversationRepo.upsert = async (botId, phoneNumber) => {
     upserts.push({ botId, phoneNumber });
     return { id: `conversation-${phoneNumber}`, bot_id: botId, phone_number: phoneNumber };

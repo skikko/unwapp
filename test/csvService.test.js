@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  parseCsv, normalizePhone, extractContactName, prepareContacts,
+  parseCsv, normalizePhone, extractContactName, prepareContacts, stringifyCsv,
 } = require('../src/services/csvService');
 
 test('parses semicolon CSV with quoted fields and detects the phone column', () => {
@@ -33,4 +33,11 @@ test('extracts the contact display name from common Italian and international he
   assert.equal(extractContactName({ 'Nome Cognome': 'Giulia Bianchi' }), 'Giulia Bianchi');
   assert.equal(extractContactName({ first_name: 'Ada', last_name: 'Lovelace' }), 'Ada Lovelace');
   assert.equal(extractContactName({ azienda: 'United Network' }), '');
+});
+
+test('esporta CSV valido e neutralizza le formule', () => {
+  const csv = stringifyCsv(['email', 'nome'], [{ email: '=cmd', nome: 'Rossi, Mario' }]);
+  assert.equal(csv.startsWith('\uFEFF'), true);
+  assert.match(csv, /"'=cmd"/);
+  assert.match(csv, /"Rossi, Mario"/);
 });

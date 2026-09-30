@@ -12,6 +12,7 @@ const upload = multer({
 
 router.post('/upload/chat', requirePermission('chat:write'), upload.single('media'), mediaController.upload('chat'));
 router.post('/upload/broadcast', requirePermission('broadcast:write'), upload.single('media'), mediaController.upload('broadcast'));
+router.post('/upload/crm', requirePermission('crm:write'), upload.single('media'), mediaController.upload('email'));
 router.get('/:token/:filename', mediaController.serve);
 router.get('/:token', mediaController.serve);
 

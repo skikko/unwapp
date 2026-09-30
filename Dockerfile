@@ -16,4 +16,4 @@ COPY migrations ./migrations
 COPY schema.sql ./schema.sql
 COPY package.json ./
 EXPOSE 8080
-CMD ["sh", "-c", "npm run migrate && npm start"]
+CMD ["npm", "start"]

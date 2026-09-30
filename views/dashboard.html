@@ -15,10 +15,11 @@
         <span><strong>WhatsApp Manager</strong><small>United Network</small></span>
       </a>
       <nav aria-label="Navigazione principale">
-        <a href="/" class="active" data-permission="chat:read">Conversazioni</a>
-        <a href="/broadcast" data-permission="broadcast:read">Broadcast</a>
-        <a href="/admin" data-permission="admin">BOT</a>
-        <a href="/settings" data-permission="admin">Impostazioni</a>
+        <a href="/">Piattaforma</a>
+        <a href="/whatsapp" class="active" data-permission="chat:read">Conversazioni</a>
+        <a href="/whatsapp/broadcast" data-permission="broadcast:read">Broadcast</a>
+        <a href="/whatsapp/bots" data-permission="admin">BOT</a>
+        <a href="/whatsapp/settings" data-permission="admin">Impostazioni</a>
       </nav>
       <div class="user" id="userEmail"></div>
     </header>
@@ -28,7 +29,7 @@
         <div class="col-header">
           <span class="col-title"><span class="bot-header-icon" aria-hidden="true">◆</span><span class="col-label">BOT</span></span>
           <span class="col-actions">
-            <a class="header-icon-link" href="/admin" data-permission="admin" title="Gestisci BOT" aria-label="Gestisci BOT">⚙</a>
+            <a class="header-icon-link" href="/whatsapp/bots" data-permission="admin" title="Gestisci BOT" aria-label="Gestisci BOT">⚙</a>
             <button class="icon-button" id="toggleBotsBtn" type="button" title="Riduci colonna BOT" aria-label="Riduci colonna BOT">‹</button>
           </span>
         </div>

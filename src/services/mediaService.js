@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const path = require('path');
 const mediaRepo = require('../repos/mediaRepo');
 const settingsService = require('./settingsService');
+const objectStorageService = require('./objectStorageService');
 
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -71,10 +72,23 @@ async function createAsset(file, { uploadedBy, purpose = 'chat', req } = {}) {
   });
   const filename = sanitizeFilename(file.originalname, contentType);
   const token = crypto.randomBytes(32).toString('base64url');
-  const asset = await mediaRepo.create({
-    tokenHash: tokenHash(token), filename, contentType, byteSize,
-    data: file.buffer, uploadedBy, purpose,
-  });
+  const useObjectStorage = objectStorageService.validateConfiguration() === 's3';
+  const storageKey = useObjectStorage ? objectStorageService.objectKey(token, filename) : null;
+  if (storageKey) await objectStorageService.put(storageKey, file.buffer, contentType);
+  let asset;
+  try {
+    asset = await mediaRepo.create({
+      tokenHash: tokenHash(token), filename, contentType, byteSize,
+      data: useObjectStorage ? null : file.buffer,
+      storageProvider: useObjectStorage ? 's3' : 'database',
+      storageKey,
+      uploadedBy,
+      purpose,
+    });
+  } catch (error) {
+    if (storageKey) await objectStorageService.remove(storageKey).catch(() => {});
+    throw error;
+  }
   const baseUrl = await baseUrlFor(req);
   return {
     ...asset,
@@ -84,7 +98,13 @@ async function createAsset(file, { uploadedBy, purpose = 'chat', req } = {}) {
 
 async function getAsset(token) {
   if (!/^[A-Za-z0-9_-]{40,60}$/.test(String(token || ''))) return null;
-  return mediaRepo.getByTokenHash(tokenHash(token));
+  const asset = await mediaRepo.getByTokenHash(tokenHash(token));
+  if (!asset) return null;
+  if (asset.storage_provider === 's3') {
+    if (!asset.storage_key) throw new Error('Media storage key is missing');
+    asset.data = await objectStorageService.get(asset.storage_key);
+  }
+  return asset;
 }
 
 async function importFromTwilio(url, declaredType, { req, uploadedBy = 'twilio-webhook' } = {}) {

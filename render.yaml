@@ -2,9 +2,11 @@ services:
   - type: web
     name: un-whatsapp-manager
     runtime: docker
-    plan: free
+    plan: 0.5c-512mb
     region: frankfurt
     healthCheckPath: /health
+    preDeployCommand: npm run migrate && npm run migrate:check && npm run verify:encryption-key
+    maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_ENV
         value: "production"
@@ -15,7 +17,7 @@ services:
           name: un-whatsapp-manager-db
           property: connectionString
       - key: APP_ENCRYPTION_KEY
-        generateValue: true
+        sync: false
       - key: BOOTSTRAP_ADMIN_USERNAME
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD
@@ -24,13 +26,16 @@ services:
         value: "12"
       - key: BROADCAST_DELAY_MS
         value: "100"
+      - key: BROADCAST_CLAIM_TIMEOUT_MINUTES
+        value: "60"
       - key: OUTBOUND_API_KEY
         generateValue: true
 
 databases:
   - name: un-whatsapp-manager-db
-    plan: free
+    plan: 0.5c-1g
     region: frankfurt
     postgresMajorVersion: "15"
+    diskSizeGB: 1
     databaseName: un_whatsapp_manager
     user: un_whatsapp_manager

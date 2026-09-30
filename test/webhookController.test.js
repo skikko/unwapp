@@ -5,6 +5,7 @@ const botRepo = require('../src/repos/botRepo');
 const conversationRepo = require('../src/repos/conversationRepo');
 const messageRepo = require('../src/repos/messageRepo');
 const aiService = require('../src/services/aiService');
+const crmService = require('../src/services/crmService');
 const webhookController = require('../src/controllers/webhookController');
 
 test('stores incoming messages and switches to human mode without an AI key', async (t) => {
@@ -13,14 +14,18 @@ test('stores incoming messages and switches to human mode without an AI key', as
     upsert: conversationRepo.upsert,
     setStatus: conversationRepo.setStatus,
     add: messageRepo.add,
+    getByTwilioSid: messageRepo.getByTwilioSid,
     generateResponse: aiService.generateResponse,
+    saveContact: crmService.saveContact,
   };
   t.after(() => {
     botRepo.getByTwilioNumber = originals.getByTwilioNumber;
     conversationRepo.upsert = originals.upsert;
     conversationRepo.setStatus = originals.setStatus;
     messageRepo.add = originals.add;
+    messageRepo.getByTwilioSid = originals.getByTwilioSid;
     aiService.generateResponse = originals.generateResponse;
+    crmService.saveContact = originals.saveContact;
   });
 
   const bot = {
@@ -42,7 +47,9 @@ test('stores incoming messages and switches to human mode without an AI key', as
     return { ...conversation, status };
   };
   messageRepo.add = async (...args) => { storedMessage = args; };
+  messageRepo.getByTwilioSid = async () => null;
   aiService.generateResponse = async () => { aiCalled = true; return 'unexpected'; };
+  crmService.saveContact = async () => ({});
 
   const io = {
     to() {
