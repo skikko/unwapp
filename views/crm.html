@@ -12,7 +12,7 @@
     <header class="topbar">
       <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
       <nav aria-label="Navigazione principale">
-        <a href="/">Piattaforma</a>
+        <a href="/">Home</a>
         <a href="/crm" class="active" data-permission="crm:read">CRM</a>
         <a href="/crm/settings" data-permission="admin">Impostazioni</a>
       </nav>
@@ -46,6 +46,7 @@
             <label><span>Cerca</span><input id="filterQuery" type="search" placeholder="Nome, email o telefono" /></label>
             <label><span>Origine</span><input id="filterSource" placeholder="wordpress, meta, whatsapp" /></label>
             <label><span>Stato email</span><select id="filterStatus"><option value="">Tutti</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></label>
+            <label><span>Stato contatto</span><select id="filterContactStatus"><option value="">Tutti</option></select></label>
             <label><span>Tag</span><input id="filterTags" placeholder="evento, alumni" /></label>
             <button class="secondary" type="submit">Applica filtri</button>
           </form>
@@ -60,6 +61,7 @@
             <div class="contact-bulk-grid">
               <div class="form-field"><label for="bulkContactSource">Imposta origine</label><input id="bulkContactSource" placeholder="Nessuna modifica" /></div>
               <div class="form-field"><label for="bulkContactStatus">Imposta stato email</label><select id="bulkContactStatus"><option value="">Nessuna modifica</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="bulkContactCrmStatus">Imposta stato contatto</label><select id="bulkContactCrmStatus"><option value="__unchanged__">Nessuna modifica</option><option value="">Nessuno stato</option></select></div>
               <div class="form-field"><label for="bulkContactAddTags">Aggiungi tag</label><input id="bulkContactAddTags" placeholder="newsletter, evento" /></div>
               <div class="form-field"><label for="bulkContactRemoveTags">Rimuovi tag</label><input id="bulkContactRemoveTags" placeholder="lead, temporaneo" /></div>
               <div class="form-field"><label for="bulkContactListAction">Appartenenza manuale</label><select id="bulkContactListAction"><option value="">Nessuna modifica</option><option value="add">Aggiungi alla lista</option><option value="remove">Rimuovi dalla lista</option></select></div>
@@ -91,6 +93,13 @@
                 <div class="form-field"><label for="mapSource">Origine</label><select id="mapSource" data-import-field="source"></select></div>
                 <div class="form-field"><label for="mapEmailStatus">Stato email</label><select id="mapEmailStatus" data-import-field="emailStatus"></select></div>
                 <div class="form-field"><label for="mapTags">Tag nel CSV</label><select id="mapTags" data-import-field="tags"></select></div>
+                <div class="form-field"><label for="mapContactType">Genitore o studente</label><select id="mapContactType" data-import-field="contactType"></select></div>
+                <div class="form-field"><label for="mapWebinarRegisteredAt">Data iscrizione webinar</label><select id="mapWebinarRegisteredAt" data-import-field="webinarRegisteredAt"></select></div>
+                <div class="form-field"><label for="mapUtmSource">UTM source</label><select id="mapUtmSource" data-import-field="utmSource"></select></div>
+                <div class="form-field"><label for="mapUtmMedium">UTM medium</label><select id="mapUtmMedium" data-import-field="utmMedium"></select></div>
+                <div class="form-field"><label for="mapUtmCampaign">UTM campaign</label><select id="mapUtmCampaign" data-import-field="utmCampaign"></select></div>
+                <div class="form-field"><label for="mapUtmTerm">UTM term</label><select id="mapUtmTerm" data-import-field="utmTerm"></select></div>
+                <div class="form-field"><label for="mapUtmContent">UTM content</label><select id="mapUtmContent" data-import-field="utmContent"></select></div>
               </div>
             </section>
             <section class="contact-import-preview" id="contactImportPreview" hidden>
@@ -100,7 +109,7 @@
                 <div><strong id="importDuplicateCount">0</strong><span>duplicate</span></div>
                 <div><strong id="importInvalidCount">0</strong><span>non valide</span></div>
               </div>
-              <div class="table-wrap"><table><thead><tr><th>Riga</th><th>Nome</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th></tr></thead><tbody id="contactImportPreviewBody"></tbody></table></div>
+              <div class="table-wrap"><table><thead><tr><th>Riga</th><th>Nome</th><th>Email</th><th>Telefono</th><th>Tipo</th><th>Webinar</th><th>Origine</th><th>Tag</th></tr></thead><tbody id="contactImportPreviewBody"></tbody></table></div>
               <div class="contact-import-errors" id="contactImportErrors" hidden></div>
             </section>
             <div class="form-actions"><button class="secondary" type="button" id="previewContactImportBtn">Analizza CSV</button><button type="submit" id="runContactImportBtn" disabled>Importa contatti</button></div>
@@ -115,9 +124,17 @@
               <div class="form-field"><label for="contactPhone">Telefono</label><input id="contactPhone" type="tel" placeholder="+39" /></div>
               <div class="form-field"><label for="contactSource">Origine</label><input id="contactSource" value="manual" /></div>
               <div class="form-field"><label for="contactEmailStatus">Stato email</label><select id="contactEmailStatus"><option value="unknown">Email assente</option><option value="subscribed" selected>Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="contactCrmStatus">Stato contatto</label><select id="contactCrmStatus"><option value="">Nessuno stato</option></select></div>
+              <div class="form-field"><label for="contactType">Tipo contatto</label><select id="contactType"><option value="">Non specificato</option><option value="parent">Genitore</option><option value="student">Studente</option></select></div>
+              <div class="form-field"><label for="contactWebinarRegisteredAt">Data iscrizione webinar</label><input id="contactWebinarRegisteredAt" type="date" /></div>
               <div class="form-field"><label for="contactConsentAt">Data consenso</label><input id="contactConsentAt" type="datetime-local" /></div>
               <div class="form-field"><label for="contactConsentSource">Origine consenso</label><input id="contactConsentSource" placeholder="form wordpress, evento" /></div>
               <div class="form-field span-2"><label for="contactTags">Tag separati da virgola</label><input id="contactTags" /></div>
+              <div class="form-field"><label for="contactUtmSource">UTM source</label><input id="contactUtmSource" /></div>
+              <div class="form-field"><label for="contactUtmMedium">UTM medium</label><input id="contactUtmMedium" /></div>
+              <div class="form-field"><label for="contactUtmCampaign">UTM campaign</label><input id="contactUtmCampaign" /></div>
+              <div class="form-field"><label for="contactUtmTerm">UTM term</label><input id="contactUtmTerm" /></div>
+              <div class="form-field span-2"><label for="contactUtmContent">UTM content</label><input id="contactUtmContent" /></div>
             </div>
             <div class="form-actions"><button type="submit">Salva contatto</button></div>
           </form>
@@ -126,7 +143,7 @@
             <div class="contact-profile-grid" id="contactProfileSummary"></div>
             <div class="contact-profile-sections" id="contactProfileSections"></div>
           </section>
-          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
+          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
         </section>
 
         <section class="crm-panel" id="panel-lists" role="tabpanel" hidden>
@@ -138,6 +155,7 @@
               <div class="form-field"><label for="listName">Nome</label><input id="listName" required /></div>
               <div class="form-field"><label for="listSource">Origine</label><input id="listSource" placeholder="meta" /></div>
               <div class="form-field"><label for="listEmailStatus">Stato email</label><select id="listEmailStatus"><option value="">Qualsiasi</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
+              <div class="form-field"><label for="listContactStatus">Stato contatto</label><select id="listContactStatus"><option value="">Qualsiasi</option></select></div>
               <div class="form-field"><label for="listTags">Tag richiesti</label><input id="listTags" placeholder="lead, evento" /></div>
               <div class="form-field span-2"><label for="listDescription">Descrizione</label><input id="listDescription" /></div>
               <label class="check-field span-2"><input id="listHasEmail" type="checkbox" checked /> Solo contatti con email</label>
@@ -252,11 +270,20 @@
             <div class="section-heading compact"><div><h2>Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
             <div class="grid-2">
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
-              <div class="form-field"><label for="campaignSchedule">Data e ora</label><input id="campaignSchedule" type="datetime-local" /></div>
+              <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
+              <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora</label><input id="campaignSchedule" type="datetime-local" /></div>
               <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
             </div>
-            <div class="form-actions"><button type="submit">Metti in coda</button></div>
+            <div class="campaign-compose-grid">
+              <section class="campaign-preview-card"><div class="section-heading compact"><div><h3>Anteprima</h3><span id="campaignPreviewSubject">Seleziona un template</span></div></div><iframe id="campaignPreview" title="Anteprima campagna" sandbox></iframe></section>
+              <aside class="campaign-send-summary">
+                <div><span>Destinatari idonei</span><strong id="campaignEligibleCount">0</strong><small>Solo contatti iscritti con email valida.</small></div>
+                <div class="form-field"><label for="campaignTestEmail">Email di prova</label><input id="campaignTestEmail" type="email" placeholder="nome@example.com" /></div>
+                <button class="secondary" type="button" id="sendCampaignTestBtn">Invia email di prova</button>
+              </aside>
+            </div>
+            <div class="form-actions"><button type="submit" id="saveCampaignBtn">Invia ora</button></div>
           </form>
           <div class="crm-card-grid" id="campaignsGrid"></div>
         </section>

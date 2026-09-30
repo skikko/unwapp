@@ -30,6 +30,10 @@ router.get('/lists/:id/contacts', read, handle(controller.listContactsInList));
 router.get('/lists/:id/export', read, handle(controller.exportContactsInList));
 router.delete('/lists/:id', write, handle(controller.deleteList));
 
+router.get('/contact-statuses', read, handle(controller.listContactStatuses));
+router.post('/contact-statuses', requireAdmin, handle(controller.createContactStatus));
+router.delete('/contact-statuses/:id', requireAdmin, handle(controller.deleteContactStatus));
+
 router.get('/templates', read, handle(controller.listTemplates));
 router.post('/templates', write, handle(controller.createTemplate));
 router.post('/templates/test', write, handle(controller.sendTemplateTest));
@@ -46,6 +50,7 @@ router.post('/sequences/:id/enroll', write, handle(controller.enrollList));
 router.delete('/sequences/:id', write, handle(controller.deleteSequence));
 
 router.get('/campaigns', read, handle(controller.listCampaigns));
+router.get('/campaigns/preview', read, handle(controller.previewCampaign));
 router.get('/campaigns/:id/jobs', read, handle(controller.listCampaignJobs));
 router.post('/campaigns', write, handle(controller.createCampaign));
 

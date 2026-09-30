@@ -21,6 +21,43 @@ test('rifiuta un contatto senza email e telefono', () => {
   assert.throws(() => crmService.normalizeContact({ firstName: 'Mario' }), /required/);
 });
 
+test('normalizza campi webinar, tipo contatto e parametri UTM', () => {
+  const contact = crmService.normalizeContact({
+    email: 'studente@example.com',
+    contactType: 'Studente',
+    webinarRegisteredAt: '15/09/2026',
+    utmSource: ' google ',
+    utmMedium: 'cpc',
+    utmCampaign: 'webinar',
+    utmTerm: 'orientamento',
+    utmContent: 'annuncio-a',
+  });
+  assert.equal(contact.contactType, 'student');
+  assert.equal(contact.webinarRegisteredAt, '2026-09-15');
+  assert.equal(contact.utmSource, 'google');
+  assert.equal(contact.utmContent, 'annuncio-a');
+});
+
+test('rifiuta una data webinar impossibile', () => {
+  assert.throws(() => crmService.normalizeContact({
+    email: 'studente@example.com', webinarRegisteredAt: '31/02/2026',
+  }), /Invalid webinar registration date/);
+});
+
+test('accetta i campi UTM snake case dalle API esterne', () => {
+  const contact = crmService.normalizeContact({
+    email: 'api@example.com',
+    contact_type: 'Genitore',
+    webinar_registered_at: '2026-09-30',
+    utm_source: 'meta',
+    utm_campaign: 'open-day',
+  });
+  assert.equal(contact.contactType, 'parent');
+  assert.equal(contact.webinarRegisteredAt, '2026-09-30');
+  assert.equal(contact.utmSource, 'meta');
+  assert.equal(contact.utmCampaign, 'open-day');
+});
+
 test('rende le variabili del template e protegge il corpo HTML', () => {
   const contact = { first_name: '<Mario>', last_name: 'Rossi', custom_fields: { city: 'Roma' } };
   assert.equal(emailService.renderTemplate('Ciao {{full_name}} da {{city}}', contact), 'Ciao <Mario> Rossi da Roma');
@@ -104,4 +141,15 @@ test('scarta righe non valide e duplicati nel CSV CRM', () => {
   assert.equal(result.contacts.length, 1);
   assert.equal(result.invalid.length, 1);
   assert.equal(result.duplicates.length, 1);
+});
+
+test('mappa le colonne del CSV webinar', () => {
+  const parsed = csvService.parseCsv('Email,Nome,Cognome,Registrazione,Genitore o Studente,Marketing Consent,utm_source,utm_campaign,utm_content\nanna@example.com,Anna,Verdi,15/09/2026,Genitore,Accepted,meta,webinar,video\n');
+  const result = crmImportService.prepareImport(parsed);
+  assert.equal(result.contacts[0].contactType, 'parent');
+  assert.equal(result.contacts[0].webinarRegisteredAt, '2026-09-15');
+  assert.equal(result.contacts[0].emailStatus, 'subscribed');
+  assert.equal(result.contacts[0].utmSource, 'meta');
+  assert.equal(result.contacts[0].utmCampaign, 'webinar');
+  assert.equal(result.contacts[0].utmContent, 'video');
 });

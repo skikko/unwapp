@@ -12,7 +12,7 @@
     <header class="topbar">
       <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
       <nav aria-label="Navigazione principale">
-        <a href="/">Piattaforma</a>
+        <a href="/">Home</a>
         <a href="/crm" data-permission="crm:read">CRM</a>
         <a href="/crm/settings" class="active" data-permission="admin">Impostazioni</a>
       </nav>
@@ -50,6 +50,13 @@ Content-Type: application/json
   "source": "wordpress",
   "email": "nome@example.com",
   "firstName": "Nome",
+  "contactType": "student",
+  "webinarRegisteredAt": "2026-09-15",
+  "utmSource": "google",
+  "utmMedium": "cpc",
+  "utmCampaign": "webinar_settembre",
+  "utmTerm": "orientamento",
+  "utmContent": "annuncio_a",
   "tags": ["landing"]
 }</code></pre>
         <p>WhatsApp aggiorna automaticamente la rubrica quando arriva un messaggio.</p>
@@ -68,6 +75,18 @@ Content-Type: application/json
         </form>
         <div class="info-banner" id="apiKeySecret" hidden><strong>Nuova chiave</strong><code id="apiKeySecretValue"></code><span>Copiala ora: non verrà mostrata di nuovo.</span></div>
         <div class="table-wrap"><table><thead><tr><th>Integrazione</th><th>Origine</th><th>Prefisso</th><th>Scope</th><th>Ultimo utilizzo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody id="apiKeysBody"></tbody></table></div>
+      </section>
+
+      <section class="card settings-card">
+        <div class="section-heading"><div><span class="step-number">04</span><h2>Stati contatto</h2></div></div>
+        <p>Gli stati descrivono l’avanzamento commerciale del contatto e sono distinti dallo stato di iscrizione email.</p>
+        <form id="contactStatusEditor">
+          <div class="crm-inline-action">
+            <div class="form-field"><label for="contactStatusName">Nuovo stato</label><input id="contactStatusName" maxlength="80" placeholder="Esempio: Qualificato" required /></div>
+            <button type="submit">Aggiungi stato</button>
+          </div>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Stato</th><th>Contatti</th><th>Azioni</th></tr></thead><tbody id="contactStatusesBody"></tbody></table></div>
       </section>
     </main>
   </div>

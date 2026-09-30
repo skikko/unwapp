@@ -22,8 +22,16 @@ async function listContacts(req, res) {
   res.json(result);
 }
 
+function contactTypeLabel(value) {
+  if (value === 'parent') return 'Genitore';
+  if (value === 'student') return 'Studente';
+  return '';
+}
+
 function contactsCsv(contacts) {
-  const headers = ['email', 'telefono', 'nome', 'cognome', 'origine', 'stato_email', 'tag', 'liste', 'campi_personalizzati'];
+  const headers = ['email', 'telefono', 'nome', 'cognome', 'origine', 'stato_email', 'stato_contatto',
+    'genitore_studente', 'data_iscrizione_webinar', 'utm_source', 'utm_medium', 'utm_campaign',
+    'utm_term', 'utm_content', 'tag', 'liste', 'campi_personalizzati'];
   const rows = contacts.map((contact) => ({
     email: contact.email || '',
     telefono: contact.phone || '',
@@ -31,6 +39,14 @@ function contactsCsv(contacts) {
     cognome: contact.last_name || '',
     origine: contact.source || '',
     stato_email: contact.email_status || '',
+    stato_contatto: contact.contact_status_name || '',
+    genitore_studente: contactTypeLabel(contact.contact_type),
+    data_iscrizione_webinar: contact.webinar_registered_at || '',
+    utm_source: contact.utm_source || '',
+    utm_medium: contact.utm_medium || '',
+    utm_campaign: contact.utm_campaign || '',
+    utm_term: contact.utm_term || '',
+    utm_content: contact.utm_content || '',
     tag: (contact.tags || []).join('|'),
     liste: (contact.lists || []).map((list) => list.name).join('|'),
     campi_personalizzati: JSON.stringify(contact.custom_fields || {}),
@@ -92,6 +108,15 @@ async function updateContact(req, res) {
     consentAt: req.body.consentAt === undefined ? existing.consent_at : req.body.consentAt,
     consentSource: req.body.consentSource === undefined ? existing.consent_source : req.body.consentSource,
     consentProof: req.body.consentProof === undefined ? existing.consent_proof : req.body.consentProof,
+    contactStatusId: req.body.contactStatusId === undefined ? existing.contact_status_id : req.body.contactStatusId,
+    contactType: req.body.contactType === undefined ? existing.contact_type : req.body.contactType,
+    webinarRegisteredAt: req.body.webinarRegisteredAt === undefined
+      ? existing.webinar_registered_at : req.body.webinarRegisteredAt,
+    utmSource: req.body.utmSource === undefined ? existing.utm_source : req.body.utmSource,
+    utmMedium: req.body.utmMedium === undefined ? existing.utm_medium : req.body.utmMedium,
+    utmCampaign: req.body.utmCampaign === undefined ? existing.utm_campaign : req.body.utmCampaign,
+    utmTerm: req.body.utmTerm === undefined ? existing.utm_term : req.body.utmTerm,
+    utmContent: req.body.utmContent === undefined ? existing.utm_content : req.body.utmContent,
   });
   const contact = await crmRepo.updateContact(req.params.id, normalized, req.user.username);
   res.json({ contact });
@@ -207,6 +232,30 @@ async function deleteList(req, res) {
   res.status(204).end();
 }
 
+async function listContactStatuses(_req, res) {
+  res.json({ statuses: await crmRepo.listContactStatuses() });
+}
+
+async function createContactStatus(req, res) {
+  const name = String(req.body.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Il nome dello stato è obbligatorio' });
+  try {
+    const status = await crmRepo.createContactStatus(name);
+    res.status(201).json({ status });
+  } catch (error) {
+    if (error.code === '23505') {
+      throw Object.assign(new Error('Esiste già uno stato con questo nome'), { status: 409 });
+    }
+    throw error;
+  }
+}
+
+async function deleteContactStatus(req, res) {
+  const removed = await crmRepo.deleteContactStatus(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Stato contatto non trovato' });
+  res.status(204).end();
+}
+
 async function listTemplates(_req, res) {
   res.json({ templates: await crmRepo.listTemplates() });
 }
@@ -319,6 +368,9 @@ async function createCampaign(req, res) {
   }
   const scheduledAt = req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date();
   if (Number.isNaN(scheduledAt.getTime())) return res.status(400).json({ error: 'Data di invio non valida' });
+  if (scheduledAt.getTime() < Date.now() - 300_000) {
+    return res.status(400).json({ error: 'La data programmata non può essere nel passato' });
+  }
   const campaign = await crmRepo.createCampaign({
     name,
     listId: req.body.listId,
@@ -326,8 +378,19 @@ async function createCampaign(req, res) {
     scheduledAt: scheduledAt.toISOString(),
     createdBy: req.user.username,
   });
-  if (!campaign) return res.status(404).json({ error: 'Lista non trovata' });
+  if (!campaign) return res.status(404).json({ error: 'Lista o template non trovato' });
   res.status(201).json({ campaign });
+}
+
+async function previewCampaign(req, res) {
+  const list = await crmRepo.getList(req.query.listId);
+  const template = await crmRepo.getTemplate(req.query.templateId);
+  if (!list || !template) return res.status(404).json({ error: 'Lista o template non trovato' });
+  res.json({
+    list: { id: list.id, name: list.name },
+    template,
+    eligibleCount: await crmRepo.countEligibleContactsForList(list),
+  });
 }
 
 async function getSender(_req, res) {
@@ -385,6 +448,9 @@ module.exports = {
   listContactsInList,
   exportContactsInList,
   deleteList,
+  listContactStatuses,
+  createContactStatus,
+  deleteContactStatus,
   listTemplates,
   createTemplate,
   updateTemplate,
@@ -400,6 +466,7 @@ module.exports = {
   enrollList,
   listCampaigns,
   listCampaignJobs,
+  previewCampaign,
   createCampaign,
   getSender,
   updateSender,

@@ -1,4 +1,6 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+types.setTypeParser(1082, (value) => value);
 
 // Standard PostgreSQL connection string, independent from the hosting provider.
 const pool = new Pool({

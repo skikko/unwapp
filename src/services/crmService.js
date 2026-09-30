@@ -2,6 +2,13 @@ const crmRepo = require('../repos/crmRepo');
 const sanitizeHtml = require('sanitize-html');
 
 const EMAIL_STATUSES = new Set(['unknown', 'subscribed', 'unsubscribed', 'bounced']);
+const CONTACT_TYPES = new Map([
+  ['genitore', 'parent'],
+  ['parent', 'parent'],
+  ['studente', 'student'],
+  ['student', 'student'],
+]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeEmail(value) {
   const email = String(value || '').trim().toLowerCase();
@@ -27,11 +34,48 @@ function normalizeTags(value) {
   return [...new Set(input.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].slice(0, 50);
 }
 
+function normalizeOptionalText(value, maxLength = 255) {
+  return String(value || '').trim().slice(0, maxLength) || null;
+}
+
+function normalizeContactType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const contactType = CONTACT_TYPES.get(normalized);
+  if (!contactType) throw Object.assign(new Error('Invalid contact type'), { status: 400 });
+  return contactType;
+}
+
+function normalizeWebinarDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const italian = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const iso = italian
+    ? `${italian[3]}-${italian[2].padStart(2, '0')}-${italian[1].padStart(2, '0')}`
+    : raw.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    throw Object.assign(new Error('Invalid webinar registration date'), { status: 400 });
+  }
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) {
+    throw Object.assign(new Error('Invalid webinar registration date'), { status: 400 });
+  }
+  return iso;
+}
+
+function normalizeContactStatusId(value) {
+  const id = String(value || '').trim();
+  if (!id) return null;
+  if (!UUID_PATTERN.test(id)) throw Object.assign(new Error('Invalid contact status'), { status: 400 });
+  return id;
+}
+
 function normalizeFilters(value = {}) {
   const filters = {};
   if (value.query) filters.query = String(value.query).trim().slice(0, 120);
   if (value.source) filters.source = String(value.source).trim().slice(0, 80);
   if (EMAIL_STATUSES.has(value.emailStatus)) filters.emailStatus = value.emailStatus;
+  if (value.contactStatusId) filters.contactStatusId = normalizeContactStatusId(value.contactStatusId);
   if (value.hasEmail === true || value.hasEmail === false) filters.hasEmail = value.hasEmail;
   if (value.hasPhone === true || value.hasPhone === false) filters.hasPhone = value.hasPhone;
   const tags = normalizeTags(value.tags);
@@ -86,6 +130,14 @@ function normalizeContact(input = {}, { defaultSource = 'manual' } = {}) {
     consentAt,
     consentSource: String(input.consentSource || '').trim().slice(0, 120) || null,
     consentProof,
+    contactStatusId: normalizeContactStatusId(input.contactStatusId ?? input.contact_status_id),
+    contactType: normalizeContactType(input.contactType ?? input.contact_type),
+    webinarRegisteredAt: normalizeWebinarDate(input.webinarRegisteredAt ?? input.webinar_registered_at),
+    utmSource: normalizeOptionalText(input.utmSource ?? input.utm_source),
+    utmMedium: normalizeOptionalText(input.utmMedium ?? input.utm_medium),
+    utmCampaign: normalizeOptionalText(input.utmCampaign ?? input.utm_campaign),
+    utmTerm: normalizeOptionalText(input.utmTerm ?? input.utm_term),
+    utmContent: normalizeOptionalText(input.utmContent ?? input.utm_content),
   };
 }
 
@@ -190,9 +242,12 @@ function normalizeBulkContactChanges(input = {}) {
     removeTags: normalizeTags(input.removeTags),
     listAction,
     listId,
+    contactStatusChanged: Object.prototype.hasOwnProperty.call(input, 'contactStatusId'),
+    contactStatusId: Object.prototype.hasOwnProperty.call(input, 'contactStatusId')
+      ? normalizeContactStatusId(input.contactStatusId) : null,
   };
   if (!changes.source && !changes.emailStatus && !changes.addTags.length
-      && !changes.removeTags.length && !changes.listAction) {
+      && !changes.removeTags.length && !changes.listAction && !changes.contactStatusChanged) {
     throw Object.assign(new Error('At least one bulk change is required'), { status: 400 });
   }
   return changes;
@@ -203,6 +258,7 @@ function contactFiltersFromQuery(query = {}) {
     query: query.query,
     source: query.source,
     emailStatus: query.emailStatus,
+    contactStatusId: query.contactStatusId,
     hasEmail: query.hasEmail === undefined ? undefined : query.hasEmail === 'true',
     hasPhone: query.hasPhone === undefined ? undefined : query.hasPhone === 'true',
     tags: query.tags,
@@ -215,6 +271,8 @@ module.exports = {
   normalizeEmail,
   normalizePhone,
   normalizeTags,
+  normalizeContactType,
+  normalizeWebinarDate,
   normalizeFilters,
   normalizeContact,
   saveContact,

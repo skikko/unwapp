@@ -634,6 +634,14 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .contact-profile-sections { display: grid; gap: 18px; }
 .contact-profile-sections section { min-width: 0; }
 .campaign-jobs, .sequence-enrollments, .list-contacts { margin-top: 18px; }
+.campaign-compose-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, .5fr); gap: 16px; margin-top: 18px; }
+.campaign-preview-card, .campaign-send-summary { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); overflow: hidden; }
+.campaign-preview-card .section-heading { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); background: white; }
+.campaign-preview-card iframe { width: 100%; height: 420px; display: block; border: 0; background: white; }
+.campaign-send-summary { padding: 18px; display: grid; align-content: start; gap: 18px; }
+.campaign-send-summary > div:first-child { display: grid; gap: 5px; }
+.campaign-send-summary > div:first-child strong { font-size: 34px; line-height: 1; }
+.campaign-send-summary small { color: var(--muted); }
 .email-test-row { padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; border-top: 1px solid var(--line); background: white; }
 .email-test-row button { min-height: 45px; }
 .sequence-builder-header { margin-top: 24px; padding: 18px 0 13px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line-soft); }
@@ -698,6 +706,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .contact-mapping-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .email-builder { grid-template-columns: 1fr; }
   .email-preview-pane { position: static; }
+  .campaign-compose-grid { grid-template-columns: 1fr; }
   .sequence-step-content { grid-template-columns: 1fr; }
 }
 

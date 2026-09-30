@@ -5,6 +5,7 @@ const state = {
   templates: [],
   sequences: [],
   campaigns: [],
+  contactStatuses: [],
   contactImport: null,
   selectedContacts: new Set(),
   selectAllMatching: false,
@@ -66,6 +67,12 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+function contactTypeLabel(contactType, fallback = 'n/a') {
+  if (contactType === 'parent') return 'Genitore';
+  if (contactType === 'student') return 'Studente';
+  return fallback;
+}
+
 async function loadMe() {
   const { user } = await api('/api/me');
   state.user = user;
@@ -83,6 +90,7 @@ function currentFilters() {
   if ($('filterQuery').value.trim()) filters.set('query', $('filterQuery').value.trim());
   if ($('filterSource').value.trim()) filters.set('source', $('filterSource').value.trim());
   if ($('filterStatus').value) filters.set('emailStatus', $('filterStatus').value);
+  if ($('filterContactStatus').value) filters.set('contactStatusId', $('filterContactStatus').value);
   if ($('filterTags').value.trim()) filters.set('tags', $('filterTags').value.trim());
   return filters;
 }
@@ -114,10 +122,11 @@ async function loadContacts() {
       <td><span class="crm-source">${esc(contact.source)}</span></td>
       <td><div class="crm-tags">${tags || '<span>n/a</span>'}</div></td>
       <td><div class="crm-lists">${lists || '<span>n/a</span>'}</div></td>
+      <td>${esc(contact.contact_status_name || 'n/a')}</td>
       <td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td>
       <td><div class="row-actions"><button class="secondary" data-view-contact="${contact.id}">Profilo</button>${can('crm:write') ? `<button class="secondary" data-edit-contact="${contact.id}">Modifica</button><button class="danger" data-delete-contact="${contact.id}">Elimina</button>` : ''}</div></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
+  }).join('') : '<tr><td colspan="10"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
 
   document.querySelectorAll('[data-view-contact]').forEach((button) => button.addEventListener('click', () => loadContactProfile(button.dataset.viewContact)));
   document.querySelectorAll('[data-edit-contact]').forEach((button) => button.addEventListener('click', () => editContact(button.dataset.editContact)));
@@ -152,8 +161,12 @@ async function loadContactProfile(id) {
       <div><span>Telefono</span><strong>${esc(contact.phone || 'n/a')}</strong></div>
       <div><span>Origine</span><strong>${esc(contact.source)}</strong></div>
       <div><span>Stato email</span><strong>${esc(statusLabel(contact.email_status))}</strong></div>
+      <div><span>Stato contatto</span><strong>${esc(contact.contact_status_name || 'n/a')}</strong></div>
+      <div><span>Tipo contatto</span><strong>${esc(contactTypeLabel(contact.contact_type))}</strong></div>
+      <div><span>Iscrizione webinar</span><strong>${contact.webinar_registered_at ? esc(new Date(`${contact.webinar_registered_at}T00:00:00`).toLocaleDateString('it-IT')) : 'n/a'}</strong></div>
       <div><span>Liste</span><strong>${esc((contact.lists || []).map((list) => list.name).join(', ') || 'n/a')}</strong></div>
-      <div><span>Consenso</span><strong>${contact.consent_at ? esc(new Date(contact.consent_at).toLocaleString('it-IT')) : 'Non registrato'}</strong><small>${esc(contact.consent_source || '')}</small></div>`;
+      <div><span>Consenso</span><strong>${contact.consent_at ? esc(new Date(contact.consent_at).toLocaleString('it-IT')) : 'Non registrato'}</strong><small>${esc(contact.consent_source || '')}</small></div>
+      <div><span>UTM</span><strong>${esc([contact.utm_source, contact.utm_medium, contact.utm_campaign].filter(Boolean).join(' / ') || 'n/a')}</strong><small>${esc([contact.utm_term, contact.utm_content].filter(Boolean).join(' / '))}</small></div>`;
     const eventRows = profile.events.map((event) => `<tr><td>${esc(new Date(event.created_at).toLocaleString('it-IT'))}</td><td>${esc(event.event_type)}</td><td>${esc(event.actor || 'sistema')}</td><td>${esc(JSON.stringify(event.event_data || {}))}</td></tr>`).join('');
     const messageRows = profile.messages.map((message) => `<tr><td>${esc(new Date(message.created_at).toLocaleString('it-IT'))}</td><td>${esc(message.bot_name)}</td><td>${esc(message.role)}</td><td>${esc(message.content)}</td><td>${esc(message.provider_status || 'n/a')}</td></tr>`).join('');
     const emailRows = profile.emailJobs.map((job) => `<tr><td>${esc(new Date(job.scheduled_at).toLocaleString('it-IT'))}</td><td>${esc(job.campaign_name || job.sequence_name || job.kind)}</td><td>${esc(job.template_name)}</td><td>${esc(statusLabel(job.status))}</td><td>${esc(job.last_error || '')}</td></tr>`).join('');
@@ -218,6 +231,7 @@ async function saveBulkContacts(event) {
         changes: {
           source: $('bulkContactSource').value,
           emailStatus: $('bulkContactStatus').value,
+          ...($('bulkContactCrmStatus').value === '__unchanged__' ? {} : { contactStatusId: $('bulkContactCrmStatus').value }),
           addTags: $('bulkContactAddTags').value,
           removeTags: $('bulkContactRemoveTags').value,
           listAction: $('bulkContactListAction').value,
@@ -258,9 +272,9 @@ async function exportFilteredContacts() {
 }
 
 function downloadContactTemplate() {
-  const csv = '\uFEFFemail,telefono,nome,cognome,origine,stato_email,tag\n'
-    + 'mario.rossi@example.com,+393331234567,Mario,Rossi,evento,subscribed,"newsletter|webinar"\n'
-    + 'giulia.bianchi@example.com,+393491234567,Giulia,Bianchi,partner,unknown,lead\n';
+  const csv = '\uFEFFemail,telefono,nome,cognome,origine,stato_email,tag,data_iscrizione_webinar,genitore_studente,utm_source,utm_medium,utm_campaign,utm_term,utm_content\n'
+    + 'mario.rossi@example.com,+393331234567,Mario,Rossi,evento,subscribed,"newsletter|webinar",15/09/2026,Studente,google,cpc,webinar_settembre,orientamento,annuncio_a\n'
+    + 'giulia.bianchi@example.com,+393491234567,Giulia,Bianchi,partner,unknown,lead,16/09/2026,Genitore,meta,social,webinar_settembre,,video\n';
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;
@@ -304,7 +318,7 @@ function renderContactImportPreview(result) {
   $('importValidCount').textContent = result.validCount;
   $('importDuplicateCount').textContent = result.duplicateCount;
   $('importInvalidCount').textContent = result.invalidCount;
-  $('contactImportPreviewBody').innerHTML = result.preview.length ? result.preview.map((contact) => `<tr><td>${contact.rowNumber}</td><td>${esc([contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'n/a')}</td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contact.source)}</td><td>${esc((contact.tags || []).join(', ') || 'n/a')}</td></tr>`).join('') : '<tr><td colspan="6">Nessun contatto valido.</td></tr>';
+  $('contactImportPreviewBody').innerHTML = result.preview.length ? result.preview.map((contact) => `<tr><td>${contact.rowNumber}</td><td>${esc([contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'n/a')}</td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contactTypeLabel(contact.contactType))}</td><td>${esc(contact.webinarRegisteredAt || 'n/a')}</td><td>${esc(contact.source)}</td><td>${esc((contact.tags || []).join(', ') || 'n/a')}</td></tr>`).join('') : '<tr><td colspan="8">Nessun contatto valido.</td></tr>';
   $('contactImportErrors').hidden = !result.invalid.length;
   $('contactImportErrors').innerHTML = result.invalid.length
     ? `<strong>Righe da correggere</strong><span>${result.invalid.map((item) => `Riga ${item.rowNumber}: ${esc(item.error)}`).join('<br>')}</span>`
@@ -367,6 +381,14 @@ function editContact(id) {
   $('contactPhone').value = contact.phone || '';
   $('contactSource').value = contact.source || 'manual';
   $('contactEmailStatus').value = contact.email_status;
+  $('contactCrmStatus').value = contact.contact_status_id || '';
+  $('contactType').value = contact.contact_type || '';
+  $('contactWebinarRegisteredAt').value = contact.webinar_registered_at || '';
+  $('contactUtmSource').value = contact.utm_source || '';
+  $('contactUtmMedium').value = contact.utm_medium || '';
+  $('contactUtmCampaign').value = contact.utm_campaign || '';
+  $('contactUtmTerm').value = contact.utm_term || '';
+  $('contactUtmContent').value = contact.utm_content || '';
   $('contactTags').value = (contact.tags || []).join(', ');
   $('contactConsentAt').value = contact.consent_at ? localDateTimeValue(new Date(contact.consent_at)) : '';
   $('contactConsentSource').value = contact.consent_source || '';
@@ -396,6 +418,14 @@ async function saveContact(event) {
     phone: $('contactPhone').value,
     source: $('contactSource').value,
     emailStatus: $('contactEmailStatus').value,
+    contactStatusId: $('contactCrmStatus').value,
+    contactType: $('contactType').value,
+    webinarRegisteredAt: $('contactWebinarRegisteredAt').value,
+    utmSource: $('contactUtmSource').value,
+    utmMedium: $('contactUtmMedium').value,
+    utmCampaign: $('contactUtmCampaign').value,
+    utmTerm: $('contactUtmTerm').value,
+    utmContent: $('contactUtmContent').value,
     tags: $('contactTags').value,
     consentAt: $('contactConsentAt').value ? new Date($('contactConsentAt').value).toISOString() : null,
     consentSource: $('contactConsentSource').value,
@@ -418,7 +448,8 @@ async function loadLists() {
   state.lists = lists;
   $('listsGrid').innerHTML = lists.length ? lists.map((list) => {
     const filters = list.filter_json || {};
-    const filterText = [filters.source && `Origine: ${filters.source}`, filters.emailStatus && `Stato: ${statusLabel(filters.emailStatus)}`, filters.tags?.length && `Tag: ${filters.tags.join(', ')}`, filters.hasEmail && 'Con email'].filter(Boolean).join(' | ') || 'Tutti i contatti';
+    const contactStatus = state.contactStatuses.find((status) => status.id === filters.contactStatusId);
+    const filterText = [filters.source && `Origine: ${filters.source}`, filters.emailStatus && `Stato email: ${statusLabel(filters.emailStatus)}`, contactStatus && `Stato contatto: ${contactStatus.name}`, filters.tags?.length && `Tag: ${filters.tags.join(', ')}`, filters.hasEmail && 'Con email'].filter(Boolean).join(' | ') || 'Tutti i contatti';
     return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista dinamica</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || filterText)}</p><div class="crm-object-meta"><span>${esc(filterText)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista salvando i criteri di filtro.</div>';
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
@@ -474,6 +505,7 @@ async function saveList(event) {
         filters: {
           source: $('listSource').value,
           emailStatus: $('listEmailStatus').value,
+          contactStatusId: $('listContactStatus').value,
           tags: $('listTags').value,
           hasEmail: $('listHasEmail').checked,
         },
@@ -509,6 +541,7 @@ function editList(id) {
   $('listDescription').value = list.description || '';
   $('listSource').value = filters.source || '';
   $('listEmailStatus').value = filters.emailStatus || '';
+  $('listContactStatus').value = filters.contactStatusId || '';
   $('listTags').value = (filters.tags || []).join(', ');
   $('listHasEmail').checked = filters.hasEmail === true;
   $('listEditorTitle').textContent = 'Modifica lista';
@@ -1025,6 +1058,28 @@ function refreshSelects() {
   syncSequenceTriggerFields();
 }
 
+function refreshContactStatusSelects() {
+  const options = state.contactStatuses.map((status) => `<option value="${status.id}">${esc(status.name)}</option>`).join('');
+  const configurations = [
+    ['filterContactStatus', '<option value="">Tutti</option>'],
+    ['contactCrmStatus', '<option value="">Nessuno stato</option>'],
+    ['listContactStatus', '<option value="">Qualsiasi</option>'],
+    ['bulkContactCrmStatus', '<option value="__unchanged__">Nessuna modifica</option><option value="">Nessuno stato</option>'],
+  ];
+  configurations.forEach(([id, prefix]) => {
+    const select = $(id);
+    const selected = select.value;
+    select.innerHTML = `${prefix}${options}`;
+    if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+  });
+}
+
+async function loadContactStatuses() {
+  const { statuses } = await api('/api/crm/contact-statuses');
+  state.contactStatuses = statuses;
+  refreshContactStatusSelects();
+}
+
 function syncSequenceTriggerFields() {
   const automatic = $('sequenceTriggerType').value === 'list_joined';
   $('sequenceTriggerListWrap').hidden = !automatic;
@@ -1065,8 +1120,85 @@ async function loadCampaignJobs(id) {
   }
 }
 
+function renderCampaignTemplate(template) {
+  if (!template) {
+    $('campaignPreviewSubject').textContent = 'Seleziona un template';
+    $('campaignPreview').srcdoc = '';
+    return;
+  }
+  $('campaignPreviewSubject').textContent = sampleTemplate(template.subject);
+  const body = sampleTemplate(template.html_body);
+  const preheader = sampleTemplate(template.preheader || '');
+  $('campaignPreview').srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;padding:24px;background:#f3f4f6;color:#171a23;font-family:Arial,sans-serif}.email{max-width:640px;margin:0 auto;padding:28px;background:#fff;border-radius:14px}img{max-width:100%;height:auto}a{color:#e64a26}.preheader{display:none!important}</style></head><body><span class="preheader">${preheader}</span><main class="email">${body}</main></body></html>`;
+}
+
+async function loadCampaignPreview() {
+  const listId = $('campaignList').value;
+  const templateId = $('campaignTemplate').value;
+  if (!listId || !templateId) {
+    $('campaignEligibleCount').textContent = '0';
+    renderCampaignTemplate(null);
+    return;
+  }
+  try {
+    const result = await api(`/api/crm/campaigns/preview?listId=${encodeURIComponent(listId)}&templateId=${encodeURIComponent(templateId)}`);
+    $('campaignEligibleCount').textContent = result.eligibleCount;
+    renderCampaignTemplate(result.template);
+  } catch (error) {
+    $('campaignEligibleCount').textContent = '0';
+    renderCampaignTemplate(null);
+    toast(error.message, 'err');
+  }
+}
+
+function syncCampaignTiming() {
+  const scheduled = $('campaignTiming').value === 'scheduled';
+  $('campaignScheduleWrap').hidden = !scheduled;
+  $('campaignSchedule').required = scheduled;
+  $('saveCampaignBtn').textContent = scheduled ? 'Programma invio' : 'Invia ora';
+}
+
+function resetCampaignEditor() {
+  $('campaignEditor').reset();
+  $('campaignTiming').value = 'now';
+  $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));
+  refreshSelects();
+  syncCampaignTiming();
+  loadCampaignPreview();
+  openEditor('campaignEditor');
+}
+
+async function sendCampaignTest() {
+  const to = $('campaignTestEmail').value.trim();
+  const template = state.templates.find((item) => item.id === $('campaignTemplate').value);
+  if (!to || !template) {
+    toast('Seleziona un template e inserisci l’indirizzo destinatario', 'err');
+    return;
+  }
+  $('sendCampaignTestBtn').disabled = true;
+  try {
+    await api('/api/crm/templates/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        to,
+        name: template.name,
+        subject: template.subject,
+        preheader: template.preheader || '',
+        htmlBody: template.html_body,
+        textBody: template.text_body || '',
+      }),
+    });
+    toast(`Email di prova inviata a ${to}`);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    $('sendCampaignTestBtn').disabled = false;
+  }
+}
+
 async function saveCampaign(event) {
   event.preventDefault();
+  const scheduled = $('campaignTiming').value === 'scheduled';
   try {
     await api('/api/crm/campaigns', {
       method: 'POST',
@@ -1074,13 +1206,13 @@ async function saveCampaign(event) {
         name: $('campaignName').value,
         listId: $('campaignList').value,
         templateId: $('campaignTemplate').value,
-        scheduledAt: $('campaignSchedule').value ? new Date($('campaignSchedule').value).toISOString() : null,
+        scheduledAt: scheduled
+          ? new Date($('campaignSchedule').value).toISOString() : null,
       }),
     });
     $('campaignEditor').hidden = true;
     $('campaignEditor').reset();
-    $('campaignSchedule').value = localDateTimeValue();
-    toast('Invio messo in coda');
+    toast(scheduled ? 'Invio programmato' : 'Invio messo in coda');
     await Promise.all([loadCampaigns(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
@@ -1097,6 +1229,7 @@ function resetContactEditor() {
   $('contactId').value = '';
   $('contactSource').value = 'manual';
   $('contactEmailStatus').value = 'unknown';
+  $('contactCrmStatus').value = '';
   $('contactEditorTitle').textContent = 'Nuovo contatto';
   openEditor('contactEditor');
 }
@@ -1178,10 +1311,14 @@ document.querySelectorAll('[data-import-field], #contactImportSource, #contactIm
 $('newListBtn').addEventListener('click', resetListEditor);
 $('newTemplateBtn').addEventListener('click', resetTemplateEditor);
 $('newSequenceBtn').addEventListener('click', resetSequenceEditor);
-$('newCampaignBtn').addEventListener('click', () => openEditor('campaignEditor'));
+$('newCampaignBtn').addEventListener('click', resetCampaignEditor);
 $('addSequenceStep').addEventListener('click', () => addSequenceStep());
 $('sequenceTriggerType').addEventListener('change', syncSequenceTriggerFields);
 $('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
+$('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);
+$('campaignTiming').addEventListener('change', syncCampaignTiming);
+$('campaignList').addEventListener('change', loadCampaignPreview);
+$('campaignTemplate').addEventListener('change', loadCampaignPreview);
 $('templateVisual').addEventListener('input', updateTemplatePreview);
 $('templateVisual').addEventListener('mouseup', rememberEditorRange);
 $('templateVisual').addEventListener('keyup', rememberEditorRange);
@@ -1234,9 +1371,12 @@ document.querySelectorAll('[data-preview-size]').forEach((button) => button.addE
 (async () => {
   try {
     await loadMe();
+    await loadContactStatuses();
     await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadCampaigns()]);
     await loadSequences();
-    $('campaignSchedule').value = localDateTimeValue();
+    $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));
+    syncCampaignTiming();
+    await loadCampaignPreview();
   } catch (error) {
     toast(error.message, 'err');
   }

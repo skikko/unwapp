@@ -7,8 +7,15 @@ const FIELD_ALIASES = {
   firstName: ['nome', 'first_name', 'firstname', 'given_name'],
   lastName: ['cognome', 'last_name', 'lastname', 'surname', 'family_name'],
   source: ['origine', 'source', 'sorgente'],
-  emailStatus: ['stato_email', 'email_status', 'consenso_email', 'subscription_status'],
+  emailStatus: ['stato_email', 'email_status', 'consenso_email', 'subscription_status', 'marketing_consent'],
   tags: ['tag', 'tags', 'etichette'],
+  webinarRegisteredAt: ['data_iscrizione_webinar', 'webinar_registered_at', 'registrazione'],
+  contactType: ['genitore_studente', 'genitore_o_studente', 'tipo_contatto', 'contact_type'],
+  utmSource: ['utm_source'],
+  utmMedium: ['utm_medium'],
+  utmCampaign: ['utm_campaign'],
+  utmTerm: ['utm_term'],
+  utmContent: ['utm_content'],
 };
 
 function normalizeHeader(value) {
@@ -72,6 +79,13 @@ function prepareImport(parsed, options = {}) {
           ? normalizeEmailStatus(data[mapping.emailStatus])
           : 'unknown',
         tags: [...commonTags, ...tagsFromRow(mapping.tags ? data[mapping.tags] : '')],
+        webinarRegisteredAt: mapping.webinarRegisteredAt ? data[mapping.webinarRegisteredAt] : '',
+        contactType: mapping.contactType ? data[mapping.contactType] : '',
+        utmSource: mapping.utmSource ? data[mapping.utmSource] : '',
+        utmMedium: mapping.utmMedium ? data[mapping.utmMedium] : '',
+        utmCampaign: mapping.utmCampaign ? data[mapping.utmCampaign] : '',
+        utmTerm: mapping.utmTerm ? data[mapping.utmTerm] : '',
+        utmContent: mapping.utmContent ? data[mapping.utmContent] : '',
         customFields,
       }, { defaultSource: 'csv' });
       const duplicateEmail = contact.emailNormalized && seenEmails.has(contact.emailNormalized);
@@ -96,8 +110,12 @@ function normalizeEmailStatus(value) {
     iscritto: 'subscribed',
     subscribed: 'subscribed',
     attivo: 'subscribed',
+    accepted: 'subscribed',
+    accettato: 'subscribed',
     disiscritto: 'unsubscribed',
     unsubscribed: 'unsubscribed',
+    rejected: 'unsubscribed',
+    rifiutato: 'unsubscribed',
     bounced: 'bounced',
     non_recapitabile: 'bounced',
     unknown: 'unknown',

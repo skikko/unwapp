@@ -7,9 +7,10 @@ test('calcola checksum stabili per le migrazioni', () => {
   assert.notEqual(migrationService.checksum('SELECT 1;'), migrationService.checksum('SELECT 2;'));
 });
 
-test('ordina le migrazioni e include la migrazione operativa CRM', () => {
+test('ordina le migrazioni e include le migrazioni CRM', () => {
   const files = migrationService.migrationFiles();
-  assert.equal(files.at(-1).filename, '010_crm_operations.sql');
+  assert.equal(files.at(-1).filename, '011_crm_contact_fields.sql');
+  assert.ok(files.some((file) => file.filename === '010_crm_operations.sql'));
   assert.deepEqual(files.map((file) => file.filename), files.map((file) => file.filename).sort());
 });
 

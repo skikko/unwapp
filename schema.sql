@@ -223,6 +223,18 @@ BEFORE UPDATE ON app_users
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- CRM leggero per contatti, liste dinamiche, email e sequenze.
+CREATE TABLE IF NOT EXISTS crm_contact_statuses (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               TEXT NOT NULL,
+  sort_order         INT NOT NULL DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_crm_contact_statuses_name
+  ON crm_contact_statuses (lower(name));
+INSERT INTO crm_contact_statuses (name, sort_order)
+VALUES ('Lead',10),('Richiesta di contatto',20),('Contattato',30),('Iscritto',40),('Pagante',50)
+ON CONFLICT (lower(name)) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS crm_contacts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   first_name         TEXT,
@@ -239,6 +251,14 @@ CREATE TABLE IF NOT EXISTS crm_contacts (
   consent_at         TIMESTAMPTZ,
   consent_source     TEXT,
   consent_proof      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  contact_status_id  UUID REFERENCES crm_contact_statuses(id) ON DELETE SET NULL,
+  contact_type       TEXT CHECK (contact_type IS NULL OR contact_type IN ('parent','student')),
+  webinar_registered_at DATE,
+  utm_source         TEXT,
+  utm_medium         TEXT,
+  utm_campaign       TEXT,
+  utm_term           TEXT,
+  utm_content        TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (email_normalized IS NOT NULL OR phone_normalized IS NOT NULL)
@@ -247,6 +267,7 @@ CREATE INDEX IF NOT EXISTS idx_crm_contacts_created ON crm_contacts (created_at 
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_source ON crm_contacts (source);
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_status ON crm_contacts (email_status);
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_tags ON crm_contacts USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_contact_status ON crm_contacts (contact_status_id);
 ALTER TABLE crm_contacts DROP CONSTRAINT IF EXISTS crm_contacts_email_status_check;
 ALTER TABLE crm_contacts ADD CONSTRAINT crm_contacts_email_status_check
   CHECK (email_status IN ('unknown','subscribed','unsubscribed','bounced'));

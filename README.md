@@ -116,6 +116,11 @@ Ogni richiesta di ingest deve includere `Authorization: Bearer crm_live_...` e u
   "source": "wordpress",
   "email": "nome@example.com",
   "firstName": "Nome",
+  "contactType": "student",
+  "webinarRegisteredAt": "2026-09-15",
+  "utmSource": "google",
+  "utmMedium": "cpc",
+  "utmCampaign": "webinar_settembre",
   "tags": ["landing"],
   "customFields": {
     "formId": "newsletter-footer"

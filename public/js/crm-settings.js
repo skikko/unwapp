@@ -140,9 +140,48 @@ async function revokeApiKey(id) {
   }
 }
 
+async function loadContactStatuses() {
+  const { statuses } = await api('/api/crm/contact-statuses');
+  $('contactStatusesBody').innerHTML = statuses.length ? statuses.map((status) => `<tr><td><strong>${esc(status.name)}</strong></td><td>${status.contact_count}</td><td><button class="danger" data-delete-contact-status="${status.id}" data-contact-count="${status.contact_count}">Elimina</button></td></tr>`).join('') : '<tr><td colspan="3">Nessuno stato configurato.</td></tr>';
+  document.querySelectorAll('[data-delete-contact-status]').forEach((button) => button.addEventListener('click', () => deleteContactStatus(
+    button.dataset.deleteContactStatus,
+    Number(button.dataset.contactCount)
+  )));
+}
+
+async function createContactStatus(event) {
+  event.preventDefault();
+  try {
+    await api('/api/crm/contact-statuses', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('contactStatusName').value }),
+    });
+    $('contactStatusEditor').reset();
+    toast('Stato aggiunto');
+    await loadContactStatuses();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function deleteContactStatus(id, contactCount) {
+  const warning = contactCount
+    ? `Eliminare lo stato? Verrà rimosso da ${contactCount} contatti.`
+    : 'Eliminare lo stato?';
+  if (!confirm(warning)) return;
+  try {
+    await api(`/api/crm/contact-statuses/${id}`, { method: 'DELETE' });
+    toast('Stato eliminato');
+    await loadContactStatuses();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
 $('senderEditor').addEventListener('submit', saveSender);
 $('testSenderBtn').addEventListener('click', testSender);
 $('apiKeyEditor').addEventListener('submit', createApiKey);
+$('contactStatusEditor').addEventListener('submit', createContactStatus);
 $('senderProvider').addEventListener('change', () => {
   if ($('senderProvider').value === 'gmail') {
     $('senderHost').value = 'smtp.gmail.com';
@@ -153,5 +192,5 @@ $('senderProvider').addEventListener('change', () => {
 
 (async () => {
   await loadMe();
-  await Promise.all([loadSender(), loadApiKeys()]);
+  await Promise.all([loadSender(), loadApiKeys(), loadContactStatuses()]);
 })();

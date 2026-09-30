@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const CONTACT_SELECT = `c.*,
+  (SELECT status.name FROM crm_contact_statuses status WHERE status.id=c.contact_status_id) AS contact_status_name`;
 
 function compileContactFilters(filters = {}, startIndex = 1) {
   const conditions = [];
@@ -20,6 +22,7 @@ function compileContactFilters(filters = {}, startIndex = 1) {
   }
   if (filters.source) conditions.push(`c.source = ${add(String(filters.source).slice(0, 80))}`);
   if (filters.emailStatus) conditions.push(`c.email_status = ${add(filters.emailStatus)}`);
+  if (filters.contactStatusId) conditions.push(`c.contact_status_id = ${add(filters.contactStatusId)}::uuid`);
   if (filters.hasEmail === true) conditions.push('c.email_normalized IS NOT NULL');
   if (filters.hasEmail === false) conditions.push('c.email_normalized IS NULL');
   if (filters.hasPhone === true) conditions.push('c.phone_normalized IS NOT NULL');
@@ -84,12 +87,22 @@ async function upsertContactWithClient(client, contact, { actor = null } = {}) {
          consent_at = COALESCE($12, consent_at),
          consent_source = COALESCE($13, consent_source),
          consent_proof = consent_proof || $14::jsonb,
+         contact_status_id = COALESCE($15, contact_status_id),
+         contact_type = COALESCE($16, contact_type),
+         webinar_registered_at = COALESCE($17, webinar_registered_at),
+         utm_source = COALESCE($18, utm_source),
+         utm_medium = COALESCE($19, utm_medium),
+         utm_campaign = COALESCE($20, utm_campaign),
+         utm_term = COALESCE($21, utm_term),
+         utm_content = COALESCE($22, utm_content),
          updated_at = now()
        WHERE id = $1 RETURNING *`,
       [found.rows[0].id, contact.firstName, contact.lastName, contact.email,
        contact.emailNormalized, contact.phone, contact.phoneNormalized, contact.source,
        contact.emailStatus, contact.tags, contact.customFields, contact.consentAt,
-       contact.consentSource, contact.consentProof]
+       contact.consentSource, contact.consentProof, contact.contactStatusId, contact.contactType,
+       contact.webinarRegisteredAt, contact.utmSource, contact.utmMedium, contact.utmCampaign,
+       contact.utmTerm, contact.utmContent]
     );
     await addContactEvent(client, result.rows[0].id, 'contact_updated', {
       source: contact.source,
@@ -97,18 +110,29 @@ async function upsertContactWithClient(client, contact, { actor = null } = {}) {
       consentAt: contact.consentAt,
       consentSource: contact.consentSource,
       consentProof: contact.consentProof,
+      contactStatusId: contact.contactStatusId,
+      contactType: contact.contactType,
+      webinarRegisteredAt: contact.webinarRegisteredAt,
+      utmSource: contact.utmSource,
+      utmMedium: contact.utmMedium,
+      utmCampaign: contact.utmCampaign,
+      utmTerm: contact.utmTerm,
+      utmContent: contact.utmContent,
     }, actor);
     return { contact: result.rows[0], created: false };
   }
   const result = await client.query(
     `INSERT INTO crm_contacts
      (first_name,last_name,email,email_normalized,phone,phone_normalized,source,email_status,tags,
-      custom_fields,consent_at,consent_source,consent_proof)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      custom_fields,consent_at,consent_source,consent_proof,contact_status_id,contact_type,
+      webinar_registered_at,utm_source,utm_medium,utm_campaign,utm_term,utm_content)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
     [contact.firstName, contact.lastName, contact.email, contact.emailNormalized,
      contact.phone, contact.phoneNormalized, contact.source || 'manual',
      contact.emailStatus || 'unknown', contact.tags, contact.customFields, contact.consentAt,
-     contact.consentSource, contact.consentProof]
+     contact.consentSource, contact.consentProof, contact.contactStatusId, contact.contactType,
+     contact.webinarRegisteredAt, contact.utmSource, contact.utmMedium, contact.utmCampaign,
+     contact.utmTerm, contact.utmContent]
   );
   await addContactEvent(client, result.rows[0].id, 'contact_created', {
     source: contact.source,
@@ -116,6 +140,14 @@ async function upsertContactWithClient(client, contact, { actor = null } = {}) {
     consentAt: contact.consentAt,
     consentSource: contact.consentSource,
     consentProof: contact.consentProof,
+    contactStatusId: contact.contactStatusId,
+    contactType: contact.contactType,
+    webinarRegisteredAt: contact.webinarRegisteredAt,
+    utmSource: contact.utmSource,
+    utmMedium: contact.utmMedium,
+    utmCampaign: contact.utmCampaign,
+    utmTerm: contact.utmTerm,
+    utmContent: contact.utmContent,
   }, actor);
   return { contact: result.rows[0], created: true };
 }
@@ -141,7 +173,7 @@ async function listContacts(filters, { limit = 100, offset = 0 } = {}) {
   const offsetIndex = compiled.values.length + 2;
   const [items, count] = await Promise.all([
     db.query(
-      `SELECT c.* FROM crm_contacts c WHERE ${compiled.clause}
+      `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause}
        ORDER BY c.created_at DESC LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       [...compiled.values, limit, offset]
     ),
@@ -174,14 +206,14 @@ async function attachListsToContacts(contacts) {
 async function exportContacts(filters = {}) {
   const compiled = compileContactFilters(filters);
   const { rows } = await db.query(
-    `SELECT c.* FROM crm_contacts c WHERE ${compiled.clause} ORDER BY c.created_at DESC`,
+    `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause} ORDER BY c.created_at DESC`,
     compiled.values
   );
   return attachListsToContacts(rows);
 }
 
 async function getContact(id) {
-  const { rows } = await db.query('SELECT * FROM crm_contacts WHERE id = $1', [id]);
+  const { rows } = await db.query(`SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE c.id = $1`, [id]);
   return rows[0] || null;
 }
 
@@ -245,11 +277,15 @@ async function updateContact(id, contact, actor = null) {
          first_name=$2,last_name=$3,email=$4,email_normalized=$5,
          phone=$6,phone_normalized=$7,source=$8,email_status=$9,
          tags=$10,custom_fields=$11,consent_at=$12,consent_source=$13,consent_proof=$14,
+         contact_status_id=$15,contact_type=$16,webinar_registered_at=$17,
+         utm_source=$18,utm_medium=$19,utm_campaign=$20,utm_term=$21,utm_content=$22,
          updated_at=now()
        WHERE id=$1 RETURNING *`,
       [id, contact.firstName, contact.lastName, contact.email, contact.emailNormalized,
        contact.phone, contact.phoneNormalized, contact.source, contact.emailStatus || 'unknown',
-       contact.tags, contact.customFields, contact.consentAt, contact.consentSource, contact.consentProof]
+       contact.tags, contact.customFields, contact.consentAt, contact.consentSource, contact.consentProof,
+       contact.contactStatusId, contact.contactType, contact.webinarRegisteredAt, contact.utmSource,
+       contact.utmMedium, contact.utmCampaign, contact.utmTerm, contact.utmContent]
     );
     if (rows[0]) {
       await addContactEvent(client, id, 'contact_updated', {
@@ -258,6 +294,14 @@ async function updateContact(id, contact, actor = null) {
         consentAt: contact.consentAt,
         consentSource: contact.consentSource,
         consentProof: contact.consentProof,
+        contactStatusId: contact.contactStatusId,
+        contactType: contact.contactType,
+        webinarRegisteredAt: contact.webinarRegisteredAt,
+        utmSource: contact.utmSource,
+        utmMedium: contact.utmMedium,
+        utmCampaign: contact.utmCampaign,
+        utmTerm: contact.utmTerm,
+        utmContent: contact.utmContent,
       }, actor);
     }
     await client.query('COMMIT');
@@ -316,7 +360,7 @@ async function listContactsForList(list, { limit = 100, offset = 0 } = {}) {
   const offsetIndex = compiled.values.length + 2;
   const [items, count] = await Promise.all([
     db.query(
-      `SELECT c.* FROM crm_contacts c WHERE ${compiled.clause}
+      `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause}
        ORDER BY c.created_at DESC LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       [...compiled.values, limit, offset]
     ),
@@ -328,7 +372,7 @@ async function listContactsForList(list, { limit = 100, offset = 0 } = {}) {
 async function exportContactsForList(list) {
   const compiled = compileListFilter(list);
   const { rows } = await db.query(
-    `SELECT c.* FROM crm_contacts c WHERE ${compiled.clause} ORDER BY c.created_at DESC`,
+    `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause} ORDER BY c.created_at DESC`,
     compiled.values
   );
   return attachListsToContacts(rows);
@@ -360,13 +404,15 @@ async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = n
        `UPDATE crm_contacts c SET
          source=COALESCE($1,source),
          email_status=COALESCE($2,email_status),
+         contact_status_id=CASE WHEN $3 THEN $4::uuid ELSE contact_status_id END,
          tags=ARRAY(
-           SELECT DISTINCT tag FROM unnest(c.tags || $3::text[]) AS tag
-           WHERE NOT (tag=ANY($4::text[]))
+           SELECT DISTINCT tag FROM unnest(c.tags || $5::text[]) AS tag
+           WHERE NOT (tag=ANY($6::text[]))
          ),
          updated_at=now()
-       WHERE c.id=ANY($5::uuid[])`,
-      [changes.source, changes.emailStatus, changes.addTags, changes.removeTags, contactIds]
+       WHERE c.id=ANY($7::uuid[])`,
+      [changes.source, changes.emailStatus, changes.contactStatusChanged, changes.contactStatusId,
+       changes.addTags, changes.removeTags, contactIds]
     );
     let membershipChanged = 0;
     if (changes.listAction) {
@@ -459,6 +505,49 @@ async function deleteList(id) {
   return rows[0] || null;
 }
 
+async function listContactStatuses() {
+  const { rows } = await db.query(
+    `SELECT status.*, count(contact.id)::int AS contact_count
+     FROM crm_contact_statuses status
+     LEFT JOIN crm_contacts contact ON contact.contact_status_id=status.id
+     GROUP BY status.id
+     ORDER BY status.sort_order ASC, status.name ASC`
+  );
+  return rows;
+}
+
+async function createContactStatus(name) {
+  const { rows } = await db.query(
+    `INSERT INTO crm_contact_statuses (name,sort_order)
+     VALUES ($1,(SELECT COALESCE(max(sort_order),0)+10 FROM crm_contact_statuses))
+     RETURNING *`,
+    [name]
+  );
+  return rows[0];
+}
+
+async function deleteContactStatus(id) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('DELETE FROM crm_contact_statuses WHERE id=$1 RETURNING id', [id]);
+    if (rows[0]) {
+      await client.query(
+        `UPDATE crm_lists SET filter_json=filter_json-'contactStatusId',updated_at=now()
+         WHERE filter_json->>'contactStatusId'=$1`,
+        [id]
+      );
+    }
+    await client.query('COMMIT');
+    return rows[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createTemplate(input) {
   const { rows } = await db.query(
     `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,created_by)
@@ -480,6 +569,11 @@ async function updateTemplate(id, input) {
 async function listTemplates() {
   const { rows } = await db.query('SELECT * FROM crm_email_templates ORDER BY updated_at DESC');
   return rows;
+}
+
+async function getTemplate(id) {
+  const { rows } = await db.query('SELECT * FROM crm_email_templates WHERE id=$1', [id]);
+  return rows[0] || null;
 }
 
 async function deleteTemplate(id) {
@@ -799,7 +893,8 @@ async function processSequenceTriggers() {
 
 async function createCampaign(input) {
   const list = await getList(input.listId);
-  if (!list) return null;
+  const template = await getTemplate(input.templateId);
+  if (!list || !template) return null;
   const compiled = compileListFilter(list);
   const client = await db.getClient();
   try {
@@ -840,6 +935,16 @@ async function createCampaign(input) {
   } finally {
     client.release();
   }
+}
+
+async function countEligibleContactsForList(list) {
+  const compiled = compileListFilter(list);
+  const { rows } = await db.query(
+    `SELECT count(*)::int AS count FROM crm_contacts c
+     WHERE ${compiled.clause} AND c.email_normalized IS NOT NULL AND c.email_status='subscribed'`,
+    compiled.values
+  );
+  return rows[0].count;
 }
 
 async function listCampaigns() {
@@ -1114,9 +1219,13 @@ module.exports = {
   exportContactsForList,
   importContacts,
   deleteList,
+  listContactStatuses,
+  createContactStatus,
+  deleteContactStatus,
   createTemplate,
   updateTemplate,
   listTemplates,
+  getTemplate,
   deleteTemplate,
   createSequence,
   updateSequence,
@@ -1128,6 +1237,7 @@ module.exports = {
   enrollList,
   processSequenceTriggers,
   createCampaign,
+  countEligibleContactsForList,
   listCampaigns,
   listCampaignJobs,
   claimDueJob,
