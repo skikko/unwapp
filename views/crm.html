@@ -73,9 +73,10 @@
           <form class="card crm-editor contact-import" id="contactImportEditor" hidden>
             <div class="section-heading compact"><div><h2>Importa contatti da CSV</h2></div><button class="ghost" type="button" data-close="contactImportEditor">Chiudi</button></div>
             <div class="contact-import-grid">
-              <label class="dropzone compact" for="contactCsvFile">
+              <label class="dropzone compact" id="contactCsvDropzone" for="contactCsvFile">
                 <span class="dropzone-icon">CSV</span><strong>Seleziona il file dei contatti</strong>
                 <span>Virgola, punto e virgola o tab. Massimo 5.000 righe e 5 MB.</span>
+                <span class="contact-file-name" id="contactCsvFilename">Nessun file selezionato</span>
                 <input id="contactCsvFile" type="file" accept=".csv,text/csv" required />
               </label>
               <div class="contact-import-options">
@@ -102,6 +103,7 @@
                 <div class="form-field"><label for="mapUtmTerm">UTM term</label><select id="mapUtmTerm" data-import-field="utmTerm"></select></div>
                 <div class="form-field"><label for="mapUtmContent">UTM content</label><select id="mapUtmContent" data-import-field="utmContent"></select></div>
               </div>
+              <div class="contact-import-warnings" id="contactImportWarnings" hidden></div>
             </section>
             <section class="contact-import-preview" id="contactImportPreview" hidden>
               <div class="contact-import-stats">
@@ -113,7 +115,8 @@
               <div class="table-wrap"><table><thead><tr><th>Riga</th><th>Nome</th><th>Email</th><th>Telefono</th><th>Tipo</th><th>Webinar</th><th>Origine</th><th>Tag</th></tr></thead><tbody id="contactImportPreviewBody"></tbody></table></div>
               <div class="contact-import-errors" id="contactImportErrors" hidden></div>
             </section>
-            <div class="form-actions"><button class="secondary" type="button" id="previewContactImportBtn">Analizza CSV</button><button type="submit" id="runContactImportBtn" disabled>Importa contatti</button></div>
+            <div class="contact-import-status" id="contactImportStatus" role="status" aria-live="polite" hidden></div>
+            <div class="form-actions"><button class="secondary" type="button" id="previewContactImportBtn">Analizza di nuovo</button><button type="submit" id="runContactImportBtn" disabled>Importa contatti</button></div>
           </form>
           <form class="card crm-editor" id="contactEditor" hidden>
             <div class="section-heading compact"><div><h2 id="contactEditorTitle">Nuovo contatto</h2></div><button class="ghost" type="button" data-close="contactEditor">Chiudi</button></div>

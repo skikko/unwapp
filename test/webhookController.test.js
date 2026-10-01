@@ -6,6 +6,7 @@ const conversationRepo = require('../src/repos/conversationRepo');
 const messageRepo = require('../src/repos/messageRepo');
 const aiService = require('../src/services/aiService');
 const crmService = require('../src/services/crmService');
+const broadcastRepo = require('../src/repos/broadcastRepo');
 const webhookController = require('../src/controllers/webhookController');
 
 test('stores incoming messages and switches to human mode without an AI key', async (t) => {
@@ -81,4 +82,64 @@ test('stores incoming messages and switches to human mode without an AI key', as
   assert.equal(aiCalled, false);
   assert.ok(events.some((event) => event.name === 'attention-required'));
   assert.ok(events.some((event) => event.name === 'operator-mode-changed'));
+});
+
+test('salva e notifica gli errori di consegna Twilio', async (t) => {
+  const originals = {
+    updateMessage: messageRepo.updateDeliveryStatus,
+    updateBroadcast: broadcastRepo.updateDeliveryStatus,
+    getConversation: conversationRepo.getById,
+  };
+  const calls = [];
+  const events = [];
+  messageRepo.updateDeliveryStatus = async (...args) => {
+    calls.push(args);
+    return { conversation_id: 'conv-1' };
+  };
+  broadcastRepo.updateDeliveryStatus = async () => null;
+  conversationRepo.getById = async () => ({ id: 'conv-1', bot_id: 'bot-1' });
+  t.after(() => {
+    messageRepo.updateDeliveryStatus = originals.updateMessage;
+    broadcastRepo.updateDeliveryStatus = originals.updateBroadcast;
+    conversationRepo.getById = originals.getConversation;
+  });
+
+  const io = {
+    to(room) {
+      return { emit(name, data) { events.push({ room, name, data }); } };
+    },
+  };
+  const req = {
+    body: {
+      MessageSid: 'SM123',
+      MessageStatus: 'undelivered',
+      ErrorCode: '63016',
+      ErrorMessage: 'Window closed',
+    },
+    app: { get: () => io },
+  };
+  let statusCode;
+  let responseBody;
+  const res = {
+    status(code) { statusCode = code; return this; },
+    send(body) { responseBody = body; return this; },
+  };
+
+  await webhookController.handleDeliveryStatus(req, res);
+
+  assert.deepEqual(calls[0], ['SM123', 'undelivered', '63016', 'Window closed']);
+  assert.equal(statusCode, 200);
+  assert.equal(responseBody, 'OK');
+  assert.deepEqual(events[0], {
+    room: 'bot:bot-1',
+    name: 'delivery-status',
+    data: {
+      conversationId: 'conv-1',
+      botId: 'bot-1',
+      twilioSid: 'SM123',
+      status: 'undelivered',
+      errorCode: '63016',
+      errorMessage: 'Window closed',
+    },
+  });
 });

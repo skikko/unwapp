@@ -182,10 +182,24 @@ async function handleIncomingMessage(req, res) {
 async function handleDeliveryStatus(req, res) {
   const { MessageSid, MessageStatus, ErrorCode, ErrorMessage } = req.body || {};
   if (!MessageSid || !MessageStatus) return res.status(400).send('Missing parameters');
-  await Promise.all([
-    messageRepo.updateDeliveryStatus(MessageSid, MessageStatus),
+  const [message] = await Promise.all([
+    messageRepo.updateDeliveryStatus(MessageSid, MessageStatus, ErrorCode || null, ErrorMessage || null),
     broadcastRepo.updateDeliveryStatus(MessageSid, MessageStatus, ErrorCode || null, ErrorMessage || null),
   ]);
+  if (message) {
+    const conversation = await conversationRepo.getById(message.conversation_id);
+    const io = req.app.get('io');
+    if (conversation && io) {
+      io.to(`bot:${conversation.bot_id}`).emit('delivery-status', {
+        conversationId: conversation.id,
+        botId: conversation.bot_id,
+        twilioSid: MessageSid,
+        status: MessageStatus,
+        errorCode: ErrorCode || null,
+        errorMessage: ErrorMessage || null,
+      });
+    }
+  }
   console.log(`[webhook] status ${MessageSid}: ${MessageStatus}`);
   res.status(200).send('OK');
 }

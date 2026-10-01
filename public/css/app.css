@@ -239,7 +239,9 @@ button.danger-text:hover:not(:disabled) { color: var(--danger); background: rgba
   border: 1px solid rgba(255,255,255,.4); text-align: center; font-size: 10px; font-weight: 800;
 }
 .msg.user .message-actions a, .msg.user .message-actions span { background: var(--surface-soft); border-color: var(--line); }
-.msg .meta { font-size: 9px; opacity: .66; margin-top: 6px; display: flex; justify-content: space-between; gap: 12px; }
+.msg .meta { font-size: 9px; opacity: .78; margin-top: 6px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.delivery-status.failed { font-weight: 800; color: #7c1d14; }
+.msg.bot .delivery-status.failed, .msg.operator .delivery-status.failed { color: #fff; }
 .chat-input { padding: 12px 16px 13px; border-top: 1px solid var(--line-soft); background: white; }
 .chat-input .row { display: flex; gap: 9px; align-items: stretch; }
 .chat-input textarea { min-height: 48px; max-height: 160px; resize: none; background: var(--surface-soft); border-color: transparent; }
@@ -501,6 +503,13 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .crm-editor.visible { display: block; }
 .contact-import-grid { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr); gap: 16px; }
 .dropzone.compact { min-height: 190px; }
+.dropzone.compact.is-loading { border-color: var(--accent); background: var(--accent-soft); pointer-events: none; }
+.dropzone.compact.is-loading::after {
+  content: ''; width: 22px; height: 22px; border: 3px solid rgba(230,74,38,.2);
+  border-top-color: var(--accent); border-radius: 50%; animation: import-spin .8s linear infinite;
+}
+.contact-file-name { max-width: 100%; color: var(--ink); font-size: 11px; font-weight: 750; overflow-wrap: anywhere; }
+@keyframes import-spin { to { transform: rotate(360deg); } }
 .contact-import-options { display: grid; gap: 12px; }
 .contact-import-mapping, .contact-import-preview { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
 .contact-import-mapping .section-heading span { color: var(--muted); font-size: 11px; }
@@ -512,6 +521,11 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .contact-import-stats span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .contact-import-preview .table-wrap { max-height: 310px; border: 1px solid var(--line); border-radius: 11px; }
 .contact-import-errors { margin-top: 12px; padding: 12px 14px; display: grid; gap: 5px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 11px; line-height: 1.55; }
+.contact-import-warnings, .contact-import-status { margin-top: 12px; padding: 11px 13px; border-radius: 10px; font-size: 11px; line-height: 1.5; }
+.contact-import-warnings, .contact-import-status.warn { background: #fff7e8; color: #784b00; border: 1px solid #efd49c; }
+.contact-import-status.info { background: var(--surface-soft); color: var(--ink-soft); border: 1px solid var(--line); }
+.contact-import-status.ok { background: var(--success-soft); color: var(--success); border: 1px solid rgba(27,128,85,.2); }
+.contact-import-status.err { background: var(--danger-soft); color: var(--danger); border: 1px solid rgba(181,54,43,.2); }
 .contact-bulk-bar { min-height: 58px; margin-bottom: 14px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-radius: var(--radius-md); background: var(--ink); color: white; box-shadow: var(--shadow-sm); }
 .contact-bulk-bar strong { margin-right: auto; font-size: 13px; }
 .contact-bulk-bar button { min-height: 38px; }

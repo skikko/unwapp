@@ -44,6 +44,12 @@ async function sendOperatorMessage(req, res) {
     if (!conversation) return res.status(404).json({ error: 'not found' });
     const bot = await botRepo.getById(conversation.bot_id);
     if (!bot) return res.status(404).json({ error: 'bot not found' });
+    if (!await messageRepo.isCustomerServiceWindowOpen(id)) {
+      return res.status(409).json({
+        error: 'La finestra WhatsApp di 24 ore è chiusa. Usa un Broadcast con un template approvato oppure attendi un nuovo messaggio del contatto.',
+        code: 'WHATSAPP_WINDOW_CLOSED',
+      });
+    }
 
     await conversationRepo.setOperator(id, req.user?.username || 'operator');
     const savedMessages = [];

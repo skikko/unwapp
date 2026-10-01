@@ -246,4 +246,12 @@ test('mappa le colonne del CSV webinar', () => {
   assert.equal(result.contacts[0].utmSource, 'meta');
   assert.equal(result.contacts[0].utmCampaign, 'webinar');
   assert.equal(result.contacts[0].utmContent, 'video');
+  assert.equal(result.mapping.phone, '');
+});
+
+test('riconosce le intestazioni telefoniche abbreviate', () => {
+  const parsed = csvService.parseCsv('Email,Tel.,Nome\nanna@example.com,+393331234567,Anna\n');
+  const result = crmImportService.prepareImport(parsed);
+  assert.equal(result.mapping.phone, 'Tel.');
+  assert.equal(result.contacts[0].phoneNormalized, '+393331234567');
 });

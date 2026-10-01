@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS messages (
   actions            JSONB NOT NULL DEFAULT '[]'::jsonb,
   content_sid        TEXT,
   provider_status    TEXT,
+  provider_error_code TEXT,
+  provider_error_message TEXT,
   status_updated_at  TIMESTAMPTZ,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -72,6 +74,8 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS actions JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_sid TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS provider_status TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS provider_error_code TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS provider_error_message TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
   ON messages (conversation_id, created_at);

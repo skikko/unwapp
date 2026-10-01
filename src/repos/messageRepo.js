@@ -63,11 +63,28 @@ async function getByTwilioSid(twilioSid) {
   return rows[0] || null;
 }
 
-async function updateDeliveryStatus(twilioSid, status) {
+async function isCustomerServiceWindowOpen(conversationId) {
   const { rows } = await db.query(
-    `UPDATE messages SET provider_status=$2,status_updated_at=now()
+    `SELECT EXISTS (
+       SELECT 1 FROM messages
+       WHERE conversation_id=$1
+         AND role='user'
+         AND created_at > now() - interval '24 hours'
+     ) AS is_open`,
+    [conversationId]
+  );
+  return Boolean(rows[0]?.is_open);
+}
+
+async function updateDeliveryStatus(twilioSid, status, errorCode = null, errorMessage = null) {
+  const { rows } = await db.query(
+    `UPDATE messages SET
+       provider_status=$2,
+       provider_error_code=COALESCE($3,provider_error_code),
+       provider_error_message=COALESCE($4,provider_error_message),
+       status_updated_at=now()
      WHERE twilio_sid=$1 RETURNING *`,
-    [twilioSid, status]
+    [twilioSid, status, errorCode, errorMessage]
   );
   return rows[0] || null;
 }
@@ -78,5 +95,6 @@ module.exports = {
   remove,
   recentHistoryText,
   getByTwilioSid,
+  isCustomerServiceWindowOpen,
   updateDeliveryStatus,
 };

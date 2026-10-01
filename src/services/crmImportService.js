@@ -3,7 +3,7 @@ const crmService = require('./crmService');
 
 const FIELD_ALIASES = {
   email: ['email', 'e_mail', 'mail', 'email_address', 'indirizzo_email'],
-  phone: ['telefono', 'phone', 'phone_number', 'cellulare', 'mobile', 'whatsapp', 'numero', 'numero_telefono'],
+  phone: ['telefono', 'tel', 'phone', 'phone_number', 'cellulare', 'cell', 'cell_phone', 'mobile', 'mobile_phone', 'whatsapp', 'numero', 'numero_telefono'],
   firstName: ['nome', 'first_name', 'firstname', 'given_name'],
   lastName: ['cognome', 'last_name', 'lastname', 'surname', 'family_name'],
   source: ['origine', 'source', 'sorgente'],

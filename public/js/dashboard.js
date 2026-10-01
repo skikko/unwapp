@@ -240,9 +240,14 @@ function renderChat() {
     b.title = b.disabled ? 'Attiva le risposte AI dalla pagina BOT' : '';
   });
 
-  $('inputHint').textContent = isHuman
-    ? 'Rispondi come operatore'
-    : 'L’invio passa all’operatore';
+  const windowOpen = isCustomerServiceWindowOpen();
+  $('inputHint').textContent = windowOpen
+    ? (isHuman ? 'Rispondi come operatore' : 'L’invio passa all’operatore')
+    : 'Finestra WhatsApp di 24 ore chiusa. Usa un Broadcast con template approvato.';
+  $('msgInput').disabled = !windowOpen;
+  $('sendBtn').disabled = !windowOpen;
+  $('attachBtn').disabled = !windowOpen;
+  $('addChatActionBtn').disabled = !windowOpen;
   $('archiveBtn').textContent = conv.archived_at ? 'Ripristina' : 'Archivia';
   $('unreadBtn').textContent = Number(conv.unread_count || 0) > 0 ? 'Segna come letta' : 'Segna come non letta';
 
@@ -253,11 +258,32 @@ function renderChat() {
       ${renderMessageContent(m)}
       <div class="meta">
         <span>${roleLabel(m.role)}</span>
+        ${renderDeliveryStatus(m)}
         <span>${new Date(m.created_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
     </div>
   `).join('');
   body.scrollTop = body.scrollHeight;
+}
+
+function isCustomerServiceWindowOpen() {
+  const lastInbound = [...state.messages].reverse().find((message) => message.role === 'user');
+  if (!lastInbound) return false;
+  const receivedAt = new Date(lastInbound.created_at).getTime();
+  return Number.isFinite(receivedAt) && Date.now() - receivedAt < 24 * 60 * 60 * 1000;
+}
+
+function renderDeliveryStatus(message) {
+  if (!['operator', 'bot'].includes(message.role) || !message.provider_status) return '';
+  const status = String(message.provider_status).toLowerCase();
+  if (status === 'undelivered' || status === 'failed') {
+    const reason = String(message.provider_error_code) === '63016'
+      ? 'Finestra di 24 ore chiusa. Usa un template approvato.'
+      : `Twilio ${message.provider_error_code || status}`;
+    return `<span class="delivery-status failed" title="${escape(message.provider_error_message || reason)}">Non consegnato: ${escape(reason)}</span>`;
+  }
+  const labels = { queued: 'In coda', sent: 'Inviato', delivered: 'Consegnato', read: 'Letto' };
+  return `<span class="delivery-status ${escape(status)}">${escape(labels[status] || status)}</span>`;
 }
 
 function safeUrl(value, protocols = ['https:']) {
@@ -306,6 +332,9 @@ function roleLabel(r) {
 async function sendOperatorMessage() {
   const text = $('msgInput').value.trim();
   if ((!text && !state.mediaFile) || !state.selectedConversationId) return;
+  if (!isCustomerServiceWindowOpen()) {
+    return toast('La finestra WhatsApp di 24 ore è chiusa. Usa un Broadcast con un template approvato.', 'err');
+  }
   if (state.chatActions.length && !text) return toast('Scrivi un testo per aggiungere pulsanti', 'err');
   $('sendBtn').disabled = true;
   try {
@@ -335,7 +364,7 @@ async function sendOperatorMessage() {
   } catch (err) {
     toast(err.message, 'err');
   } finally {
-    $('sendBtn').disabled = false;
+    $('sendBtn').disabled = !isCustomerServiceWindowOpen();
   }
 }
 
@@ -574,6 +603,18 @@ function subscribeSocket() {
     state.socket.on('operator-mode-changed', () => {
       if (state.selectedConversationId) selectConversation(state.selectedConversationId);
       loadConversations();
+    });
+    state.socket.on('delivery-status', (ev) => {
+      if (ev.botId !== state.selectedBotId || ev.conversationId !== state.selectedConversationId) return;
+      const message = state.messages.find((item) => item.twilio_sid === ev.twilioSid);
+      if (message) {
+        message.provider_status = ev.status;
+        message.provider_error_code = ev.errorCode;
+        message.provider_error_message = ev.errorMessage;
+        renderChat();
+      } else {
+        selectConversation(state.selectedConversationId);
+      }
     });
     state.socket.on('conversation-deleted', (ev) => {
       if (ev.botId !== state.selectedBotId) return;

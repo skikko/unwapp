@@ -322,7 +322,7 @@ function importMapping() {
 
 function contactImportFormData() {
   const [file] = $('contactCsvFile').files;
-  if (!file) throw new Error('Select a CSV file');
+  if (!file) throw new Error('Seleziona un file CSV');
   const form = new FormData();
   form.append('contacts', file);
   form.append('mapping', JSON.stringify(importMapping()));
@@ -330,6 +330,22 @@ function contactImportFormData() {
   form.append('tags', $('contactImportTags').value.trim());
   form.append('listId', $('contactImportList').value);
   return form;
+}
+
+function setContactImportStatus(message = '', type = 'info') {
+  const status = $('contactImportStatus');
+  status.hidden = !message;
+  status.className = `contact-import-status ${type}`;
+  status.textContent = message;
+}
+
+function setContactImportBusy(busy, operation = 'analysis') {
+  $('contactImportEditor').setAttribute('aria-busy', String(busy));
+  $('contactCsvDropzone').classList.toggle('is-loading', busy);
+  $('previewContactImportBtn').disabled = busy;
+  $('runContactImportBtn').disabled = busy || !state.contactImport?.validCount;
+  $('previewContactImportBtn').textContent = busy && operation === 'analysis' ? 'Analisi in corso...' : 'Analizza di nuovo';
+  $('runContactImportBtn').textContent = busy && operation === 'import' ? 'Importazione in corso...' : 'Importa contatti';
 }
 
 function importColumnOptions(headers, selected = '') {
@@ -344,6 +360,11 @@ function renderContactImportPreview(result) {
   document.querySelectorAll('[data-import-field]').forEach((select) => {
     select.innerHTML = importColumnOptions(result.headers, result.mapping[select.dataset.importField]);
   });
+  const warnings = [];
+  if (!result.mapping.phone) warnings.push('Il CSV non contiene una colonna telefono riconosciuta. I contatti saranno identificati e importati tramite email.');
+  if (!result.mapping.email) warnings.push('Il CSV non contiene una colonna email riconosciuta. I contatti saranno identificati e importati tramite telefono.');
+  $('contactImportWarnings').hidden = !warnings.length;
+  $('contactImportWarnings').innerHTML = warnings.map((warning) => `<div>${esc(warning)}</div>`).join('');
   $('importTotalCount').textContent = result.totalRows;
   $('importValidCount').textContent = result.validCount;
   $('importDuplicateCount').textContent = result.duplicateCount;
@@ -354,19 +375,27 @@ function renderContactImportPreview(result) {
     ? `<strong>Righe da correggere</strong><span>${result.invalid.map((item) => `Riga ${item.rowNumber}: ${esc(item.error)}`).join('<br>')}</span>`
     : '';
   $('runContactImportBtn').disabled = !result.validCount;
+  setContactImportStatus(
+    warnings.length
+      ? `Analisi completata con avvisi. ${result.validCount} contatti pronti per l’importazione.`
+      : `Analisi completata. ${result.validCount} contatti pronti per l’importazione.`,
+    warnings.length ? 'warn' : 'ok'
+  );
 }
 
 async function previewContactImport() {
-  $('previewContactImportBtn').disabled = true;
-  $('runContactImportBtn').disabled = true;
+  setContactImportBusy(true, 'analysis');
+  setContactImportStatus('Caricamento e analisi del CSV in corso...', 'info');
   try {
     const result = await api('/api/crm/contacts/import/preview', { method: 'POST', body: contactImportFormData() });
     renderContactImportPreview(result);
     toast(`${result.validCount} contatti pronti per l’importazione`);
   } catch (error) {
+    state.contactImport = null;
+    setContactImportStatus(error.message, 'err');
     toast(error.message, 'err');
   } finally {
-    $('previewContactImportBtn').disabled = false;
+    setContactImportBusy(false);
   }
 }
 
@@ -376,15 +405,18 @@ async function runContactImport(event) {
     await previewContactImport();
     return;
   }
-  $('runContactImportBtn').disabled = true;
+  setContactImportBusy(true, 'import');
+  setContactImportStatus('Importazione dei contatti in corso...', 'info');
   try {
     const result = await api('/api/crm/contacts/import', { method: 'POST', body: contactImportFormData() });
     $('contactImportEditor').hidden = true;
     toast(`${result.imported} contatti importati: ${result.created} nuovi, ${result.updated} aggiornati`);
     await Promise.all([loadContacts(), loadLists(), loadSummary()]);
   } catch (error) {
+    setContactImportStatus(error.message, 'err');
     toast(error.message, 'err');
-    $('runContactImportBtn').disabled = false;
+  } finally {
+    setContactImportBusy(false);
   }
 }
 
@@ -394,6 +426,10 @@ function resetContactImport(listId = '') {
   $('contactImportMapping').hidden = true;
   $('contactImportPreview').hidden = true;
   $('contactImportPreviewBody').innerHTML = '';
+  $('contactImportWarnings').hidden = true;
+  $('contactImportWarnings').innerHTML = '';
+  $('contactCsvFilename').textContent = 'Nessun file selezionato';
+  setContactImportStatus();
   $('runContactImportBtn').disabled = true;
   state.contactImport = null;
   refreshSelects();
@@ -1460,15 +1496,20 @@ $('selectAllFilteredBtn').addEventListener('click', selectAllFilteredContacts);
 $('clearContactSelectionBtn').addEventListener('click', clearContactSelection);
 $('openBulkEditorBtn').addEventListener('click', openBulkContactEditor);
 $('previewContactImportBtn').addEventListener('click', previewContactImport);
-$('contactCsvFile').addEventListener('change', () => {
+$('contactCsvFile').addEventListener('change', async () => {
   state.contactImport = null;
   $('contactImportMapping').hidden = true;
   $('contactImportPreview').hidden = true;
   $('runContactImportBtn').disabled = true;
+  const [file] = $('contactCsvFile').files;
+  $('contactCsvFilename').textContent = file ? file.name : 'Nessun file selezionato';
+  if (file) await previewContactImport();
+  else setContactImportStatus();
 });
 document.querySelectorAll('[data-import-field], #contactImportSource, #contactImportTags').forEach((input) => input.addEventListener('change', () => {
   state.contactImport = null;
   $('runContactImportBtn').disabled = true;
+  setContactImportStatus('Mappatura modificata. Analizza di nuovo il CSV prima di importare.', 'warn');
 }));
 $('newListBtn').addEventListener('click', resetListEditor);
 $('newTemplateBtn').addEventListener('click', resetTemplateEditor);
