@@ -13,6 +13,8 @@ const csvUpload = multer({
 });
 
 router.get('/summary', read, handle(controller.getSummary));
+router.get('/email-dashboard', read, handle(controller.getEmailDashboard));
+router.get('/email-logs', read, handle(controller.listEmailLogs));
 router.get('/contacts', read, handle(controller.listContacts));
 router.get('/contacts/export', read, handle(controller.exportContacts));
 router.post('/contacts', write, handle(controller.createContact));
@@ -45,6 +47,7 @@ router.get('/sequences/:id/enrollments', read, handle(controller.listSequenceEnr
 router.post('/sequences', write, handle(controller.createSequence));
 router.put('/sequences/:id', write, handle(controller.updateSequence));
 router.patch('/sequences/:id/status', write, handle(controller.updateSequenceStatus));
+router.post('/sequences/:id/pause', write, handle(controller.pauseSequence));
 router.patch('/sequences/:id/enrollments/:enrollmentId/status', write, handle(controller.updateEnrollmentStatus));
 router.post('/sequences/:id/enroll', write, handle(controller.enrollList));
 router.delete('/sequences/:id', write, handle(controller.deleteSequence));

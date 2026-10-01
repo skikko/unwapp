@@ -84,6 +84,37 @@ test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {
   }
 });
 
+test('aggiunge pixel di apertura e tracking click firmato alle email CRM', () => {
+  const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
+  process.env.CRM_TRACKING_SECRET = 't'.repeat(32);
+  try {
+    const job = { id: '123e4567-e89b-42d3-a456-426614174000' };
+    const tracked = emailService.applyEmailTracking(
+      '<p><a href="https://example.com/page?a=1&b=2">Apri</a><a href="mailto:info@example.com">Email</a><a href="https://crm.example.com/unsubscribe?cid=1">Stop</a></p>',
+      job,
+      'https://crm.example.com'
+    );
+    assert.match(tracked, /\/email\/open\.gif\?jid=123e4567-e89b-42d3-a456-426614174000&amp;sig=/);
+    assert.match(tracked, /href="https:\/\/crm\.example\.com\/email\/click\?jid=123e4567-e89b-42d3-a456-426614174000&amp;u=/);
+    assert.match(tracked, /href="mailto:info@example\.com"/);
+    assert.match(tracked, /href="https:\/\/crm\.example\.com\/unsubscribe\?cid=1"/);
+
+    const clickHref = tracked.match(/href="([^"]*\/email\/click[^"]*)"/)[1].replaceAll('&amp;', '&');
+    const clickUrl = new URL(clickHref);
+    const targetUrl = emailService.decodeTrackingUrl(clickUrl.searchParams.get('u'));
+    assert.equal(targetUrl, 'https://example.com/page?a=1&b=2');
+    assert.equal(emailService.verifyEmailTracking({
+      jobId: job.id,
+      eventType: 'click',
+      url: targetUrl,
+      sig: clickUrl.searchParams.get('sig'),
+    }), true);
+  } finally {
+    if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
+    else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
+  }
+});
+
 test('applica i valori predefiniti Gmail', () => {
   const result = emailService.validateSettings({
     provider: 'gmail',

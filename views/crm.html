@@ -25,7 +25,9 @@
       <aside class="crm-rail" aria-label="Sezioni CRM">
         <div class="crm-rail-heading"><span class="eyebrow">Workspace</span><h1>CRM</h1><p>Contatti e comunicazioni email.</p></div>
         <div class="crm-tabs" role="tablist" aria-label="Sezioni CRM">
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="dashboard">Dashboard</button>
           <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
@@ -40,6 +42,26 @@
           <article><span>Liste</span><strong id="summaryLists">0</strong></article>
           <article><span>Template</span><strong id="summaryTemplates">0</strong></article>
           <article><span>Invii in coda</span><strong id="summaryJobs">0</strong></article>
+        </section>
+
+        <section class="crm-panel" id="panel-dashboard" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Performance email</span><h2>Dashboard</h2></div><button class="secondary" type="button" id="refreshEmailDashboardBtn">Aggiorna</button></div>
+          <section class="crm-summary email-dashboard-summary" id="emailDashboardSummary" aria-label="Riepilogo email"></section>
+          <div class="crm-dashboard-grid">
+            <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per lista</h3></div></div><div id="emailDashboardLists"></div></section>
+            <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per tag</h3></div></div><div id="emailDashboardTags"></div></section>
+            <section class="crm-table-card"><div class="section-heading compact"><div><h3>Studente/Genitore</h3></div></div><div id="emailDashboardContactTypes"></div></section>
+            <section class="crm-table-card wide"><div class="section-heading compact"><div><h3>Eventi recenti</h3></div></div><div id="emailDashboardEvents"></div></section>
+          </div>
+        </section>
+
+        <section class="crm-panel" id="panel-emailLog" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Tracciamento email</span><h2>Log email</h2></div><button class="secondary" type="button" id="refreshEmailLogsBtn">Aggiorna</button></div>
+          <form class="crm-filterbar compact" id="emailLogFilters">
+            <label><span>Stato</span><select id="emailLogStatus"><option value="">Tutti</option><option value="pending">In attesa</option><option value="sending">Invio in corso</option><option value="sent">Inviato</option><option value="failed">Fallito</option><option value="cancelled">Annullato</option></select></label>
+            <label><span>Tipo</span><select id="emailLogKind"><option value="">Tutti</option><option value="campaign">Campagna</option><option value="sequence">Sequenza</option></select></label>
+          </form>
+          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th>Data</th><th>Contatto</th><th>Origine invio</th><th>Template</th><th>Stato</th><th>Aperture</th><th>Click</th><th>Errore</th></tr></thead><tbody id="emailLogsBody"></tbody></table></div><div class="crm-table-footer"><span id="emailLogsCount">0 email</span></div></div>
         </section>
 
         <section class="crm-panel active" id="panel-contacts" role="tabpanel">

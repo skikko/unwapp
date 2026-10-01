@@ -166,6 +166,10 @@ function unsubscribeSecret() {
   return process.env.CRM_UNSUBSCRIBE_SECRET || process.env.APP_ENCRYPTION_KEY || '';
 }
 
+function trackingSecret() {
+  return process.env.CRM_TRACKING_SECRET || unsubscribeSecret();
+}
+
 function normalizeEmailForToken(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -185,6 +189,30 @@ function timingSafeEqual(left, right) {
   const leftBuffer = Buffer.from(String(left || ''), 'hex');
   const rightBuffer = Buffer.from(String(right || ''), 'hex');
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function signEmailTracking(jobId, eventType, url = '') {
+  const secret = trackingSecret();
+  if (!secret || secret.length < 32) {
+    throw new Error('CRM_TRACKING_SECRET, CRM_UNSUBSCRIBE_SECRET or APP_ENCRYPTION_KEY must be configured');
+  }
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${jobId}:${eventType}:${url}`)
+    .digest('hex');
+}
+
+function verifyEmailTracking({ jobId, eventType, url = '', sig } = {}) {
+  if (!jobId || !eventType || !sig) return false;
+  return timingSafeEqual(signEmailTracking(jobId, eventType, url), sig);
+}
+
+function encodeTrackingUrl(value) {
+  return Buffer.from(String(value || ''), 'utf8').toString('base64url');
+}
+
+function decodeTrackingUrl(value) {
+  return Buffer.from(String(value || ''), 'base64url').toString('utf8');
 }
 
 function unsubscribeUrl(contact, baseUrl) {
@@ -213,6 +241,89 @@ function appendComplianceFooterText(text, contact, baseUrl) {
   const lines = ['', EMAIL_FOOTER];
   if (url) lines.push(`Disiscriviti: ${url}`);
   return `${String(text || '').trim()}${lines.join('\n')}`;
+}
+
+function shouldTrackHref(href, baseUrl) {
+  if (!href) return false;
+  const normalized = String(href).trim();
+  if (!normalized || normalized.startsWith('#')) return false;
+  try {
+    const url = new URL(normalized, baseUrl);
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    if (url.pathname === '/unsubscribe') return false;
+    if (url.pathname === '/email/click' || url.pathname === '/email/open.gif') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function trackedClickUrl(jobId, href, baseUrl) {
+  const targetUrl = new URL(String(href).trim(), baseUrl).toString();
+  const trackingUrl = new URL('/email/click', baseUrl);
+  trackingUrl.searchParams.set('jid', jobId);
+  trackingUrl.searchParams.set('u', encodeTrackingUrl(targetUrl));
+  trackingUrl.searchParams.set('sig', signEmailTracking(jobId, 'click', targetUrl));
+  return trackingUrl.toString();
+}
+
+function applyEmailTracking(html, job, baseUrl) {
+  const jobId = job?.id;
+  if (!jobId) return String(html || '');
+  const rendered = String(html || '').replace(
+    /\s(href)=("([^"]*)"|'([^']*)')/gi,
+    (match, attribute, quoted, doubleHref, singleHref) => {
+      const href = doubleHref ?? singleHref ?? '';
+      if (!shouldTrackHref(href, baseUrl)) return match;
+      const quote = quoted.startsWith("'") ? "'" : '"';
+      return ` ${attribute}=${quote}${escapeHtml(trackedClickUrl(jobId, href, baseUrl))}${quote}`;
+    }
+  );
+  const openUrl = new URL('/email/open.gif', baseUrl);
+  openUrl.searchParams.set('jid', jobId);
+  openUrl.searchParams.set('sig', signEmailTracking(jobId, 'open'));
+  const pixel = `<img src="${escapeHtml(openUrl.toString())}" width="1" height="1" alt="" style="display:none!important;width:1px;height:1px;opacity:0;border:0;">`;
+  if (/<\/body>/i.test(rendered)) return rendered.replace(/<\/body>/i, `${pixel}</body>`);
+  return `${rendered}${pixel}`;
+}
+
+async function trackEmailOpen(input = {}) {
+  if (!verifyEmailTracking({ jobId: input.jobId, eventType: 'open', sig: input.sig })) return false;
+  await crmRepo.recordEmailEvent({
+    jobId: input.jobId,
+    eventType: 'open',
+    userAgent: input.userAgent,
+    ip: input.ip,
+  });
+  return true;
+}
+
+async function trackEmailClick(input = {}) {
+  let target;
+  try {
+    target = new URL(decodeTrackingUrl(input.urlToken));
+  } catch {
+    throw Object.assign(new Error('Invalid redirect URL'), { status: 400 });
+  }
+  if (!['http:', 'https:'].includes(target.protocol)) {
+    throw Object.assign(new Error('Invalid redirect URL'), { status: 400 });
+  }
+  if (!verifyEmailTracking({
+    jobId: input.jobId,
+    eventType: 'click',
+    url: target.toString(),
+    sig: input.sig,
+  })) {
+    throw Object.assign(new Error('Invalid tracking signature'), { status: 400 });
+  }
+  await crmRepo.recordEmailEvent({
+    jobId: input.jobId,
+    eventType: 'click',
+    url: target.toString(),
+    userAgent: input.userAgent,
+    ip: input.ip,
+  });
+  return target.toString();
 }
 
 async function unsubscribeContact({ cid, email, sig } = {}) {
@@ -284,6 +395,7 @@ async function sendJob(job) {
   const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true }), job, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job), job, settings.publicBaseUrl);
   const rendered = await inlineStoredMedia(html);
+  const trackedHtml = applyEmailTracking(rendered.html, job, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(job.attachments);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
@@ -291,7 +403,7 @@ async function sendJob(job) {
     to: job.email,
     subject: renderTemplate(job.subject, job),
     text: text || undefined,
-    html: rendered.html,
+    html: trackedHtml,
     attachments: [...rendered.attachments, ...attachments],
   });
   return info.messageId;
@@ -387,6 +499,13 @@ module.exports = {
   appendComplianceFooterText,
   signUnsubscribe,
   unsubscribeContact,
+  signEmailTracking,
+  verifyEmailTracking,
+  encodeTrackingUrl,
+  decodeTrackingUrl,
+  applyEmailTracking,
+  trackEmailOpen,
+  trackEmailClick,
   inlineStoredMedia,
   storedTemplateAttachments,
   processDueJobs,

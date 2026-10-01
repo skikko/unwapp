@@ -17,6 +17,18 @@ async function getSummary(_req, res) {
   res.json({ summary: await crmRepo.summary() });
 }
 
+async function getEmailDashboard(_req, res) {
+  res.json({ dashboard: await crmRepo.emailDashboard() });
+}
+
+async function listEmailLogs(req, res) {
+  const filters = {
+    status: String(req.query.status || '').trim() || null,
+    kind: String(req.query.kind || '').trim() || null,
+  };
+  res.json(await crmRepo.listEmailJobs(filters, pagination(req.query)));
+}
+
 async function listContacts(req, res) {
   const result = await crmRepo.listContacts(crmService.contactFiltersFromQuery(req.query), pagination(req.query));
   res.json(result);
@@ -318,6 +330,12 @@ async function updateSequenceStatus(req, res) {
   res.json({ sequence });
 }
 
+async function pauseSequence(req, res) {
+  const sequence = await crmRepo.pauseSequence(req.params.id);
+  if (!sequence) return res.status(404).json({ error: 'Sequenza non trovata' });
+  res.json({ sequence });
+}
+
 async function updateEnrollmentStatus(req, res) {
   const status = String(req.body.status || '');
   if (!['active', 'paused', 'cancelled'].includes(status)) {
@@ -431,6 +449,8 @@ async function revokeApiKey(req, res) {
 
 module.exports = {
   getSummary,
+  getEmailDashboard,
+  listEmailLogs,
   listContacts,
   exportContacts,
   bulkUpdateContacts,
@@ -459,6 +479,7 @@ module.exports = {
   createSequence,
   updateSequence,
   updateSequenceStatus,
+  pauseSequence,
   updateEnrollmentStatus,
   deleteSequence,
   enrollList,

@@ -66,6 +66,7 @@ app.use('/api/ingest', require('./routes/crmIngest'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/auth', require('./routes/auth'));
 app.use('/unsubscribe', require('./routes/unsubscribe'));
+app.use('/email', require('./routes/emailTracking'));
 
 // Expose current user (used by SPA)
 app.get('/api/me', requireAuth, (req, res) => {

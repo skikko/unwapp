@@ -5,12 +5,15 @@ const state = {
   templates: [],
   sequences: [],
   campaigns: [],
+  emailDashboard: null,
+  emailLogs: [],
   contactStatuses: [],
   contactImport: null,
   templateAttachments: [],
   selectedContacts: new Set(),
   selectAllMatching: false,
   totalContacts: 0,
+  totalEmailLogs: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -74,6 +77,28 @@ function contactTypeLabel(contactType, fallback = 'n/a') {
   return fallback;
 }
 
+function emailKindLabel(kind) {
+  if (kind === 'campaign') return 'Campagna';
+  if (kind === 'sequence') return 'Sequenza';
+  return kind || 'n/a';
+}
+
+function eventTypeLabel(eventType) {
+  if (eventType === 'open') return 'Apertura';
+  if (eventType === 'click') return 'Click';
+  return eventType || 'n/a';
+}
+
+function numberValue(value) {
+  return Number(value || 0);
+}
+
+function percentage(part, total) {
+  const base = numberValue(total);
+  if (!base) return '0%';
+  return `${Math.round((numberValue(part) / base) * 100)}%`;
+}
+
 const sequenceConditionFields = {
   contactType: { label: 'Tipo contatto', operators: ['equals', 'not_equals'] },
   contactStatusId: { label: 'Stato contatto', operators: ['equals', 'not_equals'] },
@@ -132,6 +157,72 @@ async function loadSummary() {
   $('summaryLists').textContent = summary.lists;
   $('summaryTemplates').textContent = summary.templates;
   $('summaryJobs').textContent = summary.pending_jobs;
+}
+
+function dashboardMetric(label, value, detail = '') {
+  return `<article><span>${esc(label)}</span><strong>${esc(value)}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</article>`;
+}
+
+function dashboardTable(headers, rows, emptyMessage) {
+  if (!rows.length) return `<div class="crm-empty">${esc(emptyMessage)}</div>`;
+  return `<div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${esc(header)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+async function loadEmailDashboard() {
+  const { dashboard } = await api('/api/crm/email-dashboard');
+  state.emailDashboard = dashboard;
+  const summary = dashboard.summary || {};
+  const sent = numberValue(summary.sent_jobs);
+  $('emailDashboardSummary').innerHTML = [
+    dashboardMetric('Email totali', numberValue(summary.total_jobs), `${numberValue(summary.pending_jobs)} in attesa`),
+    dashboardMetric('Inviate', sent, `${numberValue(summary.failed_jobs)} fallite`),
+    dashboardMetric('Aperte', numberValue(summary.opened_jobs), `${percentage(summary.opened_jobs, sent)} sugli invii`),
+    dashboardMetric('Click', numberValue(summary.clicked_jobs), `${percentage(summary.clicked_jobs, sent)} sugli invii`),
+    dashboardMetric('Eventi', numberValue(summary.total_opens) + numberValue(summary.total_clicks), `${numberValue(summary.total_opens)} aperture, ${numberValue(summary.total_clicks)} click`),
+  ].join('');
+  $('emailDashboardLists').innerHTML = dashboardTable(['Lista', 'Contatti', 'Email', 'Aperte', 'Click'], (dashboard.byList || []).map((row) => (
+    `<tr><td>${esc(row.name)}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
+  )), 'Nessun dato per lista.');
+  $('emailDashboardTags').innerHTML = dashboardTable(['Tag', 'Contatti', 'Email', 'Aperte', 'Click'], (dashboard.byTag || []).map((row) => (
+    `<tr><td>${esc(row.tag)}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
+  )), 'Nessun dato per tag.');
+  $('emailDashboardContactTypes').innerHTML = dashboardTable(['Tipo', 'Contatti', 'Email', 'Inviate', 'Aperte', 'Click'], (dashboard.byContactType || []).map((row) => (
+    `<tr><td>${esc(contactTypeLabel(row.contact_type))}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.sent_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
+  )), 'Nessun dato per tipo contatto.');
+  $('emailDashboardEvents').innerHTML = dashboardTable(['Data', 'Evento', 'Contatto', 'Template', 'URL'], (dashboard.recentEvents || []).map((event) => {
+    const name = [event.first_name, event.last_name].filter(Boolean).join(' ') || event.email || 'Senza nome';
+    return `<tr><td>${esc(new Date(event.created_at).toLocaleString('it-IT'))}</td><td>${esc(eventTypeLabel(event.event_type))}</td><td>${esc(name)}</td><td>${esc(event.template_name || 'n/a')}</td><td>${esc(event.url || 'n/a')}</td></tr>`;
+  }), 'Nessun evento email registrato.');
+}
+
+function currentEmailLogFilters() {
+  const filters = new URLSearchParams({ limit: '100' });
+  if ($('emailLogStatus').value) filters.set('status', $('emailLogStatus').value);
+  if ($('emailLogKind').value) filters.set('kind', $('emailLogKind').value);
+  return filters;
+}
+
+async function loadEmailLogs() {
+  const { jobs, total } = await api(`/api/crm/email-logs?${currentEmailLogFilters()}`);
+  state.emailLogs = jobs;
+  state.totalEmailLogs = total;
+  $('emailLogsCount').textContent = `${total} ${total === 1 ? 'email' : 'email'}`;
+  $('emailLogsBody').innerHTML = jobs.length ? jobs.map((job) => {
+    const name = [job.first_name, job.last_name].filter(Boolean).join(' ') || job.email || 'Senza nome';
+    const origin = job.campaign_name || job.sequence_name || emailKindLabel(job.kind);
+    const opened = job.last_opened_at ? `Ultima ${new Date(job.last_opened_at).toLocaleString('it-IT')}` : 'n/a';
+    const clicked = job.last_clicked_at ? `Ultimo ${new Date(job.last_clicked_at).toLocaleString('it-IT')}` : 'n/a';
+    return `<tr>
+      <td>${job.sent_at ? esc(new Date(job.sent_at).toLocaleString('it-IT')) : esc(new Date(job.scheduled_at).toLocaleString('it-IT'))}</td>
+      <td><div class="crm-contact-name"><strong>${esc(name)}</strong><small>${esc(job.email || 'n/a')}</small></div></td>
+      <td>${esc(origin)}</td>
+      <td>${esc(job.template_name || 'n/a')}</td>
+      <td><span class="badge ${job.status === 'sent' ? 'on' : ['failed', 'cancelled'].includes(job.status) ? 'off' : 'warn'}">${esc(statusLabel(job.status))}</span></td>
+      <td><strong>${numberValue(job.open_count)}</strong><br><small>${esc(opened)}</small></td>
+      <td><strong>${numberValue(job.click_count)}</strong><br><small>${esc(clicked)}</small></td>
+      <td>${esc(job.last_error || '')}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8"><div class="crm-empty">Nessuna email corrisponde ai filtri.</div></td></tr>';
 }
 
 async function loadContacts() {
@@ -1152,12 +1243,16 @@ async function loadSequences() {
     const manualEnrollment = !automaticTrigger && can('crm:write')
       ? `<select data-enroll-list="${sequence.id}">${listOptions}</select><button data-enroll-sequence="${sequence.id}" ${state.lists.length && sequence.active ? '' : 'disabled'}>Iscrivi lista</button>`
       : '';
-    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><button class="badge ${sequence.active ? 'on' : 'off'}" data-toggle-sequence="${sequence.id}" data-active="${sequence.active}">${sequence.active ? 'Attiva' : 'In pausa'}</button></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${can('crm:write') ? `<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>` : ''}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
+    const writeActions = can('crm:write')
+      ? `${sequence.active ? `<button class="secondary" data-pause-sequence="${sequence.id}">Pausa</button><button class="secondary" data-toggle-sequence="${sequence.id}" data-active="true">Disattiva</button>` : `<button class="secondary" data-toggle-sequence="${sequence.id}" data-active="false">Riattiva</button>`}<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>`
+      : '';
+    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><span class="badge ${sequence.active ? 'on' : 'off'}">${sequence.active ? 'Attiva' : 'Disattivata'}</span></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${writeActions}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono sequenze.</div>';
   document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
   document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
   document.querySelectorAll('[data-edit-sequence]').forEach((button) => button.addEventListener('click', () => editSequence(button.dataset.editSequence)));
   document.querySelectorAll('[data-toggle-sequence]').forEach((button) => button.addEventListener('click', () => toggleSequence(button.dataset.toggleSequence, button.dataset.active !== 'true')));
+  document.querySelectorAll('[data-pause-sequence]').forEach((button) => button.addEventListener('click', () => pauseSequence(button.dataset.pauseSequence)));
   document.querySelectorAll('[data-delete-sequence]').forEach((button) => button.addEventListener('click', () => removeSequence(button.dataset.deleteSequence)));
 }
 
@@ -1184,7 +1279,18 @@ function editSequence(id) {
 async function toggleSequence(id, active) {
   try {
     await api(`/api/crm/sequences/${id}/status`, { method: 'PATCH', body: JSON.stringify({ active }) });
-    toast(active ? 'Sequenza attivata' : 'Sequenza messa in pausa');
+    toast(active ? 'Sequenza attivata' : 'Sequenza disattivata');
+    await loadSequences();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function pauseSequence(id) {
+  if (!confirm('Mettere in pausa la sequenza e le iscrizioni attive?')) return;
+  try {
+    await api(`/api/crm/sequences/${id}/pause`, { method: 'POST' });
+    toast('Sequenza messa in pausa');
     await loadSequences();
   } catch (error) {
     toast(error.message, 'err');
@@ -1529,6 +1635,8 @@ function changeTab(name) {
     panel.hidden = !active;
     panel.classList.toggle('active', active);
   });
+  if (name === 'dashboard') loadEmailDashboard().catch((error) => toast(error.message, 'err'));
+  if (name === 'emailLog') loadEmailLogs().catch((error) => toast(error.message, 'err'));
 }
 
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
@@ -1593,6 +1701,9 @@ $('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);
 $('campaignTiming').addEventListener('change', syncCampaignTiming);
 $('campaignList').addEventListener('change', loadCampaignPreview);
 $('campaignTemplate').addEventListener('change', loadCampaignPreview);
+$('refreshEmailDashboardBtn').addEventListener('click', () => loadEmailDashboard().catch((error) => toast(error.message, 'err')));
+$('refreshEmailLogsBtn').addEventListener('click', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
+$('emailLogFilters').addEventListener('change', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('templateVisual').addEventListener('input', updateTemplatePreview);
 $('templateVisual').addEventListener('mouseup', rememberEditorRange);
 $('templateVisual').addEventListener('keyup', rememberEditorRange);

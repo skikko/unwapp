@@ -795,6 +795,34 @@ async function setSequenceActive(id, active) {
   return rows[0] || null;
 }
 
+async function pauseSequence(id) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const sequence = await client.query(
+      'UPDATE crm_sequences SET active=FALSE,updated_at=now() WHERE id=$1 RETURNING *',
+      [id]
+    );
+    if (!sequence.rows[0]) {
+      await client.query('COMMIT');
+      return null;
+    }
+    await client.query(
+      `UPDATE crm_sequence_enrollments
+       SET status='paused',updated_at=now()
+       WHERE sequence_id=$1 AND status='active'`,
+      [id]
+    );
+    await client.query('COMMIT');
+    return sequence.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function listSequences() {
   const { rows } = await db.query(
     `SELECT s.*,
@@ -1086,6 +1114,156 @@ async function listCampaignJobs(campaignId, { limit = 250, offset = 0 } = {}) {
   return { jobs: items.rows, total: count.rows[0].count };
 }
 
+async function listEmailJobs(filters = {}, { limit = 100, offset = 0 } = {}) {
+  const conditions = [];
+  const values = [];
+  const add = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+  if (filters.status) conditions.push(`j.status = ${add(filters.status)}`);
+  if (filters.kind) conditions.push(`j.kind = ${add(filters.kind)}`);
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
+  const [items, count] = await Promise.all([
+    db.query(
+      `SELECT j.id,j.kind,j.status,j.scheduled_at,j.sent_at,j.attempts,j.provider_message_id,
+              j.last_error,j.open_count,j.first_opened_at,j.last_opened_at,
+              j.click_count,j.first_clicked_at,j.last_clicked_at,j.created_at,
+              c.id AS contact_id,c.first_name,c.last_name,c.email,c.contact_type,c.tags,
+              t.name AS template_name,ec.name AS campaign_name,s.name AS sequence_name
+       FROM crm_email_jobs j
+       JOIN crm_contacts c ON c.id=j.contact_id
+       JOIN crm_email_templates t ON t.id=j.template_id
+       LEFT JOIN crm_email_campaigns ec ON ec.id=j.campaign_id
+       LEFT JOIN crm_sequence_enrollments e ON e.id=j.enrollment_id
+       LEFT JOIN crm_sequences s ON s.id=e.sequence_id
+       ${where}
+       ORDER BY j.created_at DESC LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      [...values, limit, offset]
+    ),
+    db.query(`SELECT count(*)::int AS count FROM crm_email_jobs j ${where}`, values),
+  ]);
+  return { jobs: items.rows, total: count.rows[0].count };
+}
+
+async function emailDashboard() {
+  const [summaryResult, listResult, tagResult, typeResult, eventResult] = await Promise.all([
+    db.query(
+      `SELECT
+         count(*)::int AS total_jobs,
+         count(*) FILTER (WHERE status='pending')::int AS pending_jobs,
+         count(*) FILTER (WHERE status='sending')::int AS sending_jobs,
+         count(*) FILTER (WHERE status='sent')::int AS sent_jobs,
+         count(*) FILTER (WHERE status='failed')::int AS failed_jobs,
+         count(*) FILTER (WHERE status='cancelled')::int AS cancelled_jobs,
+         count(*) FILTER (WHERE open_count > 0)::int AS opened_jobs,
+         COALESCE(sum(open_count),0)::int AS total_opens,
+         count(*) FILTER (WHERE click_count > 0)::int AS clicked_jobs,
+         COALESCE(sum(click_count),0)::int AS total_clicks
+       FROM crm_email_jobs`
+    ),
+    db.query(
+      `SELECT l.id,l.name,
+              count(DISTINCT lm.contact_id)::int AS contacts,
+              count(j.id)::int AS email_jobs,
+              count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
+              count(j.id) FILTER (WHERE j.status='pending')::int AS pending_jobs,
+              count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
+              count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
+       FROM crm_lists l
+       LEFT JOIN crm_list_memberships lm ON lm.list_id=l.id
+       LEFT JOIN crm_email_jobs j ON j.contact_id=lm.contact_id
+       GROUP BY l.id,l.name
+       ORDER BY contacts DESC,l.name ASC LIMIT 25`
+    ),
+    db.query(
+      `SELECT tag,
+              count(DISTINCT c.id)::int AS contacts,
+              count(j.id)::int AS email_jobs,
+              count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
+              count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
+       FROM crm_contacts c
+       CROSS JOIN LATERAL unnest(c.tags) AS tag
+       LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+       GROUP BY tag
+       ORDER BY contacts DESC,tag ASC LIMIT 25`
+    ),
+    db.query(
+      `SELECT COALESCE(c.contact_type,'n/a') AS contact_type,
+              count(DISTINCT c.id)::int AS contacts,
+              count(j.id)::int AS email_jobs,
+              count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
+              count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
+              count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
+       FROM crm_contacts c
+       LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+       GROUP BY COALESCE(c.contact_type,'n/a')
+       ORDER BY contacts DESC`
+    ),
+    db.query(
+      `SELECT ev.id,ev.event_type,ev.url,ev.created_at,
+              c.first_name,c.last_name,c.email,t.name AS template_name
+       FROM crm_email_events ev
+       JOIN crm_email_jobs j ON j.id=ev.job_id
+       JOIN crm_contacts c ON c.id=j.contact_id
+       JOIN crm_email_templates t ON t.id=j.template_id
+       ORDER BY ev.created_at DESC LIMIT 25`
+    ),
+  ]);
+  return {
+    summary: summaryResult.rows[0],
+    byList: listResult.rows,
+    byTag: tagResult.rows,
+    byContactType: typeResult.rows,
+    recentEvents: eventResult.rows,
+  };
+}
+
+async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null, ip = null }) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const job = await client.query('SELECT id FROM crm_email_jobs WHERE id=$1 FOR UPDATE', [jobId]);
+    if (!job.rows[0]) {
+      await client.query('COMMIT');
+      return null;
+    }
+    await client.query(
+      `INSERT INTO crm_email_events (job_id,event_type,url,user_agent,ip)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [jobId, eventType, url || null, userAgent || null, ip || null]
+    );
+    if (eventType === 'open') {
+      await client.query(
+        `UPDATE crm_email_jobs
+         SET open_count=open_count+1,
+             first_opened_at=COALESCE(first_opened_at,now()),
+             last_opened_at=now()
+         WHERE id=$1`,
+        [jobId]
+      );
+    } else if (eventType === 'click') {
+      await client.query(
+        `UPDATE crm_email_jobs
+         SET click_count=click_count+1,
+             first_clicked_at=COALESCE(first_clicked_at,now()),
+             last_clicked_at=now()
+         WHERE id=$1`,
+        [jobId]
+      );
+    }
+    await client.query('COMMIT');
+    return { id: jobId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function claimDueJob() {
   const client = await db.getClient();
   try {
@@ -1347,6 +1525,7 @@ module.exports = {
   createSequence,
   updateSequence,
   setSequenceActive,
+  pauseSequence,
   listSequences,
   listSequenceEnrollments,
   setEnrollmentStatus,
@@ -1357,6 +1536,9 @@ module.exports = {
   countEligibleContactsForList,
   listCampaigns,
   listCampaignJobs,
+  listEmailJobs,
+  emailDashboard,
+  recordEmailEvent,
   claimDueJob,
   recoverStaleEmailJobs,
   markJobSent,

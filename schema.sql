@@ -443,6 +443,12 @@ CREATE TABLE IF NOT EXISTS crm_email_jobs (
   claimed_at         TIMESTAMPTZ,
   claim_token        UUID,
   sent_at            TIMESTAMPTZ,
+  open_count         INT NOT NULL DEFAULT 0,
+  first_opened_at    TIMESTAMPTZ,
+  last_opened_at     TIMESTAMPTZ,
+  click_count        INT NOT NULL DEFAULT 0,
+  first_clicked_at   TIMESTAMPTZ,
+  last_clicked_at    TIMESTAMPTZ,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (enrollment_id, sequence_step_id)
 );
@@ -451,6 +457,18 @@ CREATE INDEX IF NOT EXISTS idx_crm_email_jobs_campaign ON crm_email_jobs (campai
 ALTER TABLE crm_email_jobs DROP CONSTRAINT IF EXISTS crm_email_jobs_status_check;
 ALTER TABLE crm_email_jobs ADD CONSTRAINT crm_email_jobs_status_check
   CHECK (status IN ('pending','sending','sent','failed','cancelled'));
+
+CREATE TABLE IF NOT EXISTS crm_email_events (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id             UUID NOT NULL REFERENCES crm_email_jobs(id) ON DELETE CASCADE,
+  event_type         TEXT NOT NULL CHECK (event_type IN ('open','click')),
+  url                TEXT,
+  user_agent         TEXT,
+  ip                 TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_email_events_job ON crm_email_events (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crm_email_events_type ON crm_email_events (event_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS crm_api_keys (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
