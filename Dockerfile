@@ -11,6 +11,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY src ./src
 COPY views ./views
 COPY public ./public
+COPY design-system ./design-system
 COPY scripts ./scripts
 COPY migrations ./migrations
 COPY schema.sql ./schema.sql
