@@ -150,13 +150,14 @@ async function loadContacts() {
       <td>${esc(contact.email || 'n/a')}</td>
       <td>${esc(contact.phone || 'n/a')}</td>
       <td><span class="crm-source">${esc(contact.source)}</span></td>
+      <td>${esc(contact.utm_source || 'n/a')}</td>
       <td><div class="crm-tags">${tags || '<span>n/a</span>'}</div></td>
       <td><div class="crm-lists">${lists || '<span>n/a</span>'}</div></td>
       <td>${esc(contact.contact_status_name || 'n/a')}</td>
       <td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td>
       <td><div class="row-actions"><button class="secondary" data-view-contact="${contact.id}">Profilo</button>${can('crm:write') ? `<button class="secondary" data-edit-contact="${contact.id}">Modifica</button><button class="danger" data-delete-contact="${contact.id}">Elimina</button>` : ''}</div></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="11"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
+  }).join('') : '<tr><td colspan="12"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
 
   document.querySelectorAll('[data-view-contact]').forEach((button) => button.addEventListener('click', () => loadContactProfile(button.dataset.viewContact)));
   document.querySelectorAll('[data-edit-contact]').forEach((button) => button.addEventListener('click', () => editContact(button.dataset.editContact)));
@@ -175,6 +176,7 @@ function profileSection(title, rows, emptyMessage) {
 }
 
 async function loadContactProfile(id) {
+  $('contactsListView').hidden = true;
   $('contactProfile').hidden = false;
   $('contactProfileTitle').textContent = 'Profilo contatto';
   $('contactProfileMeta').textContent = 'Caricamento...';
@@ -192,7 +194,7 @@ async function loadContactProfile(id) {
       <div><span>Origine</span><strong>${esc(contact.source)}</strong></div>
       <div><span>Stato email</span><strong>${esc(statusLabel(contact.email_status))}</strong></div>
       <div><span>Stato contatto</span><strong>${esc(contact.contact_status_name || 'n/a')}</strong></div>
-      <div><span>Tipo contatto</span><strong>${esc(contactTypeLabel(contact.contact_type))}</strong></div>
+      <div><span>Studente/Genitore</span><strong>${esc(contactTypeLabel(contact.contact_type))}</strong></div>
       <div><span>Iscrizione webinar</span><strong>${contact.webinar_registered_at ? esc(new Date(`${contact.webinar_registered_at}T00:00:00`).toLocaleDateString('it-IT')) : 'n/a'}</strong></div>
       <div><span>Liste</span><strong>${esc((contact.lists || []).map((list) => list.name).join(', ') || 'n/a')}</strong></div>
       <div><span>Consenso</span><strong>${contact.consent_at ? esc(new Date(contact.consent_at).toLocaleString('it-IT')) : 'Non registrato'}</strong><small>${esc(contact.consent_source || '')}</small></div>
@@ -212,6 +214,16 @@ async function loadContactProfile(id) {
     $('contactProfileMeta').textContent = '';
     $('contactProfileSections').innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
   }
+}
+
+function closeContactProfile() {
+  $('contactProfile').hidden = true;
+  $('contactsListView').hidden = false;
+  $('contactProfileTitle').textContent = 'Profilo contatto';
+  $('contactProfileMeta').textContent = '';
+  $('contactProfileSummary').innerHTML = '';
+  $('contactProfileSections').innerHTML = '';
+  $('panel-contacts').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function updateContactSelectionUi() {
@@ -1414,6 +1426,7 @@ function openEditor(id) {
 }
 
 function resetContactEditor() {
+  if (!$('contactProfile').hidden) closeContactProfile();
   $('contactEditor').reset();
   $('contactId').value = '';
   $('contactSource').value = 'manual';
@@ -1480,6 +1493,7 @@ $('templateEditor').addEventListener('submit', saveTemplate);
 $('sequenceEditor').addEventListener('submit', saveSequence);
 $('campaignEditor').addEventListener('submit', saveCampaign);
 $('newContactBtn').addEventListener('click', resetContactEditor);
+$('closeContactProfileBtn').addEventListener('click', closeContactProfile);
 $('importContactsBtn').addEventListener('click', () => resetContactImport());
 $('downloadContactTemplateBtn').addEventListener('click', downloadContactTemplate);
 $('exportContactsBtn').addEventListener('click', exportFilteredContacts);

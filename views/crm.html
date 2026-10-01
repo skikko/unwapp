@@ -44,6 +44,7 @@
 
         <section class="crm-panel active" id="panel-contacts" role="tabpanel">
           <div class="crm-panel-header"><div><span class="eyebrow">Rubrica unificata</span><h2>Contatti</h2></div><div class="crm-panel-actions"><button class="secondary" type="button" id="exportContactsBtn">Esporta CSV</button><div data-write><button class="secondary" type="button" id="downloadContactTemplateBtn">Scarica modello CSV</button><button class="secondary" type="button" id="importContactsBtn">Importa CSV</button><button type="button" id="newContactBtn">Nuovo contatto</button></div></div></div>
+          <div id="contactsListView">
           <form class="crm-filterbar" id="contactFilters">
             <label><span>Cerca</span><input id="filterQuery" type="search" placeholder="Nome, email o telefono" /></label>
             <label><span>Origine</span><input id="filterSource" placeholder="wordpress, meta, whatsapp" /></label>
@@ -142,12 +143,13 @@
             </div>
             <div class="form-actions"><button type="submit">Salva contatto</button></div>
           </form>
-          <section class="card crm-editor" id="contactProfile" hidden>
-            <div class="section-heading compact"><div><h2 id="contactProfileTitle">Profilo contatto</h2><span id="contactProfileMeta"></span></div><button class="ghost" type="button" data-close="contactProfile">Chiudi</button></div>
+          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Studente/Genitore</th><th>Email</th><th>Telefono</th><th>Origine</th><th>UTM source</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
+          </div>
+          <section class="card crm-editor contact-profile-card" id="contactProfile" hidden>
+            <div class="section-heading compact"><div><h2 id="contactProfileTitle">Profilo contatto</h2><span id="contactProfileMeta"></span></div><button class="secondary" type="button" id="closeContactProfileBtn">Torna ai contatti</button></div>
             <div class="contact-profile-grid" id="contactProfileSummary"></div>
             <div class="contact-profile-sections" id="contactProfileSections"></div>
           </section>
-          <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Tipo</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
         </section>
 
         <section class="crm-panel" id="panel-lists" role="tabpanel" hidden>

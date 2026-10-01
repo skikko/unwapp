@@ -592,10 +592,13 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .email-preview-frame-wrap iframe { width: 100%; height: 500px; display: block; margin: 0 auto; border: 0; border-radius: 10px; background: white; transition: max-width .18s; }
 .email-preview-frame-wrap.mobile iframe { max-width: 360px; }
 
-.contact-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 22px; }
-.contact-profile-grid > div { display: flex; flex-direction: column; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.contact-profile-card { overflow: hidden; }
+.contact-profile-card .section-heading { margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--line); background: white; }
+.contact-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0; padding: 20px; }
+.contact-profile-grid > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .contact-profile-grid span, .contact-profile-grid small { color: var(--muted); font-size: 12px; }
-.contact-profile-sections { display: grid; gap: 18px; }
+.contact-profile-grid strong { overflow-wrap: anywhere; }
+.contact-profile-sections { display: grid; gap: 18px; padding: 0 20px 20px; }
 .contact-profile-sections section { min-width: 0; }
 .campaign-jobs, .sequence-enrollments, .list-contacts { margin-top: 18px; }
 .campaign-compose-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, .5fr); gap: 16px; margin-top: 18px; }
