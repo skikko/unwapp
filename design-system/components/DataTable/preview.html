@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="it" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>UN Platform - DataTable</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css">
+<style>body{margin:0;background:var(--surface-soft)}</style></head>
+<body>
+<!-- @dsCard group="Data display" height=470 -->
+<div class="un-root" style="padding:24px">
+<div class="un-card" style="overflow:hidden">
+  <div class="un-toolbar">
+    <div class="un-input-wrap"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="un-input un-input--sm" placeholder="Nome, email o telefono" aria-label="Cerca"></div>
+    <button class="un-filter un-filter--active">Stato email: Iscritto <svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <button class="un-filter"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>Origine</button><button class="un-filter"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>Tag</button><button class="un-filter"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>Lista</button>
+    <span class="un-toolbar__spacer"></span>
+    <button class="un-btn un-btn--ghost un-btn--sm"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg>Colonne</button>
+  </div>
+  <div class="un-bulkbar">2 selezionati <button class="un-btn un-btn--ghost un-btn--sm">Aggiungi a lista</button><button class="un-btn un-btn--ghost un-btn--sm">Esporta</button><button class="un-btn un-btn--ghost un-btn--sm">Elimina</button></div>
+  <div class="un-table-wrap"><table class="un-table">
+    <thead><tr><th class="un-col-check"><label class="un-check"><input type="checkbox" aria-label="Seleziona tutti"></label></th><th>Contatto</th><th>Tipo</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Liste</th><th>Stato email</th><th></th></tr></thead>
+    <tbody>
+      <tr aria-selected="true"><td class="un-col-check"><label class="un-check"><input type="checkbox" checked aria-label="Seleziona"></label></td><td><div class="un-cell-primary"><span class="un-avatar un-avatar--sm">MS</span><div><b>Maela Schiavo</b><span>Aggiunto il 30/09/2026</span></div></div></td><td>Genitore</td><td>maela_schiavo@hotmail.com</td><td class="un-empty-cell">-</td><td><span class="un-tag">csv-webinar-muner-2026</span></td><td class="un-empty-cell">-</td><td><span class="un-badge un-badge--warn">Disiscritto</span></td><td><button class="un-btn un-btn--ghost un-btn--icon un-btn--sm" aria-label="Azioni"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td></tr>
+      <tr aria-selected="true"><td class="un-col-check"><label class="un-check"><input type="checkbox" checked aria-label="Seleziona"></label></td><td><div class="un-cell-primary"><span class="un-avatar un-avatar--sm">FP</span><div><b>Fabiana Alessia Parisi</b><span>Aggiunto il 30/09/2026</span></div></div></td><td>Genitore</td><td>fabiana.17@hotmail.it</td><td class="un-code">+39 347 120 4471</td><td><span class="un-tag">csv-webinar-muner-2026</span></td><td>Webinar ottobre</td><td><span class="un-badge un-badge--success">Iscritto</span></td><td><button class="un-btn un-btn--ghost un-btn--icon un-btn--sm" aria-label="Azioni"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td></tr>
+      <tr><td class="un-col-check"><label class="un-check"><input type="checkbox" aria-label="Seleziona"></label></td><td><div class="un-cell-primary"><span class="un-avatar un-avatar--sm">BD</span><div><b>Brunella D'Errico</b><span>Aggiunto il 29/09/2026</span></div></div></td><td>Studente</td><td>brunella.derrico@gmail.com</td><td class="un-code">+39 333 908 1122</td><td><span class="un-tag">meta-lead-ads</span></td><td>Alumni</td><td><span class="un-badge un-badge--success">Iscritto</span></td><td><button class="un-btn un-btn--ghost un-btn--icon un-btn--sm" aria-label="Azioni"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td></tr>
+    </tbody></table></div>
+  <div class="un-pager"><span>1-50 di 335 contatti</span><div class="un-btn-group"><button class="un-btn un-btn--secondary un-btn--sm" disabled>Precedente</button><button class="un-btn un-btn--secondary un-btn--sm">Successiva</button></div></div>
+</div>
+</div>
+</body></html>

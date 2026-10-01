@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="it" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=1440">
+<title>UN Platform - ScreenBroadcast</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css">
+<style>body{margin:0;background:var(--surface-soft)}</style></head>
+<body>
+<!-- @dsCard group="Screens" height=820 width=1440 page -->
+<div class="un-root">
+<div class="un-shell" style="min-height:0;height:820px"><aside class="un-sidebar">
+  <button class="un-switcher" aria-haspopup="menu"><span class="un-mark un-mark--accent">WA</span><span><span class="un-switcher__name">WhatsApp Manager</span><br><span class="un-switcher__sub">United Network</span></span><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button>
+  <div class="un-nav__section">Workspace</div>
+  <ul class="un-nav"><li><a class="un-nav__item" href="#"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Conversazioni<span class="un-count">12</span></a></li><li><a class="un-nav__item" href="#" aria-current="page"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Broadcast</a></li><li><a class="un-nav__item" href="#"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/></svg>BOT</a></li></ul>
+  <div class="un-nav__section">Configurazione</div>
+  <ul class="un-nav"><li><a class="un-nav__item" href="#"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Impostazioni</a></li></ul>
+  <div class="un-sidebar__foot"><span class="un-avatar un-avatar--navy">DA</span><span><span class="un-switcher__name" style="font-size:13px">Development admin</span><br><span class="un-switcher__sub">Amministratore</span></span></div>
+</aside><div class="un-main"><header class="un-topbar">
+  <nav class="un-crumbs" aria-label="Breadcrumb">WhatsApp Manager <span aria-hidden="true">/</span> Broadcast <span aria-hidden="true">/</span> <strong>Nuovo</strong></nav>
+  <div class="un-topbar__search un-input-wrap"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="un-input un-input--sm" placeholder="Cerca contatti, conversazioni..." aria-label="Ricerca globale"><span class="un-kbd">Cmd K</span></div>
+  <button class="un-btn un-btn--ghost un-btn--icon un-btn--sm" aria-label="Notifiche"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></button>
+</header><div class="un-content"><div class="un-page-head"><div><div class="un-overline">Twilio content</div><h1 class="un-page-head__title">Nuovo broadcast</h1></div><div class="un-btn-group"><button class="un-btn un-btn--secondary"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>Crea template</button></div></div>
+<div class="un-callout un-callout--warn" role="status"><svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><div><b>Twilio non configurato</b><p>Inserisci Account SID e Auth Token per caricare i template approvati. Fuori dalla finestra di 24h si possono inviare solo template approvati.</p></div><button class="un-btn un-btn--secondary un-btn--sm">Vai alle impostazioni</button></div>
+<ol class="un-stepper"><li class="un-step un-step--current" aria-current="step">Sorgente e template</li><li class="un-step">Contatti CSV</li><li class="un-step">Mappatura variabili</li><li class="un-step">Revisione e invio</li></ol>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start">
+<section class="un-card">
+ <header class="un-card__head"><div><h3 class="un-card__title">Sorgente e template</h3><p class="un-card__desc">Scegli il numero mittente e il template approvato da Twilio.</p></div></header>
+ <div class="un-card__body"><div class="un-form-grid">
+  <div class="un-field"><label class="un-label">BOT mittente</label><select class="un-select"><option>Seleziona un BOT</option></select></div>
+  <div class="un-field"><label class="un-label">Template Twilio</label><select class="un-select"><option>Inserisci Content SID manualmente</option></select></div>
+  <div class="un-field"><label class="un-label">Content SID</label><input class="un-input un-input--mono" placeholder="HX..."><span class="un-help">Solo se il template non compare nell'elenco.</span></div>
+  <div class="un-field"><label class="un-label">Variabili template</label><input class="un-input" placeholder="1, 2, 3"><span class="un-help">Segnaposto da collegare alle colonne del CSV.</span></div>
+ </div></div>
+ <footer class="un-card__foot"><button class="un-btn un-btn--ghost">Salva bozza</button><button class="un-btn un-btn--primary">Continua<svg class="un-icon " viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button></footer>
+</section>
+<aside class="un-card" style="position:sticky;top:80px">
+ <header class="un-card__head"><h3 class="un-card__title">Riepilogo</h3></header>
+ <div class="un-card__body"><dl class="un-dl"><dt>Mittente</dt><dd class="un-empty-cell">-</dd><dt>Template</dt><dd class="un-empty-cell">-</dd><dt>Contatti</dt><dd class="un-empty-cell">Nessun file caricato</dd><dt>Stima costo</dt><dd class="un-empty-cell">-</dd></dl></div>
+</aside></div></div></div></div>
+</div>
+</body></html>

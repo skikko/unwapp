@@ -163,6 +163,17 @@ test('compila le condizioni di sequenza con parametri SQL tipizzati', () => {
   ]);
 });
 
+test('una lista include soltanto i contatti aggiunti esplicitamente', () => {
+  const result = crmRepo.compileListFilter({
+    id: '123e4567-e89b-12d3-a456-426614174000',
+    filter_json: { hasEmail: true },
+  }, 3);
+  assert.match(result.clause, /crm_list_memberships/);
+  assert.match(result.clause, /lm\.list_id = \$3/);
+  assert.doesNotMatch(result.clause, /crm_list_exclusions|email_normalized|TRUE/);
+  assert.deepEqual(result.values, ['123e4567-e89b-12d3-a456-426614174000']);
+});
+
 test('normalizza le modifiche massive dei contatti', () => {
   const changes = crmService.normalizeBulkContactChanges({
     emailStatus: 'subscribed', addTags: 'Newsletter, Evento',

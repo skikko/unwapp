@@ -32,6 +32,13 @@ const io = socketIo(server, { cors: corsOptions });
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.get('/design-system/tokens.css', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../design-system/tokens.css'));
+});
+app.get('/design-system/components.css', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../design-system/components/bundle.css'));
+});
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.set('io', io);

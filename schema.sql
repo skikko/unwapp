@@ -33,15 +33,23 @@ CREATE TABLE IF NOT EXISTS conversations (
   contact_name       TEXT,
   status             TEXT NOT NULL DEFAULT 'active',
   operator_email     TEXT,
+  archived_at        TIMESTAMPTZ,
+  unread_count       INT NOT NULL DEFAULT 0 CHECK (unread_count >= 0),
+  last_read_at       TIMESTAMPTZ,
   last_message_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (bot_id, phone_number)
 );
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS contact_name TEXT;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS unread_count INT NOT NULL DEFAULT 0;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_conversations_bot_recent
   ON conversations (bot_id, last_message_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_bot_status_recent
   ON conversations (bot_id, status, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_bot_archive_recent
+  ON conversations (bot_id, archived_at, last_message_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

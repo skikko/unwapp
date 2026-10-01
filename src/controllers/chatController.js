@@ -14,6 +14,7 @@ async function listConversations(req, res) {
     search: req.query.search,
     status: req.query.status,
     broadcast: req.query.broadcast,
+    archived: req.query.archived === 'true',
   });
   const filters = await conversationRepo.listFiltersByBot(botId);
   res.json({ bot: { id: bot.id, name: bot.name }, conversations, filters });
@@ -82,7 +83,7 @@ async function sendOperatorMessage(req, res) {
         );
         sentMessages.push(sentMedia);
         savedMessages.push(await messageRepo.add(
-          id, 'operator', imageWithCaption ? body : `📎 ${mediaName || 'Allegato'}`, sentMedia.sid,
+          id, 'operator', imageWithCaption ? body : `Allegato: ${mediaName || 'file'}`, sentMedia.sid,
           { mediaUrl, mediaType, mediaName }
         ));
       } else if (body) {
@@ -154,6 +155,34 @@ async function closeConversation(req, res) {
   res.json({ success: true });
 }
 
+async function archiveConversation(req, res) {
+  const conversation = await conversationRepo.setArchived(req.params.id, req.body?.archived !== false);
+  if (!conversation) return res.status(404).json({ error: 'Conversazione non trovata' });
+  const io = req.app.get('io');
+  if (io) {
+    io.to(`bot:${conversation.bot_id}`).emit('conversation-archived', {
+      conversationId: conversation.id,
+      botId: conversation.bot_id,
+      archived: Boolean(conversation.archived_at),
+    });
+  }
+  res.json({ success: true, conversation });
+}
+
+async function updateReadState(req, res) {
+  const conversation = await conversationRepo.setUnread(req.params.id, req.body?.unread === true);
+  if (!conversation) return res.status(404).json({ error: 'Conversazione non trovata' });
+  const io = req.app.get('io');
+  if (io) {
+    io.to(`bot:${conversation.bot_id}`).emit('conversation-read-state', {
+      conversationId: conversation.id,
+      botId: conversation.bot_id,
+      unreadCount: conversation.unread_count,
+    });
+  }
+  res.json({ success: true, conversation });
+}
+
 async function deleteConversation(req, res) {
   const deleted = await conversationRepo.remove(req.params.id);
   if (!deleted) return res.status(404).json({ error: 'Conversazione non trovata' });
@@ -180,6 +209,8 @@ module.exports = {
   sendOperatorMessage,
   releaseOperator,
   closeConversation,
+  archiveConversation,
+  updateReadState,
   deleteConversation,
   deleteMessage,
 };

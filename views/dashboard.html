@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UN WhatsApp Manager</title>
   <meta name="theme-color" content="#151923" />
+  <link href="/design-system/tokens.css" rel="stylesheet" />
+  <link href="/design-system/components.css" rel="stylesheet" />
   <link href="/css/app.css" rel="stylesheet" />
 </head>
-<body>
+<body class="un-root">
   <div class="app">
     <header class="topbar">
       <a class="brand" href="/" aria-label="UN WhatsApp Manager, home">
@@ -25,22 +27,15 @@
     </header>
 
     <main class="dash" id="dashboard">
-      <aside class="col bots-column">
-        <div class="col-header">
-          <span class="col-title"><span class="bot-header-icon" aria-hidden="true">◆</span><span class="col-label">BOT</span></span>
-          <span class="col-actions">
-            <a class="header-icon-link" href="/whatsapp/bots" data-permission="admin" title="Gestisci BOT" aria-label="Gestisci BOT">⚙</a>
-            <button class="icon-button" id="toggleBotsBtn" type="button" title="Riduci colonna BOT" aria-label="Riduci colonna BOT">‹</button>
-          </span>
-        </div>
-        <div class="col-body" id="botsList"></div>
-      </aside>
-
       <aside class="col conversations-column">
-        <div class="col-header"><span>Conversazioni</span><button class="icon-button" id="refreshBtn" title="Ricarica" aria-label="Ricarica">↻</button></div>
+        <div class="col-header conversation-list-header">
+          <select id="botSelect" class="bot-select" aria-label="Seleziona BOT" disabled>
+            <option>Caricamento BOT</option>
+          </select>
+          <span class="col-actions"><button class="ghost" id="notificationBtn" type="button">Attiva notifiche</button><button class="ghost" id="refreshBtn" type="button">Aggiorna</button></span>
+        </div>
         <div class="conversation-filters">
           <label class="search-field" for="conversationSearch">
-            <span aria-hidden="true">⌕</span>
             <input id="conversationSearch" type="search" placeholder="Cerca nome, numero o messaggio" autocomplete="off" disabled />
           </label>
           <div class="filter-row">
@@ -52,6 +47,10 @@
             </select>
             <select id="conversationBroadcast" aria-label="Filtra per broadcast" disabled>
               <option value="">Tutti i broadcast</option>
+            </select>
+            <select id="conversationArchive" aria-label="Filtra per archivio" disabled>
+              <option value="active">Chat attive</option>
+              <option value="archived">Chat archiviate</option>
             </select>
           </div>
         </div>
@@ -68,6 +67,8 @@
           <div class="status-bar" id="statusBar">
             <div class="label"><span class="dot"></span><span id="statusText"></span></div>
             <div class="status-actions">
+              <button class="ghost" id="unreadBtn">Segna come non letta</button>
+              <button class="ghost" id="archiveBtn">Archivia</button>
               <button class="ghost" id="closeBtn">Chiudi</button>
               <button class="ghost danger-text" id="deleteConversationBtn" hidden>Elimina</button>
             </div>
@@ -76,17 +77,17 @@
           <div class="chat-input">
             <div class="composer-toolbar">
               <button class="composer-tool" id="attachBtn" type="button" title="Invia un’immagine, un documento, un audio o un video">
-                <span class="tool-icon" aria-hidden="true">⌁</span><span><strong>Allega</strong><small>File o media</small></span>
+                <span><strong>Allega</strong><small>File o media</small></span>
               </button>
               <button class="composer-tool" id="addChatActionBtn" type="button" title="Aggiungi un link cliccabile o una risposta rapida">
-                <span class="tool-icon" aria-hidden="true">↗</span><span><strong>Azione</strong><small>Link o risposta</small></span>
+                <span><strong>Azione</strong><small>Link o risposta</small></span>
               </button>
               <input id="chatMediaFile" type="file" hidden accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vcf" />
             </div>
             <div class="attachment-preview" id="chatAttachmentPreview" hidden></div>
             <div class="action-editor chat-action-editor" id="chatActions" hidden></div>
             <div class="row"><textarea id="msgInput" placeholder="Scrivi come operatore..."></textarea><button id="sendBtn">Invia</button></div>
-            <div class="hint"><span id="inputHint">L’invio passa all’operatore</span><span>Invio per mandare · Maiusc + Invio per andare a capo</span></div>
+            <div class="hint"><span id="inputHint">L’invio passa all’operatore</span><span>Invio per mandare. Maiusc + Invio per andare a capo.</span></div>
           </div>
         </div>
       </section>

@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UN CRM</title>
   <meta name="theme-color" content="#171a23" />
+  <link href="/design-system/tokens.css" rel="stylesheet" />
+  <link href="/design-system/components.css" rel="stylesheet" />
   <link href="/css/app.css" rel="stylesheet" />
 </head>
-<body>
+<body class="un-root">
   <div class="app">
     <header class="topbar">
       <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
@@ -48,7 +50,6 @@
             <label><span>Stato email</span><select id="filterStatus"><option value="">Tutti</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></label>
             <label><span>Stato contatto</span><select id="filterContactStatus"><option value="">Tutti</option></select></label>
             <label><span>Tag</span><input id="filterTags" placeholder="evento, alumni" /></label>
-            <button class="secondary" type="submit">Applica filtri</button>
           </form>
           <div class="contact-bulk-bar" id="contactBulkBar" hidden data-write>
             <strong id="contactBulkCount">0 selezionati</strong>
@@ -64,8 +65,8 @@
               <div class="form-field"><label for="bulkContactCrmStatus">Imposta stato contatto</label><select id="bulkContactCrmStatus"><option value="__unchanged__">Nessuna modifica</option><option value="">Nessuno stato</option></select></div>
               <div class="form-field"><label for="bulkContactAddTags">Aggiungi tag</label><input id="bulkContactAddTags" placeholder="newsletter, evento" /></div>
               <div class="form-field"><label for="bulkContactRemoveTags">Rimuovi tag</label><input id="bulkContactRemoveTags" placeholder="lead, temporaneo" /></div>
-              <div class="form-field"><label for="bulkContactListAction">Appartenenza manuale</label><select id="bulkContactListAction"><option value="">Nessuna modifica</option><option value="add">Aggiungi alla lista</option><option value="remove">Rimuovi dalla lista</option></select></div>
-              <div class="form-field"><label for="bulkContactList">Lista</label><select id="bulkContactList"></select><small>La rimozione crea un’esclusione anche se il contatto soddisfa i filtri dinamici.</small></div>
+              <div class="form-field"><label for="bulkContactListAction">Appartenenza alla lista</label><select id="bulkContactListAction"><option value="">Nessuna modifica</option><option value="add">Aggiungi alla lista</option><option value="remove">Rimuovi dalla lista</option></select></div>
+              <div class="form-field"><label for="bulkContactList">Lista</label><select id="bulkContactList"></select><small>I contatti restano nella rubrica generale quando vengono rimossi da una lista.</small></div>
             </div>
             <div class="form-actions"><button type="submit">Applica modifica massiva</button></div>
           </form>
@@ -147,18 +148,13 @@
         </section>
 
         <section class="crm-panel" id="panel-lists" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><span class="eyebrow">Segmentazione dinamica</span><h2>Liste</h2></div><button id="newListBtn" data-write>Nuova lista</button></div>
+          <div class="crm-panel-header"><div><span class="eyebrow">Gruppi di contatti</span><h2>Liste</h2></div><button id="newListBtn" data-write>Nuova lista</button></div>
           <form class="card crm-editor" id="listEditor" hidden>
-            <div class="section-heading compact"><div><h2 id="listEditorTitle">Salva una vista filtrata</h2></div><button class="ghost" type="button" data-close="listEditor">Chiudi</button></div>
+            <div class="section-heading compact"><div><h2 id="listEditorTitle">Nuova lista</h2></div><button class="ghost" type="button" data-close="listEditor">Chiudi</button></div>
             <input id="listId" type="hidden" />
             <div class="grid-2">
               <div class="form-field"><label for="listName">Nome</label><input id="listName" required /></div>
-              <div class="form-field"><label for="listSource">Origine</label><input id="listSource" placeholder="meta" /></div>
-              <div class="form-field"><label for="listEmailStatus">Stato email</label><select id="listEmailStatus"><option value="">Qualsiasi</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></div>
-              <div class="form-field"><label for="listContactStatus">Stato contatto</label><select id="listContactStatus"><option value="">Qualsiasi</option></select></div>
-              <div class="form-field"><label for="listTags">Tag richiesti</label><input id="listTags" placeholder="lead, evento" /></div>
-              <div class="form-field span-2"><label for="listDescription">Descrizione</label><input id="listDescription" /></div>
-              <label class="check-field span-2"><input id="listHasEmail" type="checkbox" checked /> Solo contatti con email</label>
+              <div class="form-field"><label for="listDescription">Descrizione</label><input id="listDescription" /></div>
             </div>
             <div class="form-actions"><button type="submit" id="saveListBtn">Crea lista</button></div>
           </form>

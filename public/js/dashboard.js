@@ -12,7 +12,6 @@ const state = {
   conversationRequest: 0,
   canWrite: false,
   canDelete: false,
-  botsCollapsed: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -51,6 +50,7 @@ async function loadMe() {
     $('logoutBtn').addEventListener('click', logout);
     if (!can('chat:write')) {
       $('msgInput').disabled = true; $('sendBtn').disabled = true; $('closeBtn').hidden = true;
+      $('archiveBtn').hidden = true; $('unreadBtn').hidden = true;
       $('deleteConversationBtn').hidden = true;
       $('attachBtn').disabled = true; $('addChatActionBtn').disabled = true;
       $('modeSwitch').hidden = true; $('inputHint').textContent = 'Accesso in sola lettura';
@@ -67,26 +67,15 @@ async function logout() {
 async function loadBots() {
   const { bots } = await api('/api/bots');
   state.bots = bots;
-  const el = $('botsList');
+  const select = $('botSelect');
   if (!bots.length) {
-    el.innerHTML = '<div class="empty-list">Nessun BOT.<br><br><a class="text-link" href="/whatsapp/bots">Crea un BOT</a></div>';
+    select.innerHTML = '<option value="">Nessun BOT configurato</option>';
+    select.disabled = true;
+    $('conversationsList').innerHTML = '<div class="empty-list">Nessun BOT configurato. Collega un numero Twilio dalla sezione BOT.</div>';
     return;
   }
-  el.innerHTML = bots.map((c) => `
-    <div class="list-item bot-list-item ${c.id === state.selectedBotId ? 'active' : ''}" data-id="${c.id}" title="${escape(c.name)}" aria-label="${escape(c.name)}">
-      <div class="bot-item-row">
-        <span class="bot-avatar" aria-hidden="true">${escape(initials(c.name))}</span>
-        <div class="bot-copy">
-          <div class="title">${escape(c.name)}</div>
-          <div class="sub">${escape(c.twilio_number)}</div>
-        </div>
-        <span class="bot-status-dot ${c.active ? (c.manual_only ? 'manual' : 'on') : 'off'}" title="${c.active ? (c.manual_only ? 'Solo operatore' : 'Risposte AI attive') : 'Inattivo'}" aria-label="${c.active ? (c.manual_only ? 'Solo operatore' : 'Risposte AI attive') : 'Inattivo'}"></span>
-      </div>
-    </div>
-  `).join('');
-  el.querySelectorAll('.list-item').forEach((n) =>
-    n.addEventListener('click', () => selectBot(n.dataset.id))
-  );
+  select.innerHTML = bots.map((bot) => `<option value="${bot.id}">${escape(bot.name)}</option>`).join('');
+  select.disabled = false;
   if (!state.selectedBotId) await selectBot(bots[0].id);
 }
 
@@ -100,14 +89,14 @@ async function selectBot(botId) {
   $('conversationSearch').value = '';
   $('conversationStatus').value = '';
   $('conversationBroadcast').value = '';
+  $('conversationArchive').value = 'active';
   $('conversationSearch').disabled = false;
   $('conversationStatus').disabled = false;
   $('conversationBroadcast').disabled = false;
+  $('conversationArchive').disabled = false;
+  $('botSelect').value = botId;
   renderChatActions();
   renderChat();
-  document.querySelectorAll('#botsList .list-item').forEach((n) =>
-    n.classList.toggle('active', n.dataset.id === botId)
-  );
   await loadConversations();
   subscribeSocket();
 }
@@ -120,9 +109,11 @@ async function loadConversations() {
   const search = $('conversationSearch').value.trim();
   const status = $('conversationStatus').value;
   const broadcast = $('conversationBroadcast').value;
+  const archived = $('conversationArchive').value === 'archived';
   if (search) params.set('search', search);
   if (status) params.set('status', status);
   if (broadcast) params.set('broadcast', broadcast);
+  if (archived) params.set('archived', 'true');
   const { conversations, filters = {} } = await api(`/api/chat/conversations?${params}`);
   if (requestId !== state.conversationRequest || cid !== state.selectedBotId) return;
   state.conversations = conversations;
@@ -130,7 +121,7 @@ async function loadConversations() {
   renderConversationFilterOptions();
   const el = $('conversationsList');
   if (!conversations.length) {
-    const hasFilters = Boolean(search || status || broadcast);
+    const hasFilters = Boolean(search || status || broadcast || archived);
     el.innerHTML = `<div class="empty-list">${hasFilters ? 'Nessun risultato' : 'Nessuna conversazione'}</div>`;
     return;
   }
@@ -142,12 +133,14 @@ async function loadConversations() {
       : `<div class="title">${escape(c.phone_number)}</div>`;
     const linkedTemplate = Array.isArray(c.broadcast_templates) ? c.broadcast_templates[0] : null;
     const statusBadge = c.status === 'human'
-      ? '<span class="badge human">👤 Operatore</span>'
+      ? '<span class="badge human">Operatore</span>'
       : c.status === 'closed'
-      ? '<span class="badge">chiusa</span>'
-      : '<span class="badge bot">🤖 Bot</span>';
+      ? '<span class="badge">Chiusa</span>'
+      : '<span class="badge bot">BOT</span>';
+    const unread = Number(c.unread_count || 0);
     return `
-      <div class="list-item ${c.id === state.selectedConversationId ? 'active' : ''}" data-id="${c.id}">
+      <div class="list-item ${c.id === state.selectedConversationId ? 'active' : ''} ${unread ? 'is-unread' : ''}" data-id="${c.id}">
+        ${unread ? `<span class="unread" title="${unread} messaggi non letti" aria-label="${unread} messaggi non letti"></span>` : ''}
         ${identity}
         <div class="sub">${last || '<em style="opacity:0.5">nessun messaggio</em>'}</div>
         <div class="meta">
@@ -161,6 +154,12 @@ async function loadConversations() {
   el.querySelectorAll('.list-item').forEach((n) =>
     n.addEventListener('click', () => selectConversation(n.dataset.id))
   );
+  updateUnreadSummary();
+}
+
+function updateUnreadSummary() {
+  const unread = state.conversations.reduce((total, conversation) => total + Number(conversation.unread_count || 0), 0);
+  document.title = unread ? `(${unread}) UN WhatsApp Manager` : 'UN WhatsApp Manager';
 }
 
 function renderConversationFilterOptions() {
@@ -173,8 +172,8 @@ function renderConversationFilterOptions() {
   ).join('');
   const campaignOptions = campaigns.map((campaign) => {
     const date = new Date(campaign.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
-    const source = campaign.source_filename ? ` · ${campaign.source_filename}` : '';
-    return `<option value="campaign:${escape(campaign.id)}">${escape(campaign.name || campaign.template_sid)}${escape(source)} · ${date}</option>`;
+    const source = campaign.source_filename ? ` / ${campaign.source_filename}` : '';
+    return `<option value="campaign:${escape(campaign.id)}">${escape(campaign.name || campaign.template_sid)}${escape(source)} / ${date}</option>`;
   }).join('');
   select.innerHTML = `
     <option value="">Tutti i broadcast</option>
@@ -195,10 +194,17 @@ async function selectConversation(id) {
   const { conversation, messages } = await api(`/api/chat/conversations/${id}`);
   state.currentConversation = conversation;
   state.messages = messages;
+  if (state.canWrite && Number(conversation.unread_count || 0) > 0) {
+    const result = await api(`/api/chat/conversations/${id}/read-state`, {
+      method: 'PATCH', body: JSON.stringify({ unread: false }),
+    });
+    state.currentConversation = result.conversation;
+  }
   renderChat();
   document.querySelectorAll('#conversationsList .list-item').forEach((n) =>
     n.classList.toggle('active', n.dataset.id === id)
   );
+  if (Number(conversation.unread_count || 0) > 0) await loadConversations();
 }
 
 function renderChat() {
@@ -213,9 +219,9 @@ function renderChat() {
   $('chatSubtitle').textContent = [
     contactName ? conv.phone_number : '',
     conv.operator_email ? `controllato da ${conv.operator_email}` : '',
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(' / ');
 
-  // Status bar + mode switch
+  // Barra di stato e selettore della modalità.
   const selectedBot = state.bots.find((bot) => bot.id === state.selectedBotId);
   const manualOnly = Boolean(selectedBot?.manual_only);
   const isHuman = conv.status === 'human' || manualOnly;
@@ -237,8 +243,10 @@ function renderChat() {
   $('inputHint').textContent = isHuman
     ? 'Rispondi come operatore'
     : 'L’invio passa all’operatore';
+  $('archiveBtn').textContent = conv.archived_at ? 'Ripristina' : 'Archivia';
+  $('unreadBtn').textContent = Number(conv.unread_count || 0) > 0 ? 'Segna come letta' : 'Segna come non letta';
 
-  // Messages
+  // Messaggi.
   const body = $('chatBody');
   body.innerHTML = state.messages.map((m) => `
     <div class="msg ${m.role}">
@@ -270,7 +278,7 @@ function renderMessageContent(message) {
   } else if (mediaUrl) {
     parts.push(`<a class="message-file" href="${escape(mediaUrl)}" target="_blank" rel="noopener"><span>FILE</span><strong>${escape(message.media_name || 'Apri allegato')}</strong></a>`);
   }
-  if (message.content && !(mediaUrl && message.content === `📎 ${message.media_name || 'Allegato'}`)) {
+  if (message.content) {
     parts.push(`<div class="message-text">${escape(message.content)}</div>`);
   }
   const actions = Array.isArray(message.actions) ? message.actions : [];
@@ -292,7 +300,7 @@ function renderMessageContent(message) {
 }
 
 function roleLabel(r) {
-  return { user: 'Cliente', bot: '🤖 Bot', operator: '👤 Operatore', system: 'Sistema' }[r] || r;
+  return { user: 'Cliente', bot: 'BOT', operator: 'Operatore', system: 'Sistema' }[r] || r;
 }
 
 async function sendOperatorMessage() {
@@ -321,7 +329,7 @@ async function sendOperatorMessage() {
     clearChatAttachment();
     state.chatActions = [];
     renderChatActions();
-    // Reload conversation to reflect human mode
+    // Ricarica la conversazione per mostrare la modalità operatore.
     await selectConversation(state.selectedConversationId);
     await loadConversations();
   } catch (err) {
@@ -373,7 +381,7 @@ function renderChatActions() {
       <select data-chat-action-field="type"><option value="URL" ${action.type === 'URL' ? 'selected' : ''}>Apri URL</option><option value="QUICK_REPLY" ${action.type === 'QUICK_REPLY' ? 'selected' : ''}>Risposta rapida</option></select>
       <input data-chat-action-field="title" maxlength="25" value="${escape(action.title || '')}" placeholder="Testo pulsante" />
       <input data-chat-action-field="value" value="${escape(chatActionValue(action))}" placeholder="${action.type === 'URL' ? 'https://...' : action.type === 'PHONE_NUMBER' ? '+39...' : 'identificativo'}" />
-      <button class="danger" data-remove-chat-action="${index}" type="button">×</button>
+      <button class="danger" data-remove-chat-action="${index}" type="button">Rimuovi</button>
     </div>`).join('');
   container.querySelectorAll('[data-chat-action]').forEach((row) => {
     const index = Number(row.dataset.chatAction);
@@ -434,10 +442,7 @@ async function setMode(mode) {
     await selectConversation(state.selectedConversationId);
     await loadConversations();
   } else if (mode === 'human' && !isHuman) {
-    // Take over manually (write a silent marker or just open the mode by sending?).
-    // The backend flips to 'human' only when sendOperatorMessage runs.
-    // We'll flip it via a zero-length operator claim: send a system-transfer API.
-    // Simpler: call /send with a placeholder? No — let user type. Just show hint.
+    // Il backend passa alla modalità operatore al primo messaggio inviato.
     toast('Scrivi un messaggio per prendere il controllo', 'ok');
     $('msgInput').focus();
   }
@@ -451,6 +456,67 @@ async function closeConversation() {
   state.currentConversation = null;
   await loadConversations();
   renderChat();
+}
+
+async function archiveConversation() {
+  if (!state.selectedConversationId || !state.currentConversation) return;
+  const archived = !state.currentConversation.archived_at;
+  await api(`/api/chat/conversations/${state.selectedConversationId}/archive`, {
+    method: 'PATCH', body: JSON.stringify({ archived }),
+  });
+  state.selectedConversationId = null;
+  state.currentConversation = null;
+  state.messages = [];
+  renderChat();
+  await loadConversations();
+  toast(archived ? 'Conversazione archiviata' : 'Conversazione ripristinata');
+}
+
+async function toggleConversationUnread() {
+  if (!state.selectedConversationId || !state.currentConversation) return;
+  const unread = Number(state.currentConversation.unread_count || 0) === 0;
+  const result = await api(`/api/chat/conversations/${state.selectedConversationId}/read-state`, {
+    method: 'PATCH', body: JSON.stringify({ unread }),
+  });
+  state.currentConversation = result.conversation;
+  renderChat();
+  await loadConversations();
+  toast(unread ? 'Conversazione segnata come non letta' : 'Conversazione segnata come letta');
+}
+
+function syncNotificationButton() {
+  const button = $('notificationBtn');
+  if (!('Notification' in window)) {
+    button.hidden = true;
+    return;
+  }
+  button.textContent = Notification.permission === 'granted' ? 'Notifiche attive' : 'Attiva notifiche';
+  button.disabled = Notification.permission === 'granted';
+}
+
+async function enableNotifications() {
+  if (!('Notification' in window)) return;
+  const permission = await Notification.requestPermission();
+  syncNotificationButton();
+  toast(permission === 'granted' ? 'Notifiche del browser attivate' : 'Notifiche del browser non autorizzate', permission === 'granted' ? 'ok' : 'err');
+}
+
+function notifyIncomingMessage(event) {
+  const bot = state.bots.find((item) => item.id === event.botId);
+  const sender = event.contactName || event.phoneNumber || 'Nuovo contatto';
+  toast(`Nuovo messaggio da ${sender}`);
+  if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+    const notification = new Notification(`Nuovo messaggio da ${sender}`, {
+      body: String(event.message?.content || '').slice(0, 140),
+      tag: `conversation-${event.conversationId}`,
+    });
+    notification.onclick = () => {
+      window.focus();
+      if (bot && bot.id !== state.selectedBotId) selectBot(bot.id).then(() => selectConversation(event.conversationId));
+      else selectConversation(event.conversationId);
+      notification.close();
+    };
+  }
 }
 
 async function deleteConversation() {
@@ -477,9 +543,9 @@ async function deleteConversation() {
 function subscribeSocket() {
   if (!state.socket) {
     state.socket = io({ transports: ['websocket', 'polling'] });
-    state.socket.on('new-message', (ev) => {
+    state.socket.on('new-message', async (ev) => {
+      if (ev.message.role === 'user') notifyIncomingMessage(ev);
       if (ev.botId !== state.selectedBotId) return;
-      loadConversations();
       if (ev.conversationId === state.selectedConversationId) {
         state.messages.push({
           role: ev.message.role,
@@ -492,11 +558,17 @@ function subscribeSocket() {
           content_sid: ev.message.content_sid,
         });
         renderChat();
+        if (ev.message.role === 'user' && state.canWrite) {
+          await api(`/api/chat/conversations/${ev.conversationId}/read-state`, {
+            method: 'PATCH', body: JSON.stringify({ unread: false }),
+          });
+        }
       }
+      await loadConversations();
     });
     state.socket.on('attention-required', (ev) => {
       if (ev.botId === state.selectedBotId) {
-        toast(`⚠ Attenzione richiesta: ${ev.phoneNumber}`, 'err');
+        toast(`Attenzione richiesta: ${ev.phoneNumber}`, 'err');
       }
     });
     state.socket.on('operator-mode-changed', () => {
@@ -513,8 +585,14 @@ function subscribeSocket() {
       }
       loadConversations();
     });
+    state.socket.on('conversation-archived', (ev) => {
+      if (ev.botId === state.selectedBotId) loadConversations();
+    });
+    state.socket.on('conversation-read-state', (ev) => {
+      if (ev.botId === state.selectedBotId) loadConversations();
+    });
   }
-  state.socket.emit('join-bot', state.selectedBotId);
+  state.bots.forEach((bot) => state.socket.emit('join-bot', bot.id));
 }
 
 function timeAgo(iso) {
@@ -526,27 +604,6 @@ function timeAgo(iso) {
   return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
 }
 
-function initials(value) {
-  const words = String(value || '').trim().split(/\s+/).filter(Boolean);
-  return (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : words[0]?.slice(0, 2) || 'BT').toUpperCase();
-}
-
-function applyBotsColumnState() {
-  $('dashboard').classList.toggle('bots-collapsed', state.botsCollapsed);
-  const button = $('toggleBotsBtn');
-  button.textContent = state.botsCollapsed ? '›' : '‹';
-  const label = state.botsCollapsed ? 'Espandi colonna BOT' : 'Riduci colonna BOT';
-  button.title = label;
-  button.setAttribute('aria-label', label);
-  button.setAttribute('aria-expanded', String(!state.botsCollapsed));
-}
-
-function toggleBotsColumn() {
-  state.botsCollapsed = !state.botsCollapsed;
-  try { localStorage.setItem('un-bots-collapsed', state.botsCollapsed ? '1' : '0'); } catch {}
-  applyBotsColumnState();
-}
-
 function escape(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -556,6 +613,9 @@ function escape(s) {
 $('refreshBtn').addEventListener('click', loadConversations);
 $('sendBtn').addEventListener('click', sendOperatorMessage);
 $('closeBtn').addEventListener('click', closeConversation);
+$('archiveBtn').addEventListener('click', archiveConversation);
+$('unreadBtn').addEventListener('click', toggleConversationUnread);
+$('notificationBtn').addEventListener('click', enableNotifications);
 $('deleteConversationBtn').addEventListener('click', deleteConversation);
 $('attachBtn').addEventListener('click', selectChatAttachment);
 $('chatMediaFile').addEventListener('change', updateChatAttachment);
@@ -574,11 +634,17 @@ $('conversationSearch').addEventListener('input', () => {
 });
 $('conversationStatus').addEventListener('change', loadConversations);
 $('conversationBroadcast').addEventListener('change', loadConversations);
-$('toggleBotsBtn').addEventListener('click', toggleBotsColumn);
+$('botSelect').addEventListener('change', (event) => selectBot(event.target.value));
+$('conversationArchive').addEventListener('change', () => {
+  state.selectedConversationId = null;
+  state.currentConversation = null;
+  state.messages = [];
+  renderChat();
+  loadConversations();
+});
 
 (async () => {
-  try { state.botsCollapsed = localStorage.getItem('un-bots-collapsed') === '1'; } catch {}
-  applyBotsColumnState();
+  syncNotificationButton();
   await loadMe();
   await loadBots();
 })();

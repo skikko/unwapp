@@ -48,7 +48,9 @@ function parseBroadcastFilter(value) {
   return { type: '', value: '' };
 }
 
-async function listByBot(botId, { limit = 100, search = '', status = '', broadcast = '' } = {}) {
+async function listByBot(botId, {
+  limit = 100, search = '', status = '', broadcast = '', archived = false,
+} = {}) {
   const normalizedSearch = String(search || '').trim().slice(0, 120);
   const normalizedStatus = ['active', 'human', 'closed'].includes(status) ? status : '';
   const broadcastFilter = parseBroadcastFilter(broadcast);
@@ -87,6 +89,8 @@ async function listByBot(botId, { limit = 100, search = '', status = '', broadca
              AND COALESCE(sbc.template_name, sbc.template_sid) ILIKE '%' || $2 || '%'
          ))
        AND ($3::text = '' OR c.status = $3)
+       AND (($6::boolean = TRUE AND c.archived_at IS NOT NULL)
+         OR ($6::boolean = FALSE AND c.archived_at IS NULL))
        AND ($4::text = ''
          OR ($4::text = 'template' AND EXISTS (
            SELECT 1 FROM broadcast_recipients fbr
@@ -99,8 +103,8 @@ async function listByBot(botId, { limit = 100, search = '', status = '', broadca
            WHERE fbc.bot_id = c.bot_id AND fbr.phone_number = c.phone_number AND fbc.id::text = $5
          )))
      ORDER BY c.last_message_at DESC
-     LIMIT $6`,
-    [botId, normalizedSearch, normalizedStatus, broadcastFilter.type, broadcastFilter.value, limit]
+     LIMIT $7`,
+    [botId, normalizedSearch, normalizedStatus, broadcastFilter.type, broadcastFilter.value, Boolean(archived), limit]
   );
   return rows;
 }
@@ -157,6 +161,27 @@ async function setStatus(id, status) {
   return rows[0] || null;
 }
 
+async function setArchived(id, archived) {
+  const { rows } = await db.query(
+    `UPDATE conversations
+     SET archived_at=CASE WHEN $2::boolean THEN now() ELSE NULL END
+     WHERE id=$1 RETURNING *`,
+    [id, Boolean(archived)]
+  );
+  return rows[0] || null;
+}
+
+async function setUnread(id, unread) {
+  const { rows } = await db.query(
+    `UPDATE conversations SET
+       unread_count=CASE WHEN $2::boolean THEN GREATEST(unread_count,1) ELSE 0 END,
+       last_read_at=CASE WHEN $2::boolean THEN last_read_at ELSE now() END
+     WHERE id=$1 RETURNING *`,
+    [id, Boolean(unread)]
+  );
+  return rows[0] || null;
+}
+
 async function setManualByBot(botId) {
   const { rowCount } = await db.query(
     `UPDATE conversations
@@ -176,6 +201,8 @@ module.exports = {
   parseBroadcastFilter,
   setOperator,
   setStatus,
+  setArchived,
+  setUnread,
   setManualByBot,
   remove,
 };

@@ -12,8 +12,12 @@ async function add(conversationId, role, content, twilioSid = null, metadata = {
       metadata.contentSid || null]
   );
   await db.query(
-    `UPDATE conversations SET last_message_at = now() WHERE id = $1`,
-    [conversationId]
+    `UPDATE conversations SET
+       last_message_at=now(),
+       unread_count=CASE WHEN $2='user' THEN unread_count + 1 ELSE unread_count END,
+       archived_at=CASE WHEN $2='user' THEN NULL ELSE archived_at END
+     WHERE id=$1`,
+    [conversationId, role]
   );
   return rows[0];
 }

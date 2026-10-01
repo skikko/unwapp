@@ -138,7 +138,6 @@ async function createList(req, res) {
   const list = await crmRepo.createList({
     name,
     description: String(req.body.description || '').trim(),
-    filters: crmService.normalizeFilters(req.body.filters || {}),
     createdBy: req.user.username,
   });
   res.status(201).json({ list });
@@ -150,7 +149,6 @@ async function updateList(req, res) {
   const list = await crmRepo.updateList(req.params.id, {
     name,
     description: String(req.body.description || '').trim(),
-    filters: crmService.normalizeFilters(req.body.filters || {}),
   });
   if (!list) return res.status(404).json({ error: 'Lista non trovata' });
   res.json({ list });

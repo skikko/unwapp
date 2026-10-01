@@ -477,11 +477,8 @@ async function loadLists() {
   const { lists } = await api('/api/crm/lists');
   state.lists = lists;
   $('listsGrid').innerHTML = lists.length ? lists.map((list) => {
-    const filters = list.filter_json || {};
-    const contactStatus = state.contactStatuses.find((status) => status.id === filters.contactStatusId);
-    const filterText = [filters.source && `Origine: ${filters.source}`, filters.emailStatus && `Stato email: ${statusLabel(filters.emailStatus)}`, contactStatus && `Stato contatto: ${contactStatus.name}`, filters.tags?.length && `Tag: ${filters.tags.join(', ')}`, filters.hasEmail && 'Con email'].filter(Boolean).join(' | ') || 'Tutti i contatti';
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista dinamica</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || filterText)}</p><div class="crm-object-meta"><span>${esc(filterText)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
-  }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista salvando i criteri di filtro.</div>';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${list.contact_count === 1 ? '1 contatto' : `${list.contact_count} contatti`}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista e aggiungi i contatti dalla rubrica o tramite CSV.</div>';
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
   document.querySelectorAll('[data-edit-list]').forEach((button) => button.addEventListener('click', () => editList(button.dataset.editList)));
   document.querySelectorAll('[data-view-list]').forEach((button) => button.addEventListener('click', () => loadListContacts(button.dataset.viewList)));
@@ -532,19 +529,11 @@ async function saveList(event) {
       body: JSON.stringify({
         name: $('listName').value,
         description: $('listDescription').value,
-        filters: {
-          source: $('listSource').value,
-          emailStatus: $('listEmailStatus').value,
-          contactStatusId: $('listContactStatus').value,
-          tags: $('listTags').value,
-          hasEmail: $('listHasEmail').checked,
-        },
       }),
     });
     $('listEditor').hidden = true;
     $('listEditor').reset();
     $('listId').value = '';
-    $('listHasEmail').checked = true;
     toast(id ? 'Lista aggiornata' : 'Lista creata');
     await Promise.all([loadLists(), loadSummary()]);
   } catch (error) {
@@ -555,8 +544,7 @@ async function saveList(event) {
 function resetListEditor() {
   $('listEditor').reset();
   $('listId').value = '';
-  $('listHasEmail').checked = true;
-  $('listEditorTitle').textContent = 'Salva una vista filtrata';
+  $('listEditorTitle').textContent = 'Nuova lista';
   $('saveListBtn').textContent = 'Crea lista';
   openEditor('listEditor');
 }
@@ -564,16 +552,10 @@ function resetListEditor() {
 function editList(id) {
   const list = state.lists.find((item) => item.id === id);
   if (!list) return;
-  const filters = list.filter_json || {};
   $('listEditor').reset();
   $('listId').value = list.id;
   $('listName').value = list.name;
   $('listDescription').value = list.description || '';
-  $('listSource').value = filters.source || '';
-  $('listEmailStatus').value = filters.emailStatus || '';
-  $('listContactStatus').value = filters.contactStatusId || '';
-  $('listTags').value = (filters.tags || []).join(', ');
-  $('listHasEmail').checked = filters.hasEmail === true;
   $('listEditorTitle').textContent = 'Modifica lista';
   $('saveListBtn').textContent = 'Salva modifiche';
   openEditor('listEditor');
@@ -1178,7 +1160,6 @@ function refreshContactStatusSelects() {
   const configurations = [
     ['filterContactStatus', '<option value="">Tutti</option>'],
     ['contactCrmStatus', '<option value="">Nessuno stato</option>'],
-    ['listContactStatus', '<option value="">Qualsiasi</option>'],
     ['bulkContactCrmStatus', '<option value="__unchanged__">Nessuna modifica</option><option value="">Nessuno stato</option>'],
   ];
   configurations.forEach(([id, prefix]) => {
@@ -1390,7 +1371,14 @@ function changeTab(name) {
 
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
 document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => { $(button.dataset.close).hidden = true; }));
-$('contactFilters').addEventListener('submit', (event) => { event.preventDefault(); loadContacts().catch((error) => toast(error.message, 'err')); });
+let contactFilterTimer;
+function scheduleContactFilter() {
+  clearTimeout(contactFilterTimer);
+  contactFilterTimer = setTimeout(() => loadContacts().catch((error) => toast(error.message, 'err')), 250);
+}
+$('contactFilters').addEventListener('submit', (event) => { event.preventDefault(); scheduleContactFilter(); });
+$('contactFilters').addEventListener('input', scheduleContactFilter);
+$('contactFilters').addEventListener('change', scheduleContactFilter);
 $('contactEditor').addEventListener('submit', saveContact);
 $('contactBulkEditor').addEventListener('submit', saveBulkContacts);
 $('contactImportEditor').addEventListener('submit', runContactImport);

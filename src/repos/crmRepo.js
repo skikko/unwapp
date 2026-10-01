@@ -37,17 +37,12 @@ function compileContactFilters(filters = {}, startIndex = 1) {
 }
 
 function compileListFilter(list, startIndex = 1) {
-  const dynamic = compileContactFilters(list.filter_json || {}, startIndex);
-  const listIndex = startIndex + dynamic.values.length;
   return {
-    clause: `((${dynamic.clause} OR EXISTS (
+    clause: `EXISTS (
       SELECT 1 FROM crm_list_memberships lm
-      WHERE lm.list_id = $${listIndex} AND lm.contact_id = c.id
-    )) AND NOT EXISTS (
-      SELECT 1 FROM crm_list_exclusions le
-      WHERE le.list_id = $${listIndex} AND le.contact_id = c.id
-    ))`,
-    values: [...dynamic.values, list.id],
+      WHERE lm.list_id = $${startIndex} AND lm.contact_id = c.id
+    )`,
+    values: [list.id],
   };
 }
 
@@ -377,7 +372,7 @@ async function createList(input) {
   const { rows } = await db.query(
     `INSERT INTO crm_lists (name,description,filter_json,created_by)
      VALUES ($1,$2,$3,$4) RETURNING *`,
-    [input.name, input.description || null, input.filters || {}, input.createdBy]
+    [input.name, input.description || null, {}, input.createdBy]
   );
   return rows[0];
 }
@@ -386,7 +381,7 @@ async function updateList(id, input) {
   const { rows } = await db.query(
     `UPDATE crm_lists SET name=$2,description=$3,filter_json=$4,updated_at=now()
      WHERE id=$1 RETURNING *`,
-    [id, input.name, input.description || null, input.filters || {}]
+    [id, input.name, input.description || null, {}]
   );
   return rows[0] || null;
 }
@@ -473,10 +468,6 @@ async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = n
       const list = await client.query('SELECT id FROM crm_lists WHERE id=$1', [changes.listId]);
       if (!list.rows[0]) throw Object.assign(new Error('Target list not found'), { status: 404 });
       if (changes.listAction === 'add') {
-        await client.query(
-          'DELETE FROM crm_list_exclusions WHERE list_id=$1 AND contact_id=ANY($2::uuid[])',
-          [changes.listId, contactIds]
-        );
         const result = await client.query(
           `INSERT INTO crm_list_memberships (list_id,contact_id,source)
            SELECT $1,contact_id,'bulk' FROM unnest($2::uuid[]) AS contact_id
@@ -489,13 +480,7 @@ async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = n
           'DELETE FROM crm_list_memberships WHERE list_id=$1 AND contact_id=ANY($2::uuid[])',
           [changes.listId, contactIds]
         );
-        const excluded = await client.query(
-          `INSERT INTO crm_list_exclusions (list_id,contact_id,source)
-           SELECT $1,contact_id,'bulk' FROM unnest($2::uuid[]) AS contact_id
-           ON CONFLICT DO NOTHING`,
-          [changes.listId, contactIds]
-        );
-        membershipChanged = removed.rowCount + excluded.rowCount;
+        membershipChanged = removed.rowCount;
       }
     }
     await client.query(
@@ -529,10 +514,6 @@ async function importContacts(contacts, { listId = null, actor = null } = {}) {
       if (result.created) created += 1;
       else updated += 1;
       if (listId) {
-        await client.query(
-          'DELETE FROM crm_list_exclusions WHERE list_id=$1 AND contact_id=$2',
-          [listId, result.contact.id]
-        );
         const membership = await client.query(
           `INSERT INTO crm_list_memberships (list_id,contact_id,source)
            VALUES ($1,$2,'csv') ON CONFLICT DO NOTHING RETURNING contact_id`,
@@ -555,8 +536,36 @@ async function importContacts(contacts, { listId = null, actor = null } = {}) {
 }
 
 async function deleteList(id) {
-  const { rows } = await db.query('DELETE FROM crm_lists WHERE id = $1 RETURNING id', [id]);
-  return rows[0] || null;
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const list = await client.query('SELECT id FROM crm_lists WHERE id=$1 FOR UPDATE', [id]);
+    if (!list.rows[0]) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const sequences = await client.query(
+      `UPDATE crm_sequences SET
+         active=FALSE,trigger_type='manual',trigger_list_id=NULL,
+         trigger_started_at=NULL,trigger_conditions='[]'::jsonb,updated_at=now()
+       WHERE trigger_list_id=$1 RETURNING id`,
+      [id]
+    );
+    if (sequences.rows.length) {
+      await client.query(
+        'DELETE FROM crm_sequence_trigger_state WHERE sequence_id=ANY($1::uuid[])',
+        [sequences.rows.map((sequence) => sequence.id)]
+      );
+    }
+    const { rows } = await client.query('DELETE FROM crm_lists WHERE id=$1 RETURNING id', [id]);
+    await client.query('COMMIT');
+    return rows[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function listContactStatuses() {
@@ -581,25 +590,8 @@ async function createContactStatus(name) {
 }
 
 async function deleteContactStatus(id) {
-  const client = await db.getClient();
-  try {
-    await client.query('BEGIN');
-    const { rows } = await client.query('DELETE FROM crm_contact_statuses WHERE id=$1 RETURNING id', [id]);
-    if (rows[0]) {
-      await client.query(
-        `UPDATE crm_lists SET filter_json=filter_json-'contactStatusId',updated_at=now()
-         WHERE filter_json->>'contactStatusId'=$1`,
-        [id]
-      );
-    }
-    await client.query('COMMIT');
-    return rows[0] || null;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  const { rows } = await db.query('DELETE FROM crm_contact_statuses WHERE id=$1 RETURNING id', [id]);
+  return rows[0] || null;
 }
 
 async function createTemplate(input) {
@@ -893,7 +885,7 @@ async function enrollContacts(client, sequenceId, firstStep, contacts) {
 
 async function processSequenceTriggers() {
   const { rows: sequences } = await db.query(
-    `SELECT s.id,s.trigger_started_at,s.trigger_conditions,l.id AS list_id,l.filter_json,
+    `SELECT s.id,s.trigger_started_at,s.trigger_conditions,l.id AS list_id,
             st.id AS step_id,st.template_id,st.delay_minutes
      FROM crm_sequences s
      JOIN crm_lists l ON l.id=s.trigger_list_id
@@ -902,7 +894,7 @@ async function processSequenceTriggers() {
   );
   let enrolled = 0;
   for (const sequence of sequences) {
-    const compiled = compileListFilter({ id: sequence.list_id, filter_json: sequence.filter_json || {} });
+    const compiled = compileListFilter({ id: sequence.list_id });
     const conditionFilter = compileSequenceConditions(
       sequence.trigger_conditions || [],
       compiled.values.length + 1

@@ -55,7 +55,7 @@ async function handleIncomingMessage(req, res) {
         };
       }
     }
-    const incomingContent = bodyText || `📎 ${media.mediaName || 'Allegato WhatsApp'}`;
+    const incomingContent = bodyText || `Allegato: ${media.mediaName || 'file WhatsApp'}`;
     if (hasMedia) {
       await messageRepo.add(conversation.id, 'user', incomingContent, MessageSid, media);
     } else {
@@ -78,8 +78,8 @@ async function handleIncomingMessage(req, res) {
       });
     }
 
-    // Inbound attachments require an operator: the configured text models do
-    // not inspect arbitrary WhatsApp media and must not fabricate a response.
+    // Gli allegati in entrata richiedono un operatore: i modelli di testo
+    // configurati non analizzano media WhatsApp arbitrari.
     if (hasMedia) {
       if (conversation.status !== 'human') {
         await conversationRepo.setStatus(conversation.id, 'human');
@@ -96,15 +96,15 @@ async function handleIncomingMessage(req, res) {
           conversationId: conversation.id,
           botId: bot.id,
           phoneNumber: fromPhone,
+          contactName: conversation.contact_name || req.body?.ProfileName || null,
           reason: 'incoming_media',
         });
       }
       return res.status(200).send('OK');
     }
 
-    // A BOT without an AI key remains fully usable for operator-managed chats.
-    // Move the conversation to human mode so the dashboard reflects the real
-    // state and never attempts an external AI request.
+    // Un BOT senza chiave AI resta utilizzabile per le chat gestite da operatori.
+    // La modalità operatore evita richieste AI e riflette lo stato reale in dashboard.
     if (!aiService.isConfigured(bot)) {
       if (conversation.status !== 'human') {
         await conversationRepo.setStatus(conversation.id, 'human');
@@ -127,7 +127,7 @@ async function handleIncomingMessage(req, res) {
       return res.status(200).send('OK');
     }
 
-    // Skip AI if a human operator has taken over
+    // Non usa l'AI se un operatore ha preso in carico la conversazione.
     if (conversation.status === 'human') {
       return res.status(200).send('OK');
     }

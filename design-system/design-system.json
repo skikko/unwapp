@@ -1,0 +1,25 @@
+{
+  "v": 3,
+  "layout": "files",
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-01T07:37:03Z"
+  },
+  "title": "UN Platform",
+  "namespace": "UN",
+  "libraries": [],
+  "sections": {},
+  "groups": [],
+  "assetGroups": {},
+  "blobs": {},
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "lastChange": {
+    "by": "Francesco",
+    "at": "2026-10-01T07:50:00Z",
+    "via": "Claude (Cowork)",
+    "note": "v2 redesign: tokens, kit CSS, componenti e schermate di riferimento"
+  }
+}

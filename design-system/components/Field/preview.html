@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="it" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>UN Platform - Field</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css">
+<style>body{margin:0;background:var(--surface-soft)}</style></head>
+<body>
+<!-- @dsCard group="Forms" height=300 -->
+<div class="un-root" style="padding:24px">
+<div class="un-form-grid" style="max-width:720px">
+  <div class="un-field"><label class="un-label" for="a">Account SID</label><input id="a" class="un-input un-input--mono" placeholder="AC..."><span class="un-help">Lo trovi nella console Twilio, sezione Account Info.</span></div>
+  <div class="un-field un-field--invalid"><label class="un-label" for="b">Auth Token</label><input id="b" class="un-input un-input--mono" value="12ab"><span class="un-error">Il token deve avere 32 caratteri.</span></div>
+  <div class="un-field"><label class="un-label" for="c">Stato email <small>opzionale</small></label><select id="c" class="un-select"><option>Tutti</option><option>Iscritto</option><option>Disiscritto</option></select></div>
+  <div class="un-field"><span class="un-label">Opzioni</span><div style="display:flex;gap:16px;align-items:center;height:36px"><label class="un-check"><input type="checkbox" checked>Doppio opt-in</label><label class="un-check"><input type="checkbox" class="un-switch" checked>Attivo</label></div></div>
+  <div class="un-field un-span-2"><label class="un-label" for="d">Messaggio di benvenuto</label><textarea id="d" class="un-textarea" placeholder="Ciao {{1}}, grazie per averci scritto."></textarea></div>
+</div>
+</div>
+</body></html>

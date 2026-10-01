@@ -1,0 +1,81 @@
+/* UN Platform design tokens v2. Generated from tokens.json: edit that file, not this one. */
+:root {
+  /* color */
+  --accent: #f4512c;
+  --accent-strong: #d93c19;
+  --accent-hover: #c0391a;
+  --accent-text: var(--accent-hover);
+  --accent-soft: #fff0eb;
+  --accent-tint: rgba(244, 81, 44, .16);
+  --ink: #171a23;
+  --ink-soft: #495064;
+  --ink-muted: #666c7d;
+  --ink-placeholder: #858b9b;
+  --ink-inverse: #ffffff;
+  --ink-inverse-muted: #9aa0ae;
+  --accent-on-navy: #ff9278;
+  --surface: #ffffff;
+  --surface-soft: #f5f6f8;
+  --surface-hover: #f0f2f5;
+  --surface-warm: #fff5f1;
+  --navy: #171a23;
+  --navy-raised: #2b303d;
+  --navy-line: #3a3f4c;
+  --line: #e2e5eb;
+  --line-soft: #eef0f4;
+  --line-control: #8b91a0;
+  --success: #16805c;
+  --success-soft: #e8f7f1;
+  --success-text: #12704f;
+  --warn: #a76706;
+  --warn-soft: #fff3db;
+  --warn-text: #8a5404;
+  --danger: #c53a34;
+  --danger-soft: #fff0ee;
+  --info: #3d4962;
+  --info-soft: #edf1f8;
+  /* spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  /* radius */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  /* shadow */
+  --shadow-sm: 0 1px 2px rgba(23, 26, 35, .06);
+  --shadow-md: 0 4px 16px rgba(23, 26, 35, .08);
+  --shadow-lg: 0 20px 48px rgba(23, 26, 35, .16);
+  /* size */
+  --control-sm: 32px;
+  --control-md: 36px;
+  --control-lg: 44px;
+  --row-height: 48px;
+  --topbar-height: 56px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+  --pane-list: 340px;
+  --pane-detail: 320px;
+  --content-max: 1320px;
+  /* font */
+  --font-sans: Figtree, "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.t-display { font-family: var(--font-sans); font-size: 40px; line-height: 44px; font-weight: 800; letter-spacing: -0.02em; }
+.t-title-lg { font-family: var(--font-sans); font-size: 24px; line-height: 32px; font-weight: 750; letter-spacing: -0.01em; }
+.t-metric { font-family: var(--font-sans); font-size: 28px; line-height: 32px; font-weight: 700; letter-spacing: -0.01em; }
+.t-title { font-family: var(--font-sans); font-size: 18px; line-height: 26px; font-weight: 700; }
+.t-title-sm { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 650; }
+.t-body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 450; }
+.t-body-sm { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 450; }
+.t-label { font-family: var(--font-sans); font-size: 13px; line-height: 16px; font-weight: 600; }
+.t-caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 500; }
+.t-overline { font-family: var(--font-sans); font-size: 11px; line-height: 16px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.t-code { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-weight: 450; }
