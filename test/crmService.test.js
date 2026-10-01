@@ -65,6 +65,25 @@ test('rende le variabili del template e protegge il corpo HTML', () => {
   assert.equal(emailService.renderTemplate('<p>{{first_name}}</p>', contact, { html: true }), '<p>&lt;Mario&gt;</p>');
 });
 
+test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {
+  const previousSecret = process.env.CRM_UNSUBSCRIBE_SECRET;
+  process.env.CRM_UNSUBSCRIBE_SECRET = 'x'.repeat(32);
+  try {
+    const contact = {
+      contact_id: '123e4567-e89b-42d3-a456-426614174000',
+      email_normalized: 'mario@example.com',
+    };
+    const html = emailService.appendComplianceFooter('<p>Ciao</p>', contact, 'https://crm.example.com');
+    assert.match(html, /P\.IVA: 13513131006/);
+    assert.match(html, /\/unsubscribe\?cid=123e4567-e89b-42d3-a456-426614174000&amp;email=mario%40example\.com&amp;sig=/);
+    const text = emailService.appendComplianceFooterText('Ciao', contact, 'https://crm.example.com');
+    assert.match(text, /Disiscriviti: https:\/\/crm\.example\.com\/unsubscribe/);
+  } finally {
+    if (previousSecret === undefined) delete process.env.CRM_UNSUBSCRIBE_SECRET;
+    else process.env.CRM_UNSUBSCRIBE_SECRET = previousSecret;
+  }
+});
+
 test('applica i valori predefiniti Gmail', () => {
   const result = emailService.validateSettings({
     provider: 'gmail',

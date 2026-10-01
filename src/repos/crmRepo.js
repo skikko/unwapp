@@ -403,6 +403,39 @@ async function getList(id) {
   return rows[0] || null;
 }
 
+async function getListByNameWithClient(client, name) {
+  const { rows } = await client.query(
+    'SELECT * FROM crm_lists WHERE lower(name)=lower($1) LIMIT 1',
+    [String(name || '').trim()]
+  );
+  return rows[0] || null;
+}
+
+async function ensureListByNameWithClient(client, name, actor = null) {
+  const normalizedName = String(name || '').trim().slice(0, 120);
+  if (!normalizedName) throw Object.assign(new Error('List name is required'), { status: 400 });
+  const existing = await getListByNameWithClient(client, normalizedName);
+  if (existing) return existing;
+  const { rows } = await client.query(
+    `INSERT INTO crm_lists (name,description,filter_json,created_by)
+     VALUES ($1,$2,$3,$4) RETURNING *`,
+    [normalizedName, null, {}, actor || 'api']
+  );
+  return rows[0];
+}
+
+async function addContactToListWithClient(client, listId, contactId, source = 'api', actor = null) {
+  const membership = await client.query(
+    `INSERT INTO crm_list_memberships (list_id,contact_id,source)
+     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING contact_id`,
+    [listId, contactId, String(source || 'api').slice(0, 80)]
+  );
+  if (membership.rowCount) {
+    await addContactEvent(client, contactId, 'list_joined', { listId, source }, actor);
+  }
+  return membership.rowCount;
+}
+
 async function listContactsForList(list, { limit = 100, offset = 0 } = {}) {
   const compiled = compileListFilter(list);
   const limitIndex = compiled.values.length + 1;
@@ -425,6 +458,29 @@ async function exportContactsForList(list) {
     compiled.values
   );
   return attachListsToContacts(rows);
+}
+
+async function unsubscribeContact(contactId, emailNormalized, actor = 'unsubscribe') {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE crm_contacts SET email_status='unsubscribed',updated_at=now()
+       WHERE id=$1 AND email_normalized=$2
+       RETURNING id,email,email_normalized,email_status`,
+      [contactId, emailNormalized]
+    );
+    if (rows[0]) {
+      await addContactEvent(client, rows[0].id, 'email_unsubscribed', { email: rows[0].email }, actor);
+    }
+    await client.query('COMMIT');
+    return rows[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = null }) {
@@ -1268,8 +1324,12 @@ module.exports = {
   updateList,
   listLists,
   getList,
+  getListByNameWithClient,
+  ensureListByNameWithClient,
+  addContactToListWithClient,
   listContactsForList,
   exportContactsForList,
+  unsubscribeContact,
   importContacts,
   deleteList,
   listContactStatuses,

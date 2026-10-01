@@ -17,6 +17,7 @@ test('adatta il payload nativo di Fluent Forms', () => {
     privacy_cookie_consent: 'on',
     marketing_consent: 'on',
     utm_source: 'muner',
+    list_name: 'Bando MunerNY 2026',
   }, new Date('2026-09-30T10:00:00.000Z'));
   assert.equal(contact.firstName, 'Mario');
   assert.equal(contact.lastName, 'Rossi');
@@ -25,6 +26,7 @@ test('adatta il payload nativo di Fluent Forms', () => {
   assert.equal(contact.emailStatus, 'subscribed');
   assert.equal(contact.consentAt, '2026-09-30T10:00:00.000Z');
   assert.equal(contact.consentSource, 'fluent-forms');
+  assert.equal(contact.listName, 'Bando MunerNY 2026');
   assert.deepEqual(contact.consentProof, { privacyConsent: true, marketingConsent: true });
 });
 

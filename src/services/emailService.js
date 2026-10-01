@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const settingsRepo = require('../repos/settingsRepo');
 const secretService = require('./secretService');
@@ -14,6 +15,7 @@ const SMTP_KEYS = [
   'smtp_from_name',
   'smtp_from_email',
   'smtp_reply_to',
+  'public_base_url',
 ];
 
 let cachedSettings = null;
@@ -23,6 +25,7 @@ let workerTimer = null;
 let workerPromise = null;
 let stopping = false;
 const emailClaimTimeoutMinutes = Math.max(1, Number(process.env.EMAIL_CLAIM_TIMEOUT_MINUTES || 30));
+const EMAIL_FOOTER = '© 2026 United Network | P.IVA: 13513131006 - PEC: uneuropa@pec.it';
 
 function decrypt(row) {
   return row?.value_encrypted ? secretService.decrypt(row.value_encrypted).trim() : '';
@@ -42,6 +45,8 @@ async function getSettings({ fresh = false } = {}) {
     fromName: decrypt(stored.smtp_from_name) || process.env.SMTP_FROM_NAME || '',
     fromEmail: decrypt(stored.smtp_from_email) || process.env.SMTP_FROM_EMAIL || '',
     replyTo: decrypt(stored.smtp_reply_to) || process.env.SMTP_REPLY_TO || '',
+    publicBaseUrl: (decrypt(stored.public_base_url) || process.env.PUBLIC_BASE_URL
+      || 'https://un-whatsapp-manager-4jwa.onrender.com').replace(/\/+$/, ''),
     updatedAt: Object.values(stored).map((row) => row.updated_at).filter(Boolean).sort().at(-1) || null,
   };
   cacheExpiresAt = Date.now() + 30_000;
@@ -109,6 +114,7 @@ function publicSettings(settings) {
     fromName: settings.fromName,
     fromEmail: settings.fromEmail,
     replyTo: settings.replyTo,
+    publicBaseUrl: settings.publicBaseUrl,
     updatedAt: settings.updatedAt,
   };
 }
@@ -156,6 +162,75 @@ function renderTemplate(value, contact, { html = false } = {}) {
   });
 }
 
+function unsubscribeSecret() {
+  return process.env.CRM_UNSUBSCRIBE_SECRET || process.env.APP_ENCRYPTION_KEY || '';
+}
+
+function normalizeEmailForToken(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function signUnsubscribe(contactId, email) {
+  const secret = unsubscribeSecret();
+  if (!secret || secret.length < 32) {
+    throw new Error('CRM_UNSUBSCRIBE_SECRET or APP_ENCRYPTION_KEY must be configured');
+  }
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${contactId}:${normalizeEmailForToken(email)}`)
+    .digest('hex');
+}
+
+function timingSafeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'hex');
+  const rightBuffer = Buffer.from(String(right || ''), 'hex');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function unsubscribeUrl(contact, baseUrl) {
+  const contactId = contact.contact_id || contact.id;
+  const email = normalizeEmailForToken(contact.email_normalized || contact.email);
+  if (!contactId || !email) return null;
+  const signature = signUnsubscribe(contactId, email);
+  const url = new URL('/unsubscribe', baseUrl);
+  url.searchParams.set('cid', contactId);
+  url.searchParams.set('email', email);
+  url.searchParams.set('sig', signature);
+  return url.toString();
+}
+
+function appendComplianceFooter(html, contact, baseUrl) {
+  const url = unsubscribeUrl(contact, baseUrl);
+  const unsubscribeLink = url
+    ? `<a href="${escapeHtml(url)}" style="color:#5b6270;text-decoration:underline;">Disiscriviti</a>`
+    : 'Disiscriviti';
+  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #d6d6d6;color:#5b6270;font-family:Arial, sans-serif;font-size:12px;line-height:1.5;">${escapeHtml(EMAIL_FOOTER)}<br>${unsubscribeLink}</div>`;
+  return `${String(html || '')}${footer}`;
+}
+
+function appendComplianceFooterText(text, contact, baseUrl) {
+  const url = unsubscribeUrl(contact, baseUrl);
+  const lines = ['', EMAIL_FOOTER];
+  if (url) lines.push(`Disiscriviti: ${url}`);
+  return `${String(text || '').trim()}${lines.join('\n')}`;
+}
+
+async function unsubscribeContact({ cid, email, sig } = {}) {
+  const contactId = String(cid || '').trim();
+  const emailNormalized = normalizeEmailForToken(email);
+  const signature = String(sig || '').trim();
+  if (!contactId || !emailNormalized || !signature) {
+    throw Object.assign(new Error('Unsubscribe link is invalid'), { status: 400 });
+  }
+  const expected = signUnsubscribe(contactId, emailNormalized);
+  if (!timingSafeEqual(expected, signature)) {
+    throw Object.assign(new Error('Unsubscribe link is invalid'), { status: 400 });
+  }
+  const contact = await crmRepo.unsubscribeContact(contactId, emailNormalized);
+  if (!contact) throw Object.assign(new Error('Contact not found'), { status: 404 });
+  return contact;
+}
+
 async function inlineStoredMedia(html) {
   let renderedHtml = String(html || '');
   const mediaPattern = /(?:https?:\/\/[^"'<>\s]+)?\/media\/([A-Za-z0-9_-]{40,60})(?:\/[^"'<>\s]*)?/g;
@@ -186,13 +261,15 @@ async function sendJob(job) {
   const settings = await getSettings();
   const { errors } = validateSettings({}, settings);
   if (errors.length) throw new Error(errors.join('. '));
-  const rendered = await inlineStoredMedia(renderTemplate(job.html_body, job, { html: true }));
+  const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true }), job, settings.publicBaseUrl);
+  const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job), job, settings.publicBaseUrl);
+  const rendered = await inlineStoredMedia(html);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to: job.email,
     subject: renderTemplate(job.subject, job),
-    text: renderTemplate(job.text_body || '', job) || undefined,
+    text: text || undefined,
     html: rendered.html,
     attachments: rendered.attachments,
   });
@@ -204,20 +281,24 @@ async function sendTestEmail(to, template) {
   const { errors } = validateSettings({}, settings);
   if (errors.length) throw Object.assign(new Error(errors.join('. ')), { status: 409 });
   const contact = {
+    contact_id: '00000000-0000-4000-8000-000000000000',
     first_name: 'Mario',
     last_name: 'Rossi',
     email: to,
+    email_normalized: to,
     phone: '+393331234567',
     source: 'email-test',
     custom_fields: { city: 'Roma' },
   };
-  const rendered = await inlineStoredMedia(renderTemplate(template.htmlBody, contact, { html: true }));
+  const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true }), contact, settings.publicBaseUrl);
+  const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact), contact, settings.publicBaseUrl);
+  const rendered = await inlineStoredMedia(html);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to,
     subject: `[TEST] ${renderTemplate(template.subject, contact)}`,
-    text: renderTemplate(template.textBody || '', contact) || undefined,
+    text: text || undefined,
     html: rendered.html,
     attachments: rendered.attachments,
   });
@@ -280,6 +361,10 @@ module.exports = {
   testConnection,
   sendTestEmail,
   renderTemplate,
+  appendComplianceFooter,
+  appendComplianceFooterText,
+  signUnsubscribe,
+  unsubscribeContact,
   inlineStoredMedia,
   processDueJobs,
   startWorker,

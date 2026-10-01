@@ -43,6 +43,8 @@ function adaptExternalContact(item, receivedAt = new Date()) {
     lastName: item.lastName ?? item.last_name ?? names.last_name,
     contactType: item.contactType ?? item.contact_type ?? item.genitore_studente,
     webinarRegisteredAt: item.webinarRegisteredAt ?? item.webinar_registered_at ?? item.data_scelta,
+    listId: item.listId ?? item.list_id,
+    listName: item.listName ?? item.list_name,
     emailStatus,
     consentAt: consentAt ?? null,
     consentSource: consentSource ?? null,
@@ -54,11 +56,20 @@ function adaptExternalContact(item, receivedAt = new Date()) {
   };
 }
 
+function listTarget(item = {}) {
+  const listId = String(item.listId || '').trim();
+  const listName = String(item.listName || '').trim().slice(0, 120);
+  return { listId: listId || null, listName: listName || null };
+}
+
 async function ingest({ items, source, apiClient, idempotencyKey }) {
-  const normalized = items.map((item) => crmService.normalizeContact({
-    ...adaptExternalContact(item),
-    source,
-  }, { defaultSource: source }));
+  const prepared = items.map((item) => {
+    const adapted = adaptExternalContact(item);
+    return {
+      contact: crmService.normalizeContact({ ...adapted, source }, { defaultSource: source }),
+      list: listTarget(adapted),
+    };
+  });
   const requestHash = digest(canonicalJson({ source, contacts: items }));
   const idempotencyKeyHash = digest(idempotencyKey);
   const owner = apiClient.id || `legacy:${source}`;
@@ -95,13 +106,29 @@ async function ingest({ items, source, apiClient, idempotencyKey }) {
     const contacts = [];
     let created = 0;
     let updated = 0;
-    for (const contact of normalized) {
+    let addedToList = 0;
+    for (const preparedItem of prepared) {
+      const contact = preparedItem.contact;
       const result = await crmRepo.upsertContactWithClient(client, contact, { actor: `api:${apiClient.name}` });
       contacts.push(result.contact);
       if (result.created) created += 1;
       else updated += 1;
+      if (preparedItem.list.listId || preparedItem.list.listName) {
+        let listId = preparedItem.list.listId;
+        if (!listId) {
+          const list = await crmRepo.ensureListByNameWithClient(client, preparedItem.list.listName, `api:${apiClient.name}`);
+          listId = list.id;
+        }
+        addedToList += await crmRepo.addContactToListWithClient(
+          client,
+          listId,
+          result.contact.id,
+          source,
+          `api:${apiClient.name}`
+        );
+      }
     }
-    const payload = { imported: contacts.length, created, updated, contacts };
+    const payload = { imported: contacts.length, created, updated, addedToList, contacts };
     await client.query(
       `UPDATE crm_ingest_requests SET response_json=$5,status_code=201,completed_at=now()
        WHERE api_key_id IS NOT DISTINCT FROM $1
