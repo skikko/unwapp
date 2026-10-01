@@ -2,6 +2,7 @@ const nodemailer = require('nodemailer');
 const settingsRepo = require('../repos/settingsRepo');
 const secretService = require('./secretService');
 const crmRepo = require('../repos/crmRepo');
+const mediaService = require('./mediaService');
 
 const SMTP_KEYS = [
   'smtp_provider',
@@ -155,17 +156,45 @@ function renderTemplate(value, contact, { html = false } = {}) {
   });
 }
 
+async function inlineStoredMedia(html) {
+  let renderedHtml = String(html || '');
+  const mediaPattern = /(?:https?:\/\/[^"'<>\s]+)?\/media\/([A-Za-z0-9_-]{40,60})(?:\/[^"'<>\s]*)?/g;
+  const matches = [...renderedHtml.matchAll(mediaPattern)];
+  const attachments = [];
+  const processedTokens = new Set();
+
+  for (const match of matches) {
+    const [url, token] = match;
+    if (processedTokens.has(token)) continue;
+    processedTokens.add(token);
+    const asset = await mediaService.getAsset(token);
+    if (!asset || !String(asset.content_type || '').startsWith('image/') || !asset.data) continue;
+    const cid = `crm-${token.slice(0, 16)}@un-platform`;
+    renderedHtml = renderedHtml.split(url).join(`cid:${cid}`);
+    attachments.push({
+      filename: asset.filename,
+      content: asset.data,
+      contentType: asset.content_type,
+      cid,
+    });
+  }
+
+  return { html: renderedHtml, attachments };
+}
+
 async function sendJob(job) {
   const settings = await getSettings();
   const { errors } = validateSettings({}, settings);
   if (errors.length) throw new Error(errors.join('. '));
+  const rendered = await inlineStoredMedia(renderTemplate(job.html_body, job, { html: true }));
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to: job.email,
     subject: renderTemplate(job.subject, job),
     text: renderTemplate(job.text_body || '', job) || undefined,
-    html: renderTemplate(job.html_body, job, { html: true }),
+    html: rendered.html,
+    attachments: rendered.attachments,
   });
   return info.messageId;
 }
@@ -182,13 +211,15 @@ async function sendTestEmail(to, template) {
     source: 'email-test',
     custom_fields: { city: 'Roma' },
   };
+  const rendered = await inlineStoredMedia(renderTemplate(template.htmlBody, contact, { html: true }));
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to,
     subject: `[TEST] ${renderTemplate(template.subject, contact)}`,
     text: renderTemplate(template.textBody || '', contact) || undefined,
-    html: renderTemplate(template.htmlBody, contact, { html: true }),
+    html: rendered.html,
+    attachments: rendered.attachments,
   });
   return { messageId: info.messageId };
 }
@@ -249,6 +280,7 @@ module.exports = {
   testConnection,
   sendTestEmail,
   renderTemplate,
+  inlineStoredMedia,
   processDueJobs,
   startWorker,
   stopWorker,

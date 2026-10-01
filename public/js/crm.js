@@ -614,6 +614,7 @@ function setEditorMode(mode) {
   $('templateVisual').hidden = !visual;
   $('templateHtml').hidden = visual;
   $('emailToolbar').hidden = !visual;
+  $('emailBlockLibrary').hidden = !visual;
   document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === mode));
   updateTemplatePreview();
 }
@@ -623,8 +624,12 @@ function editorRange() {
   const editor = $('templateVisual');
   let range = selection.rangeCount ? selection.getRangeAt(0) : null;
   if (!range || !editor.contains(range.commonAncestorContainer)) {
-    if (!savedEditorRange) return null;
-    range = savedEditorRange.cloneRange();
+    if (savedEditorRange) range = savedEditorRange.cloneRange();
+    else {
+      range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
     selection.removeAllRanges();
     selection.addRange(range);
   }
@@ -734,6 +739,56 @@ async function uploadTemplateImage(file) {
   toast('Immagine inserita');
 }
 
+function insertEmailBlock(type) {
+  const blocks = {
+    header: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:#85294f"><tbody><tr><td style="padding:20px;text-align:center;color:#ffffff"><div style="font-family:Arial,sans-serif;font-size:34px;font-weight:bold;line-height:1">UN</div><div style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;line-height:1.2">UNITED NETWORK</div><div style="font-family:Arial,sans-serif;font-size:9px;line-height:1.4">Empower your talent</div></td></tr></tbody></table>',
+    title: '<h2 style="margin:0 0 18px;color:#333333;font-family:Arial,sans-serif;font-size:22px;line-height:1.3;text-align:center">Titolo della sezione</h2>',
+    text: '<p style="margin:0 0 16px;color:#333333;font-family:Arial,sans-serif;font-size:15px;line-height:1.6">Scrivi qui il contenuto della tua email.</p>',
+    spacer: '<div style="height:24px;line-height:24px">&nbsp;</div>',
+    divider: '<hr style="margin:24px 0;border:0;border-top:1px solid #d6d6d6">',
+    social: '<p style="margin:0;text-align:center;font-family:Arial,sans-serif;font-size:12px;line-height:1.8"><a href="https://www.facebook.com/unitednetwork.eu" style="color:#85294f;text-decoration:underline">Facebook</a>&nbsp;&nbsp; <a href="https://www.instagram.com/unitednetworkeu" style="color:#85294f;text-decoration:underline">Instagram</a>&nbsp;&nbsp; <a href="https://www.linkedin.com/company/united-network-europa" style="color:#85294f;text-decoration:underline">LinkedIn</a>&nbsp;&nbsp; <a href="https://open.spotify.com/show/1aLlejLxalrKOWcPFmVWjI" style="color:#85294f;text-decoration:underline">Spotify</a></p>',
+    footer: '<div style="padding:24px 12px;text-align:center;color:#6b6b6b;font-family:Arial,sans-serif;font-size:11px;line-height:1.6"><strong style="color:#85294f;font-size:22px">UN</strong><br>United Network, Via Parigi 11, 00185 Roma, Italia<br><a href="https://www.unitednetwork.it/" style="color:#85294f;text-decoration:underline">unitednetwork.it</a><br><a href="mailto:info@unitednetwork.it?subject=Disiscrizione" style="color:#85294f;text-decoration:underline">Annulla l’iscrizione</a></div>',
+  };
+  if (type === 'image') {
+    $('templateImageFile').click();
+    return;
+  }
+  if (type === 'button') {
+    const label = prompt('Testo del pulsante', 'Scopri di più');
+    if (!label) return;
+    const href = prompt('URL completo del pulsante', 'https://www.unitednetwork.it/');
+    if (!href) return;
+    try {
+      const url = new URL(href);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported URL protocol');
+      blocks.button = `<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="${esc(url.toString())}" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">${esc(label)}</a></td></tr></tbody></table>`;
+    } catch {
+      toast('URL non valido', 'err');
+      return;
+    }
+  }
+  if (!blocks[type]) return;
+  const context = editorRange();
+  if (!context) return;
+  const template = document.createElement('template');
+  template.innerHTML = blocks[type];
+  const lastInserted = template.content.lastChild;
+  let anchor = context.range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? context.range.startContainer : context.range.startContainer.parentElement;
+  while (anchor && anchor.parentElement !== context.editor) anchor = anchor.parentElement;
+  if (anchor && anchor !== context.editor) anchor.after(template.content);
+  else context.range.insertNode(template.content);
+  if (lastInserted) {
+    const nextRange = document.createRange();
+    nextRange.setStartAfter(lastInserted);
+    nextRange.collapse(true);
+    context.selection.removeAllRanges();
+    context.selection.addRange(nextRange);
+  }
+  updateTemplatePreview();
+  rememberEditorRange();
+}
+
 function templatePayload() {
   const htmlBody = currentTemplateHtml();
   const temporary = document.createElement('div');
@@ -758,6 +813,7 @@ function editTemplate(id) {
   $('templateHtml').value = template.html_body;
   $('templateVisual').innerHTML = template.html_body;
   $('templateText').value = template.text_body || '';
+  savedEditorRange = null;
   $('templateEditorTitle').textContent = 'Modifica template';
   $('templateEditor').hidden = false;
   setEditorMode('visual');
@@ -1336,6 +1392,7 @@ function resetTemplateEditor() {
   $('templateId').value = '';
   $('templateHtml').value = '<p>Ciao {{first_name}},</p><p>Scrivi qui il contenuto della tua email.</p><p>A presto.</p>';
   $('templateVisual').innerHTML = $('templateHtml').value;
+  savedEditorRange = null;
   $('templateEditorTitle').textContent = 'Nuovo template';
   setEditorMode('visual');
   $('templateSaveState').textContent = 'Nuova bozza';
@@ -1435,6 +1492,10 @@ document.querySelectorAll('[data-editor-mode]').forEach((button) => button.addEv
 document.querySelectorAll('[data-editor-command]').forEach((button) => {
   button.addEventListener('mousedown', (event) => event.preventDefault());
   button.addEventListener('click', () => runEditorCommand(button.dataset.editorCommand));
+});
+document.querySelectorAll('[data-email-block]').forEach((button) => {
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+  button.addEventListener('click', () => insertEmailBlock(button.dataset.emailBlock));
 });
 $('templateBlockFormat').addEventListener('change', () => {
   runEditorCommand('formatBlock', $('templateBlockFormat').value);

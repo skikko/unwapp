@@ -90,6 +90,36 @@ test('sanitizza il codice HTML del template email', () => {
   assert.match(template.htmlBody, /rel="noopener noreferrer"/);
 });
 
+test('mantiene gli stili sicuri necessari ai blocchi email', () => {
+  const html = crmService.sanitizeEmailHtml('<table style="width:100%;margin:0 auto"><tr><td style="padding:20px 12px;border-top:1px solid #d6d6d6;font-family:Arial, sans-serif;line-height:1.6"><a href="https://example.com" style="display:inline-block;border-radius:3px">Apri</a></td></tr></table>');
+  assert.match(html, /margin:0 auto/);
+  assert.match(html, /padding:20px 12px/);
+  assert.match(html, /border-top:1px solid #d6d6d6/);
+  assert.match(html, /font-family:Arial, sans-serif/);
+  assert.match(html, /line-height:1.6/);
+  assert.match(html, /border-radius:3px/);
+});
+
+test('incorpora nelle email le immagini archiviate nel CRM', async () => {
+  const mediaService = require('../src/services/mediaService');
+  const originalGetAsset = mediaService.getAsset;
+  mediaService.getAsset = async () => ({
+    filename: 'banner.jpg',
+    content_type: 'image/jpeg',
+    data: Buffer.from('image'),
+  });
+  try {
+    const token = 'A'.repeat(43);
+    const result = await emailService.inlineStoredMedia(`<img src="http://127.0.0.1:4187/media/${token}/banner.jpg">`);
+    assert.match(result.html, /src="cid:crm-/);
+    assert.equal(result.attachments.length, 1);
+    assert.equal(result.attachments[0].filename, 'banner.jpg');
+    assert.equal(result.attachments[0].contentType, 'image/jpeg');
+  } finally {
+    mediaService.getAsset = originalGetAsset;
+  }
+});
+
 test('normalizza stato e ritardi di una sequenza', () => {
   const sequence = crmService.validateSequence({
     name: 'Onboarding',
