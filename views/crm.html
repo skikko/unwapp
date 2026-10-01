@@ -50,6 +50,7 @@
             <label><span>Origine</span><input id="filterSource" placeholder="wordpress, meta, whatsapp" /></label>
             <label><span>Stato email</span><select id="filterStatus"><option value="">Tutti</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></label>
             <label><span>Stato contatto</span><select id="filterContactStatus"><option value="">Tutti</option></select></label>
+            <label><span>Studente/Genitore</span><select id="filterContactType"><option value="">Tutti</option><option value="student">Studente</option><option value="parent">Genitore</option></select></label>
             <label><span>Tag</span><input id="filterTags" placeholder="evento, alumni" /></label>
           </form>
           <div class="contact-bulk-bar" id="contactBulkBar" hidden data-write>
@@ -204,6 +205,8 @@
                   <button class="secondary" type="button" id="insertLinkBtn">Link</button>
                   <button class="secondary" type="button" id="insertImageBtn">Immagine</button>
                   <input id="templateImageFile" type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+                  <button class="secondary" type="button" id="addTemplateAttachmentBtn">Allegato</button>
+                  <input id="templateAttachmentFile" type="file" hidden />
                   <button class="secondary" type="button" data-editor-command="insertHorizontalRule">Separatore</button>
                   <label class="email-color-control">Colore <input id="templateTextColor" type="color" value="#171a23" aria-label="Colore testo" /></label>
                   <select id="templateToken" aria-label="Inserisci variabile">
@@ -231,7 +234,8 @@
                 </div>
                 <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenuto email"></div>
                 <textarea class="email-html-source" id="templateHtml" rows="18" aria-label="Codice HTML del template" hidden></textarea>
-                <div class="template-token-note">Puoi inserire immagini fino a 5 MB. Le variabili vengono sostituite per ogni contatto.</div>
+                <div class="template-token-note">Puoi inserire immagini fino a 5 MB e allegati fino a 16 MB. Le variabili vengono sostituite per ogni contatto.</div>
+                <div class="template-attachments" id="templateAttachments"></div>
                 <details class="email-fallback">
                   <summary>Versione solo testo</summary>
                   <div class="form-field"><label for="templateText">Corpo testo alternativo</label><textarea id="templateText" rows="7" placeholder="Generato automaticamente se lasciato vuoto"></textarea></div>

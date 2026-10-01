@@ -7,6 +7,7 @@ const state = {
   campaigns: [],
   contactStatuses: [],
   contactImport: null,
+  templateAttachments: [],
   selectedContacts: new Set(),
   selectAllMatching: false,
   totalContacts: 0,
@@ -120,6 +121,7 @@ function currentFilters() {
   if ($('filterSource').value.trim()) filters.set('source', $('filterSource').value.trim());
   if ($('filterStatus').value) filters.set('emailStatus', $('filterStatus').value);
   if ($('filterContactStatus').value) filters.set('contactStatusId', $('filterContactStatus').value);
+  if ($('filterContactType').value) filters.set('contactType', $('filterContactType').value);
   if ($('filterTags').value.trim()) filters.set('tags', $('filterTags').value.trim());
   return filters;
 }
@@ -623,7 +625,10 @@ async function removeList(id) {
 async function loadTemplates() {
   const { templates } = await api('/api/crm/templates');
   state.templates = templates;
-  $('templatesGrid').innerHTML = templates.length ? templates.map((template) => `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">HTML</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`).join('') : '<div class="crm-empty-card">Non ci sono template email.</div>';
+  $('templatesGrid').innerHTML = templates.length ? templates.map((template) => {
+    const attachmentsCount = (template.attachments || []).length;
+    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono template email.</div>';
   document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
   document.querySelectorAll('[data-delete-template]').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.deleteTemplate)));
   refreshSelects();
@@ -787,6 +792,50 @@ async function uploadTemplateImage(file) {
   toast('Immagine inserita');
 }
 
+function normalizeTemplateAttachments(attachments = []) {
+  return (attachments || []).map((attachment) => ({
+    url: attachment.url,
+    name: attachment.name,
+    type: attachment.type,
+    size: Number(attachment.size || 0),
+  })).filter((attachment) => attachment.url && attachment.name);
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return 'Dimensione n/a';
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderTemplateAttachments() {
+  const container = $('templateAttachments');
+  if (!container) return;
+  container.innerHTML = state.templateAttachments.length
+    ? state.templateAttachments.map((attachment, index) => `<div class="template-attachment"><div><strong>${esc(attachment.name)}</strong><small>${esc(attachment.type || 'file')} - ${esc(formatBytes(attachment.size))}</small></div><button class="secondary" type="button" data-remove-template-attachment="${index}">Rimuovi</button></div>`).join('')
+    : '<div class="template-attachment-empty">Nessun allegato aggiunto.</div>';
+  document.querySelectorAll('[data-remove-template-attachment]').forEach((button) => button.addEventListener('click', () => {
+    state.templateAttachments.splice(Number(button.dataset.removeTemplateAttachment), 1);
+    renderTemplateAttachments();
+    $('templateSaveState').textContent = 'Modifiche non salvate';
+  }));
+}
+
+async function uploadTemplateAttachment(file) {
+  const form = new FormData();
+  form.append('media', file);
+  const { media } = await api('/media/upload/crm', { method: 'POST', body: form });
+  state.templateAttachments.push({
+    url: media.url,
+    name: media.name,
+    type: media.type,
+    size: media.size,
+  });
+  renderTemplateAttachments();
+  $('templateSaveState').textContent = 'Modifiche non salvate';
+  toast('Allegato aggiunto');
+}
+
 function insertEmailBlock(type) {
   const blocks = {
     header: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:#85294f"><tbody><tr><td style="padding:20px;text-align:center;color:#ffffff"><div style="font-family:Arial,sans-serif;font-size:34px;font-weight:bold;line-height:1">UN</div><div style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;line-height:1.2">UNITED NETWORK</div><div style="font-family:Arial,sans-serif;font-size:9px;line-height:1.4">Empower your talent</div></td></tr></tbody></table>',
@@ -848,6 +897,7 @@ function templatePayload() {
     preheader: $('templatePreheader').value,
     htmlBody,
     textBody,
+    attachments: state.templateAttachments,
   };
 }
 
@@ -861,6 +911,8 @@ function editTemplate(id) {
   $('templateHtml').value = template.html_body;
   $('templateVisual').innerHTML = template.html_body;
   $('templateText').value = template.text_body || '';
+  state.templateAttachments = normalizeTemplateAttachments(template.attachments);
+  renderTemplateAttachments();
   savedEditorRange = null;
   $('templateEditorTitle').textContent = 'Modifica template';
   $('templateEditor').hidden = false;
@@ -880,6 +932,8 @@ async function saveTemplate(event) {
     $('templateEditor').hidden = true;
     $('templateEditor').reset();
     $('templateId').value = '';
+    state.templateAttachments = [];
+    renderTemplateAttachments();
     toast(id ? 'Template aggiornato' : 'Template creato');
     await Promise.all([loadTemplates(), loadSummary()]);
   } catch (error) {
@@ -1439,6 +1493,8 @@ function resetContactEditor() {
 function resetTemplateEditor() {
   $('templateEditor').reset();
   $('templateId').value = '';
+  state.templateAttachments = [];
+  renderTemplateAttachments();
   $('templateHtml').value = '<p>Ciao {{first_name}},</p><p>Scrivi qui il contenuto della tua email.</p><p>A presto.</p>';
   $('templateVisual').innerHTML = $('templateHtml').value;
   savedEditorRange = null;
@@ -1573,6 +1629,7 @@ $('insertLinkBtn').addEventListener('click', () => {
   }
 });
 $('insertImageBtn').addEventListener('click', () => $('templateImageFile').click());
+$('addTemplateAttachmentBtn').addEventListener('click', () => $('templateAttachmentFile').click());
 $('templateImageFile').addEventListener('change', async () => {
   const [file] = $('templateImageFile').files;
   if (!file) return;
@@ -1582,6 +1639,17 @@ $('templateImageFile').addEventListener('change', async () => {
     toast(error.message, 'err');
   } finally {
     $('templateImageFile').value = '';
+  }
+});
+$('templateAttachmentFile').addEventListener('change', async () => {
+  const [file] = $('templateAttachmentFile').files;
+  if (!file) return;
+  try {
+    await uploadTemplateAttachment(file);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    $('templateAttachmentFile').value = '';
   }
 });
 document.querySelectorAll('[data-preview-size]').forEach((button) => button.addEventListener('click', () => {

@@ -102,11 +102,23 @@ test('sanitizza il codice HTML del template email', () => {
     name: 'Newsletter',
     subject: 'Aggiornamento',
     htmlBody: '<p onclick="alert(1)">Ciao</p><script>alert(1)</script><a href="javascript:alert(1)">Apri</a>',
+    attachments: [{
+      url: 'https://crm.example.com/media/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/bando.pdf',
+      name: 'Bando.pdf',
+      type: 'application/pdf',
+      size: 1234,
+    }],
   });
   assert.equal(template.htmlBody.includes('<script'), false);
   assert.equal(template.htmlBody.includes('onclick'), false);
   assert.equal(template.htmlBody.includes('javascript:'), false);
   assert.match(template.htmlBody, /rel="noopener noreferrer"/);
+  assert.deepEqual(template.attachments, [{
+    url: 'https://crm.example.com/media/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/bando.pdf',
+    name: 'Bando.pdf',
+    type: 'application/pdf',
+    size: 1234,
+  }]);
 });
 
 test('mantiene gli stili sicuri necessari ai blocchi email', () => {
@@ -134,6 +146,27 @@ test('incorpora nelle email le immagini archiviate nel CRM', async () => {
     assert.equal(result.attachments.length, 1);
     assert.equal(result.attachments[0].filename, 'banner.jpg');
     assert.equal(result.attachments[0].contentType, 'image/jpeg');
+  } finally {
+    mediaService.getAsset = originalGetAsset;
+  }
+});
+
+test('recupera gli allegati salvati nel template email', async () => {
+  const mediaService = require('../src/services/mediaService');
+  const originalGetAsset = mediaService.getAsset;
+  mediaService.getAsset = async () => ({
+    filename: 'bando.pdf',
+    content_type: 'application/pdf',
+    data: Buffer.from('pdf'),
+  });
+  try {
+    const token = 'B'.repeat(43);
+    const result = await emailService.storedTemplateAttachments([
+      { url: `https://crm.example.com/media/${token}/bando.pdf`, name: 'bando.pdf' },
+    ]);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].filename, 'bando.pdf');
+    assert.equal(result[0].contentType, 'application/pdf');
   } finally {
     mediaService.getAsset = originalGetAsset;
   }
@@ -210,6 +243,13 @@ test('compila le condizioni di sequenza con parametri SQL tipizzati', () => {
     '2026-09-30',
     'webinar',
   ]);
+});
+
+test('filtra i contatti per tipo studente o genitore', () => {
+  const filters = crmService.contactFiltersFromQuery({ contactType: 'Genitore' });
+  const result = crmRepo.compileContactFilters(filters, 2);
+  assert.match(result.clause, /c\.contact_type = \$2/);
+  assert.deepEqual(result.values, ['parent']);
 });
 
 test('una lista include soltanto i contatti aggiunti esplicitamente', () => {

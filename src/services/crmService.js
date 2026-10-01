@@ -8,6 +8,7 @@ const CONTACT_TYPES = new Map([
   ['studente', 'student'],
   ['student', 'student'],
 ]);
+const MEDIA_URL_PATTERN = /(?:https?:\/\/[^"'<>\s]+)?\/media\/([A-Za-z0-9_-]{40,60})(?:\/[^"'<>\s]*)?/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SEQUENCE_CONDITION_FIELDS = new Map([
   ['contactType', new Set(['equals', 'not_equals'])],
@@ -93,6 +94,7 @@ function normalizeFilters(value = {}) {
   if (value.source) filters.source = String(value.source).trim().slice(0, 80);
   if (EMAIL_STATUSES.has(value.emailStatus)) filters.emailStatus = value.emailStatus;
   if (value.contactStatusId) filters.contactStatusId = normalizeContactStatusId(value.contactStatusId);
+  if (value.contactType) filters.contactType = normalizeContactType(value.contactType);
   if (value.hasEmail === true || value.hasEmail === false) filters.hasEmail = value.hasEmail;
   if (value.hasPhone === true || value.hasPhone === false) filters.hasPhone = value.hasPhone;
   const tags = normalizeTags(value.tags);
@@ -169,11 +171,31 @@ function validateTemplate(input = {}) {
     preheader: String(input.preheader || '').trim(),
     htmlBody: sanitizeEmailHtml(input.htmlBody),
     textBody: String(input.textBody || '').trim(),
+    attachments: normalizeTemplateAttachments(input.attachments),
   };
   if (!template.name || !template.subject || !template.htmlBody) {
     throw Object.assign(new Error('Template name, subject and HTML body are required'), { status: 400 });
   }
   return template;
+}
+
+function normalizeTemplateAttachments(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 10) {
+    throw Object.assign(new Error('Template attachments must be an array with at most 10 items'), { status: 400 });
+  }
+  return value.map((item) => {
+    const url = String(item?.url || '').trim();
+    if (!MEDIA_URL_PATTERN.test(url)) {
+      throw Object.assign(new Error('Invalid template attachment URL'), { status: 400 });
+    }
+    return {
+      url,
+      name: String(item?.name || 'allegato').trim().slice(0, 180) || 'allegato',
+      type: String(item?.type || '').trim().slice(0, 120) || null,
+      size: Math.max(0, Math.floor(Number(item?.size || 0))),
+    };
+  });
 }
 
 function sanitizeEmailHtml(value) {
@@ -320,6 +342,7 @@ function contactFiltersFromQuery(query = {}) {
     source: query.source,
     emailStatus: query.emailStatus,
     contactStatusId: query.contactStatusId,
+    contactType: query.contactType,
     hasEmail: query.hasEmail === undefined ? undefined : query.hasEmail === 'true',
     hasPhone: query.hasPhone === undefined ? undefined : query.hasPhone === 'true',
     tags: query.tags,
@@ -336,6 +359,7 @@ module.exports = {
   normalizeWebinarDate,
   normalizeFilters,
   normalizeContact,
+  normalizeTemplateAttachments,
   saveContact,
   sanitizeEmailHtml,
   validateTemplate,

@@ -23,6 +23,7 @@ function compileContactFilters(filters = {}, startIndex = 1) {
   if (filters.source) conditions.push(`c.source = ${add(String(filters.source).slice(0, 80))}`);
   if (filters.emailStatus) conditions.push(`c.email_status = ${add(filters.emailStatus)}`);
   if (filters.contactStatusId) conditions.push(`c.contact_status_id = ${add(filters.contactStatusId)}::uuid`);
+  if (filters.contactType) conditions.push(`c.contact_type = ${add(filters.contactType)}`);
   if (filters.hasEmail === true) conditions.push('c.email_normalized IS NOT NULL');
   if (filters.hasEmail === false) conditions.push('c.email_normalized IS NULL');
   if (filters.hasPhone === true) conditions.push('c.phone_normalized IS NOT NULL');
@@ -652,18 +653,21 @@ async function deleteContactStatus(id) {
 
 async function createTemplate(input) {
   const { rows } = await db.query(
-    `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null, input.createdBy]
+    `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,attachments,created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
+     JSON.stringify(input.attachments || []), input.createdBy]
   );
   return rows[0];
 }
 
 async function updateTemplate(id, input) {
   const { rows } = await db.query(
-    `UPDATE crm_email_templates SET name=$2,subject=$3,preheader=$4,html_body=$5,text_body=$6,updated_at=now()
+    `UPDATE crm_email_templates SET name=$2,subject=$3,preheader=$4,html_body=$5,text_body=$6,
+       attachments=$7,updated_at=now()
      WHERE id=$1 RETURNING *`,
-    [id, input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null]
+    [id, input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
+     JSON.stringify(input.attachments || [])]
   );
   return rows[0] || null;
 }
@@ -1088,7 +1092,7 @@ async function claimDueJob() {
     await client.query('BEGIN');
     const result = await client.query(
       `SELECT j.*, c.first_name, c.last_name, c.email, c.phone, c.source, c.tags, c.custom_fields,
-              t.subject, t.preheader, t.html_body, t.text_body,
+              t.subject, t.preheader, t.html_body, t.text_body, t.attachments,
               st.position AS step_position, st.sequence_id
        FROM crm_email_jobs j
        JOIN crm_contacts c ON c.id = j.contact_id

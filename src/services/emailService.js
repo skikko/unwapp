@@ -257,6 +257,26 @@ async function inlineStoredMedia(html) {
   return { html: renderedHtml, attachments };
 }
 
+async function storedTemplateAttachments(attachments = []) {
+  if (!Array.isArray(attachments) || !attachments.length) return [];
+  const mediaPattern = /(?:https?:\/\/[^"'<>\s]+)?\/media\/([A-Za-z0-9_-]{40,60})(?:\/[^"'<>\s]*)?/;
+  const processedTokens = new Set();
+  const files = [];
+  for (const attachment of attachments) {
+    const token = String(attachment?.url || '').match(mediaPattern)?.[1];
+    if (!token || processedTokens.has(token)) continue;
+    processedTokens.add(token);
+    const asset = await mediaService.getAsset(token);
+    if (!asset || !asset.data) continue;
+    files.push({
+      filename: asset.filename,
+      content: asset.data,
+      contentType: asset.content_type,
+    });
+  }
+  return files;
+}
+
 async function sendJob(job) {
   const settings = await getSettings();
   const { errors } = validateSettings({}, settings);
@@ -264,6 +284,7 @@ async function sendJob(job) {
   const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true }), job, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job), job, settings.publicBaseUrl);
   const rendered = await inlineStoredMedia(html);
+  const attachments = await storedTemplateAttachments(job.attachments);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
@@ -271,7 +292,7 @@ async function sendJob(job) {
     subject: renderTemplate(job.subject, job),
     text: text || undefined,
     html: rendered.html,
-    attachments: rendered.attachments,
+    attachments: [...rendered.attachments, ...attachments],
   });
   return info.messageId;
 }
@@ -293,6 +314,7 @@ async function sendTestEmail(to, template) {
   const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true }), contact, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact), contact, settings.publicBaseUrl);
   const rendered = await inlineStoredMedia(html);
+  const attachments = await storedTemplateAttachments(template.attachments);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
@@ -300,7 +322,7 @@ async function sendTestEmail(to, template) {
     subject: `[TEST] ${renderTemplate(template.subject, contact)}`,
     text: text || undefined,
     html: rendered.html,
-    attachments: rendered.attachments,
+    attachments: [...rendered.attachments, ...attachments],
   });
   return { messageId: info.messageId };
 }
@@ -366,6 +388,7 @@ module.exports = {
   signUnsubscribe,
   unsubscribeContact,
   inlineStoredMedia,
+  storedTemplateAttachments,
   processDueJobs,
   startWorker,
   stopWorker,

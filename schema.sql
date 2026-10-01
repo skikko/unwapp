@@ -332,6 +332,7 @@ CREATE TABLE IF NOT EXISTS crm_email_templates (
   preheader          TEXT,
   html_body          TEXT NOT NULL,
   text_body          TEXT,
+  attachments        JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
