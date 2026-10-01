@@ -5,7 +5,7 @@ services:
     plan: 0.5c-512mb
     region: frankfurt
     healthCheckPath: /health
-    preDeployCommand: npm run verify:encryption-key && npm run migrate && npm run migrate:check
+    preDeployCommand: npm run predeploy
     maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_ENV
