@@ -73,18 +73,19 @@ test('il click Ricontattami registra la richiesta e apre la thank you page', asy
   process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
   const originalRecordEmailEvent = crmRepo.recordEmailEvent;
   let recorded;
-  crmRepo.recordEmailEvent = async (input) => { recorded = input; };
+  crmRepo.recordEmailEvent = async (input) => {
+    recorded = input;
+    return { id: input.jobId, membershipAdded: true };
+  };
   t.after(() => {
     crmRepo.recordEmailEvent = originalRecordEmailEvent;
     if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
     else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
   });
   const jobId = '123e4567-e89b-42d3-a456-426614174000';
-  const actionUrl = 'https://crm.example.com/email/recontact';
-  const redirect = await emailService.trackEmailClick({
+  const redirect = await emailService.requestRecontact({
     jobId,
-    urlToken: emailService.encodeTrackingUrl(actionUrl),
-    sig: emailService.signEmailTracking(jobId, 'click', actionUrl),
+    sig: emailService.signEmailTracking(jobId, 'recontact'),
   });
 
   assert.equal(redirect, 'https://www.unitednetwork.it/grazie-ricontatto/');
@@ -117,7 +118,7 @@ test('aggiunge pixel di apertura e tracking click firmato alle email CRM', () =>
   try {
     const job = { id: '123e4567-e89b-42d3-a456-426614174000' };
     const tracked = emailService.applyEmailTracking(
-      '<p><a href="https://example.com/page?a=1&b=2">Apri</a><a href="mailto:info@example.com">Email</a><a href="https://crm.example.com/unsubscribe?cid=1">Stop</a></p>',
+      '<p><a href="https://example.com/page?a=1&b=2">Apri</a><a href="mailto:info@example.com">Email</a><a href="https://crm.example.com/unsubscribe?cid=1">Stop</a><a href="https://crm.example.com/email/recontact?jid=1&sig=2">Richiamami</a></p>',
       job,
       'https://crm.example.com'
     );
@@ -125,6 +126,7 @@ test('aggiunge pixel di apertura e tracking click firmato alle email CRM', () =>
     assert.match(tracked, /href="https:\/\/crm\.example\.com\/email\/click\?jid=123e4567-e89b-42d3-a456-426614174000&amp;u=/);
     assert.match(tracked, /href="mailto:info@example\.com"/);
     assert.match(tracked, /href="https:\/\/crm\.example\.com\/unsubscribe\?cid=1"/);
+    assert.match(tracked, /href="https:\/\/crm\.example\.com\/email\/recontact\?jid=1&sig=2"/);
 
     const clickHref = tracked.match(/href="([^"]*\/email\/click[^"]*)"/)[1].replaceAll('&amp;', '&');
     const clickUrl = new URL(clickHref);

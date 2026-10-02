@@ -36,4 +36,19 @@ router.get('/click', async (req, res, next) => {
   }
 });
 
+router.get('/recontact', async (req, res, next) => {
+  try {
+    const targetUrl = await emailService.requestRecontact({
+      jobId: req.query.jid,
+      sig: req.query.sig,
+      userAgent: req.get('user-agent') || null,
+      ip: req.ip || null,
+    });
+    res.redirect(302, targetUrl);
+  } catch (error) {
+    if (error.status && error.status < 500) return res.status(error.status).send('Invalid recontact link');
+    next(error);
+  }
+});
+
 module.exports = router;
