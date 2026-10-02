@@ -36,6 +36,11 @@ router.get('/contact-statuses', read, handle(controller.listContactStatuses));
 router.post('/contact-statuses', requireAdmin, handle(controller.createContactStatus));
 router.delete('/contact-statuses/:id', requireAdmin, handle(controller.deleteContactStatus));
 
+router.get('/folders', read, handle(controller.listContentFolders));
+router.post('/folders', write, handle(controller.createContentFolder));
+router.put('/folders/:id', write, handle(controller.updateContentFolder));
+router.delete('/folders/:id', write, handle(controller.deleteContentFolder));
+
 router.get('/templates', read, handle(controller.listTemplates));
 router.post('/templates', write, handle(controller.createTemplate));
 router.post('/templates/test', write, handle(controller.sendTemplateTest));

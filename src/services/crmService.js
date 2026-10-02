@@ -88,6 +88,13 @@ function normalizeContactStatusId(value) {
   return id;
 }
 
+function normalizeFolderId(value) {
+  const id = String(value || '').trim();
+  if (!id) return null;
+  if (!UUID_PATTERN.test(id)) throw Object.assign(new Error('Invalid content folder'), { status: 400 });
+  return id;
+}
+
 function normalizeFilters(value = {}) {
   const filters = {};
   if (value.query) filters.query = String(value.query).trim().slice(0, 120);
@@ -172,6 +179,7 @@ function validateTemplate(input = {}) {
     htmlBody: sanitizeEmailHtml(input.htmlBody),
     textBody: String(input.textBody || '').trim(),
     attachments: normalizeTemplateAttachments(input.attachments),
+    folderId: normalizeFolderId(input.folderId),
   };
   if (!template.name || !template.subject || !template.htmlBody) {
     throw Object.assign(new Error('Template name, subject and HTML body are required'), { status: 400 });
@@ -273,6 +281,7 @@ function validateSequence(input = {}) {
     triggerType,
     triggerListId,
     triggerConditions,
+    folderId: normalizeFolderId(input.folderId),
     steps,
   };
 }

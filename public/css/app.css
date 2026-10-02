@@ -545,6 +545,9 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .crm-table-footer { min-height: 48px; padding: 0 14px; display: flex; align-items: center; justify-content: flex-end; color: var(--muted); font-size: 13px; }
 .crm-contact-name { display: grid; gap: 4px; }
 .crm-contact-name small { color: var(--muted); font-size: 12px; }
+.crm-contact-row { cursor: pointer; }
+.crm-contact-row:hover td { background: var(--surface-hover); }
+.crm-contact-row:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .crm-source { display: inline-flex; padding: 5px 8px; border-radius: 7px; background: var(--surface-soft); font-size: 12px; }
 .crm-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .crm-tags span { padding: 4px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; }
@@ -560,6 +563,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .crm-object-card { padding: 20px; background: white; border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
 .crm-object-card.wide { grid-column: 1 / -1; }
 .crm-object-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.crm-object-labels { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .crm-object-kicker { color: var(--accent); font-size: 11px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
 .crm-object-card h3 { margin: 5px 0 0; font-size: 19px; letter-spacing: -.02em; }
 .crm-object-card p { min-height: 42px; margin: 18px 0; color: var(--ink-soft); line-height: 1.55; font-size: 14px; }
@@ -609,14 +613,32 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .email-preview-frame-wrap iframe { width: 100%; height: 500px; display: block; margin: 0 auto; border: 0; border-radius: 10px; background: white; transition: max-width .18s; }
 .email-preview-frame-wrap.mobile iframe { max-width: 360px; }
 
-.contact-profile-card { overflow: hidden; }
-.contact-profile-card .section-heading { margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--line); background: white; }
-.contact-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0; padding: 20px; }
-.contact-profile-grid > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
-.contact-profile-grid span, .contact-profile-grid small { color: var(--muted); font-size: 12px; }
-.contact-profile-grid strong { overflow-wrap: anywhere; }
-.contact-profile-sections { display: grid; gap: 18px; padding: 0 20px 20px; }
-.contact-profile-sections section { min-width: 0; }
+.contact-profile-page { min-width: 0; padding: 8px 0 32px; }
+.contact-profile-crumbs { min-height: 36px; display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--muted); font-size: 12px; }
+.contact-profile-crumbs button { min-height: 30px; padding: 4px 0; color: var(--muted); }
+.contact-profile-crumbs button:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.contact-profile-head { margin-bottom: 24px; }
+.contact-profile-layout { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); }
+.contact-profile-layout .un-card { min-width: 0; }
+.contact-profile-lists { display: flex; flex-wrap: wrap; gap: 8px; }
+.contact-profile-muted { color: var(--muted); font-size: 12px; }
+.contact-profile-activity .un-tab { min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); box-shadow: none; }
+.contact-profile-activity .un-tab:hover:not(:disabled), .contact-profile-activity .un-tab.active { border-color: transparent; background: transparent; color: var(--ink); }
+.contact-profile-sections { min-width: 0; }
+.contact-profile-sections table { min-width: 720px; }
+.contact-profile-empty { min-height: 220px; display: grid; place-content: center; justify-items: center; gap: 6px; color: var(--muted); text-align: center; }
+.contact-profile-empty strong { color: var(--ink); font-size: 15px; }
+.contact-profile-payload { max-width: 100%; max-height: 220px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--ink-soft); font: 12px/1.5 var(--font-mono); white-space: pre-wrap; }
+.un-timeline__icon { font-size: 9px; font-weight: 800; }
+.contact-copy { min-height: 26px; margin-left: 5px; padding: 3px 6px; border-color: transparent; background: transparent; color: var(--accent-text); font-size: 10px; }
+.contact-copy:hover:not(:disabled) { border-color: transparent; background: var(--accent-soft); color: var(--accent-text); }
+.crm-folder-toolbar { margin-bottom: 14px; display: flex; align-items: flex-end; gap: 10px; }
+.crm-folder-toolbar label { width: min(320px, 100%); display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; font-weight: 750; }
+.crm-folder-form { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.2fr) auto auto; gap: 10px; align-items: end; }
+.crm-folder-list { display: grid; gap: 8px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+.crm-folder-row { min-height: 58px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.crm-folder-row > div:first-child { min-width: 0; display: grid; gap: 3px; }
+.crm-folder-row span { color: var(--muted); font-size: 11px; }
 .campaign-jobs, .sequence-enrollments, .list-contacts { margin-top: 18px; }
 .campaign-compose-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, .5fr); gap: 16px; margin-top: 18px; }
 .campaign-preview-card, .campaign-send-summary { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); overflow: hidden; }
@@ -687,6 +709,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .crm-tabs { display: flex; overflow-x: auto; margin: 0; }
   .crm-tab { width: auto; flex: 0 0 auto; }
   .crm-filterbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .contact-profile-layout { grid-template-columns: 1fr; }
   .contact-import-grid { grid-template-columns: 1fr; }
   .contact-mapping-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .email-builder { grid-template-columns: 1fr; }
@@ -753,6 +776,12 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .contact-bulk-bar { align-items: stretch; flex-direction: column; }
   .contact-bulk-bar strong { margin-right: 0; }
   .contact-bulk-grid { grid-template-columns: 1fr; }
+  .contact-profile-head { align-items: flex-start; }
+  .contact-profile-head .un-record-head__actions { width: 100%; margin-left: 0; }
+  .contact-profile-activity .un-card__tabs { overflow-x: auto; }
+  .contact-profile-activity .un-tabs { width: max-content; }
+  .crm-folder-form { grid-template-columns: 1fr; }
+  .crm-folder-row { align-items: flex-start; flex-direction: column; }
   .crm-card-grid { grid-template-columns: 1fr; }
   .crm-dashboard-grid { grid-template-columns: 1fr; }
   .crm-dashboard-grid .wide { grid-column: auto; }

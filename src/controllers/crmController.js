@@ -266,6 +266,59 @@ async function deleteContactStatus(req, res) {
   res.status(204).end();
 }
 
+function contentFolderInput(input = {}) {
+  const kind = String(input.kind || '').trim();
+  const name = String(input.name || '').trim().slice(0, 100);
+  const description = String(input.description || '').trim().slice(0, 240);
+  if (!['template', 'sequence'].includes(kind)) {
+    throw Object.assign(new Error('Invalid content folder kind'), { status: 400 });
+  }
+  if (!name) throw Object.assign(new Error('Content folder name is required'), { status: 400 });
+  return { kind, name, description };
+}
+
+async function listContentFolders(req, res) {
+  const kind = String(req.query.kind || '').trim() || null;
+  if (kind && !['template', 'sequence'].includes(kind)) {
+    return res.status(400).json({ error: 'Tipo cartella non valido' });
+  }
+  res.json({ folders: await crmRepo.listContentFolders(kind) });
+}
+
+async function createContentFolder(req, res) {
+  try {
+    const folder = await crmRepo.createContentFolder({
+      ...contentFolderInput(req.body),
+      createdBy: req.user.username,
+    });
+    res.status(201).json({ folder });
+  } catch (error) {
+    if (error.code === '23505') {
+      throw Object.assign(new Error('Esiste già una cartella con questo nome'), { status: 409 });
+    }
+    throw error;
+  }
+}
+
+async function updateContentFolder(req, res) {
+  try {
+    const folder = await crmRepo.updateContentFolder(req.params.id, contentFolderInput(req.body));
+    if (!folder) return res.status(404).json({ error: 'Cartella non trovata' });
+    res.json({ folder });
+  } catch (error) {
+    if (error.code === '23505') {
+      throw Object.assign(new Error('Esiste già una cartella con questo nome'), { status: 409 });
+    }
+    throw error;
+  }
+}
+
+async function deleteContentFolder(req, res) {
+  const removed = await crmRepo.deleteContentFolder(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Cartella non trovata' });
+  res.status(204).end();
+}
+
 async function listTemplates(_req, res) {
   res.json({ templates: await crmRepo.listTemplates() });
 }
@@ -481,6 +534,10 @@ module.exports = {
   listContactStatuses,
   createContactStatus,
   deleteContactStatus,
+  listContentFolders,
+  createContentFolder,
+  updateContentFolder,
+  deleteContentFolder,
   listTemplates,
   createTemplate,
   updateTemplate,

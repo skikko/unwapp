@@ -27,11 +27,11 @@
         <div class="crm-tabs" role="tablist" aria-label="Sezioni CRM">
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="dashboard">Dashboard</button>
           <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="campaigns">Campagne</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
         </div>
         <div class="crm-api-note"><strong>API ingest</strong><code>POST /api/ingest/contacts</code><span>Chiavi gestite in Impostazioni</span></div>
       </aside>
@@ -51,6 +51,7 @@
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per lista</h3></div></div><div id="emailDashboardLists"></div></section>
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per tag</h3></div></div><div id="emailDashboardTags"></div></section>
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Studente/Genitore</h3></div></div><div id="emailDashboardContactTypes"></div></section>
+            <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per sorgente</h3></div></div><div id="emailDashboardSources"></div></section>
             <section class="crm-table-card wide"><div class="section-heading compact"><div><h3>Eventi recenti</h3></div></div><div id="emailDashboardEvents"></div></section>
           </div>
         </section>
@@ -168,10 +169,28 @@
           </form>
           <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Studente/Genitore</th><th>Email</th><th>Telefono</th><th>Origine</th><th>UTM source</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
           </div>
-          <section class="card crm-editor contact-profile-card" id="contactProfile" hidden>
-            <div class="section-heading compact"><div><h2 id="contactProfileTitle">Profilo contatto</h2><span id="contactProfileMeta"></span></div><button class="secondary" type="button" id="closeContactProfileBtn">Torna ai contatti</button></div>
-            <div class="contact-profile-grid" id="contactProfileSummary"></div>
-            <div class="contact-profile-sections" id="contactProfileSections"></div>
+          <section class="contact-profile-page" id="contactProfile" hidden>
+            <nav class="contact-profile-crumbs" aria-label="Percorso"><button class="ghost" type="button" id="closeContactProfileBtn">CRM / Contatti</button><span>/</span><strong id="contactProfileCrumb">Profilo</strong></nav>
+            <header class="un-record-head contact-profile-head">
+              <span class="un-avatar un-avatar--xl" id="contactProfileAvatar">--</span>
+              <div><h2 class="un-record-head__name" id="contactProfileTitle">Profilo contatto</h2><div class="un-record-head__meta" id="contactProfileMeta"></div></div>
+              <div class="un-record-head__actions" data-write><button class="secondary" type="button" id="editContactFromProfileBtn">Modifica contatto</button></div>
+            </header>
+            <div class="un-record contact-profile-layout">
+              <div class="un-record__side">
+                <section class="un-card"><header class="un-card__head"><h3 class="un-card__title">Dettagli</h3></header><div class="un-card__body" id="contactProfileSummary"></div></section>
+                <section class="un-card"><header class="un-card__head"><h3 class="un-card__title">Liste <span class="un-count un-count--muted" id="contactProfileListCount">0</span></h3></header><div class="un-card__body contact-profile-lists" id="contactProfileLists"></div></section>
+              </div>
+              <section class="un-card contact-profile-activity">
+                <div class="un-card__tabs"><div class="un-tabs" role="tablist" aria-label="Attività contatto">
+                  <button class="un-tab" type="button" role="tab" aria-selected="true" data-profile-tab="activity">Attività <span class="un-count un-count--muted" id="profileActivityCount">0</span></button>
+                  <button class="un-tab" type="button" role="tab" aria-selected="false" data-profile-tab="whatsapp">WhatsApp <span class="un-count un-count--muted" id="profileWhatsappCount">0</span></button>
+                  <button class="un-tab" type="button" role="tab" aria-selected="false" data-profile-tab="email">Email <span class="un-count un-count--muted" id="profileEmailCount">0</span></button>
+                  <button class="un-tab" type="button" role="tab" aria-selected="false" data-profile-tab="sequences">Sequenze <span class="un-count un-count--muted" id="profileSequenceCount">0</span></button>
+                </div></div>
+                <div class="un-card__body contact-profile-sections" id="contactProfileSections"></div>
+              </section>
+            </div>
           </section>
         </section>
 
@@ -190,13 +209,21 @@
         </section>
 
         <section class="crm-panel" id="panel-templates" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><h2>Template email</h2></div><button id="newTemplateBtn" data-write>Nuovo template</button></div>
+          <div class="crm-panel-header"><div><h2>Template email</h2></div><div class="crm-panel-actions" data-write><button class="secondary" type="button" data-manage-folders="template">Gestisci cartelle</button><button id="newTemplateBtn">Nuovo template</button></div></div>
+          <div class="crm-folder-toolbar"><label><span>Cartella</span><select id="templateFolderFilter"><option value="">Tutte le cartelle</option><option value="__none__">Senza cartella</option></select></label></div>
+          <form class="card crm-editor crm-folder-manager" id="templateFolderManager" data-folder-manager="template" hidden>
+            <div class="section-heading compact"><div><h2>Cartelle template</h2></div><button class="ghost" type="button" data-close="templateFolderManager">Chiudi</button></div>
+            <input type="hidden" data-folder-id />
+            <div class="crm-folder-form"><div class="form-field"><label>Nome cartella</label><input data-folder-name required maxlength="100" /></div><div class="form-field"><label>Descrizione</label><input data-folder-description maxlength="240" /></div><button type="submit" data-folder-save>Salva cartella</button><button class="secondary" type="button" data-folder-reset>Nuova</button></div>
+            <div class="crm-folder-list" data-folder-list></div>
+          </form>
           <form class="card crm-editor" id="templateEditor" hidden>
             <div class="section-heading compact"><div><h2 id="templateEditorTitle">Nuovo template</h2></div><button class="ghost" type="button" data-close="templateEditor">Chiudi</button></div>
             <input id="templateId" type="hidden" />
             <div class="grid-2">
               <div class="form-field"><label for="templateName">Nome interno</label><input id="templateName" required /></div>
               <div class="form-field"><label for="templateSubject">Oggetto</label><input id="templateSubject" required /></div>
+              <div class="form-field"><label for="templateFolder">Cartella</label><select id="templateFolder"><option value="">Senza cartella</option></select></div>
               <div class="form-field span-2"><label for="templatePreheader">Preheader</label><input id="templatePreheader" /></div>
             </div>
             <div class="email-builder">
@@ -284,13 +311,21 @@
         </section>
 
         <section class="crm-panel" id="panel-sequences" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><span class="eyebrow">Nurturing compatto</span><h2>Sequenze</h2></div><button id="newSequenceBtn" data-write>Nuova sequenza</button></div>
+          <div class="crm-panel-header"><div><span class="eyebrow">Nurturing compatto</span><h2>Sequenze</h2></div><div class="crm-panel-actions" data-write><button class="secondary" type="button" data-manage-folders="sequence">Gestisci cartelle</button><button id="newSequenceBtn">Nuova sequenza</button></div></div>
+          <div class="crm-folder-toolbar"><label><span>Cartella</span><select id="sequenceFolderFilter"><option value="">Tutte le cartelle</option><option value="__none__">Senza cartella</option></select></label></div>
+          <form class="card crm-editor crm-folder-manager" id="sequenceFolderManager" data-folder-manager="sequence" hidden>
+            <div class="section-heading compact"><div><h2>Cartelle sequenze</h2></div><button class="ghost" type="button" data-close="sequenceFolderManager">Chiudi</button></div>
+            <input type="hidden" data-folder-id />
+            <div class="crm-folder-form"><div class="form-field"><label>Nome cartella</label><input data-folder-name required maxlength="100" /></div><div class="form-field"><label>Descrizione</label><input data-folder-description maxlength="240" /></div><button type="submit" data-folder-save>Salva cartella</button><button class="secondary" type="button" data-folder-reset>Nuova</button></div>
+            <div class="crm-folder-list" data-folder-list></div>
+          </form>
           <form class="card crm-editor" id="sequenceEditor" hidden>
             <div class="section-heading compact"><div><h2 id="sequenceEditorTitle">Configura la sequenza</h2></div><button class="ghost" type="button" data-close="sequenceEditor">Chiudi</button></div>
             <input id="sequenceId" type="hidden" />
             <div class="grid-2">
               <div class="form-field"><label for="sequenceName">Nome</label><input id="sequenceName" required /></div>
               <div class="form-field"><label for="sequenceDescription">Descrizione</label><input id="sequenceDescription" /></div>
+              <div class="form-field"><label for="sequenceFolder">Cartella</label><select id="sequenceFolder"><option value="">Senza cartella</option></select></div>
               <div class="form-field"><label for="sequenceTriggerType">Trigger</label><select id="sequenceTriggerType"><option value="list_joined">Contatto entrato in una lista</option><option value="manual">Iscrizione manuale</option></select></div>
               <div class="form-field" id="sequenceTriggerListWrap"><label for="sequenceTriggerList">Lista del trigger</label><select id="sequenceTriggerList"></select><small>Si applica ai contatti che entrano nella lista dopo il salvataggio.</small></div>
               <section class="sequence-conditions span-2" id="sequenceConditionsWrap">

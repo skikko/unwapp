@@ -204,16 +204,36 @@ test('recupera gli allegati salvati nel template email', async () => {
 });
 
 test('normalizza stato e ritardi di una sequenza', () => {
+  const folderId = '123e4567-e89b-12d3-a456-426614174000';
   const sequence = crmService.validateSequence({
     name: 'Onboarding',
     active: false,
+    folderId,
     trigger: { type: 'list_joined', listId: 'list-1' },
     steps: [{ templateId: 'template-1', delayMinutes: 1440.9 }],
   });
   assert.equal(sequence.active, false);
   assert.equal(sequence.triggerType, 'list_joined');
   assert.equal(sequence.triggerListId, 'list-1');
+  assert.equal(sequence.folderId, folderId);
   assert.deepEqual(sequence.steps, [{ templateId: 'template-1', delayMinutes: 1440 }]);
+});
+
+test('valida la cartella del template', () => {
+  const folderId = '123e4567-e89b-12d3-a456-426614174000';
+  const template = crmService.validateTemplate({
+    name: 'Newsletter',
+    subject: 'Aggiornamento',
+    htmlBody: '<p>Testo</p>',
+    folderId,
+  });
+  assert.equal(template.folderId, folderId);
+  assert.throws(() => crmService.validateTemplate({
+    name: 'Newsletter',
+    subject: 'Aggiornamento',
+    htmlBody: '<p>Testo</p>',
+    folderId: 'non-valida',
+  }), /Invalid content folder/);
 });
 
 test('richiede una lista per il trigger di ingresso', () => {
@@ -292,6 +312,79 @@ test('una lista include soltanto i contatti aggiunti esplicitamente', () => {
   assert.match(result.clause, /lm\.list_id = \$3/);
   assert.doesNotMatch(result.clause, /crm_list_exclusions|email_normalized|TRUE/);
   assert.deepEqual(result.values, ['123e4567-e89b-12d3-a456-426614174000']);
+});
+
+test('ordina le liste per ultimo ingresso contatto', async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  let captured;
+  t.after(() => { db.query = originalQuery; });
+  db.query = async (text) => {
+    captured = text;
+    return { rows: [] };
+  };
+
+  await crmRepo.listLists();
+
+  assert.match(captured, /max\(lm\.created_at\) AS last_contact_joined_at/);
+  assert.match(captured, /ORDER BY max\(lm\.created_at\) DESC NULLS LAST,l\.updated_at DESC/);
+});
+
+test('ordina i contatti di una lista per ingresso in lista', async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  const captured = [];
+  t.after(() => { db.query = originalQuery; });
+  db.query = async (text) => {
+    captured.push(text);
+    if (/count\(\*\)::int AS count FROM crm_list_memberships/.test(text)) return { rows: [{ count: 0 }] };
+    return { rows: [] };
+  };
+
+  await crmRepo.listContactsForList({ id: 'list-1' });
+
+  assert.match(captured[0], /lm\.created_at AS list_joined_at/);
+  assert.match(captured[0], /ORDER BY lm\.created_at DESC,c\.created_at DESC/);
+});
+
+test('aggiorna una sequenza con iscrizioni senza cancellare i passaggi', async (t) => {
+  const db = require('../src/config/db');
+  const originalGetClient = db.getClient;
+  const calls = [];
+  t.after(() => { db.getClient = originalGetClient; });
+  db.getClient = async () => ({
+    query: async (text) => {
+      calls.push(text);
+      if (/SELECT \* FROM crm_sequences/.test(text)) {
+        return { rows: [{ id: 'sequence-1', trigger_type: 'manual', trigger_list_id: null, trigger_conditions: [] }] };
+      }
+      if (/SELECT count\(\*\)::int AS count FROM crm_sequence_enrollments/.test(text)) {
+        return { rows: [{ count: 1 }] };
+      }
+      if (/UPDATE crm_sequences/.test(text)) return { rows: [{ id: 'sequence-1' }] };
+      if (/SELECT id,position FROM crm_sequence_steps/.test(text)) {
+        return { rows: [{ id: 'step-1', position: 0 }, { id: 'step-2', position: 1 }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {},
+  });
+
+  await crmRepo.updateSequence('sequence-1', {
+    name: 'Sequenza aggiornata',
+    description: '',
+    active: true,
+    triggerType: 'manual',
+    triggerListId: null,
+    triggerConditions: [],
+    steps: [
+      { templateId: 'template-1', delayMinutes: 0 },
+      { templateId: 'template-2', delayMinutes: 60 },
+    ],
+  });
+
+  assert.equal(calls.some((query) => /DELETE FROM crm_sequence_steps/.test(query)), false);
+  assert.equal(calls.filter((query) => /UPDATE crm_sequence_steps/.test(query)).length, 2);
 });
 
 test('normalizza le modifiche massive dei contatti', () => {

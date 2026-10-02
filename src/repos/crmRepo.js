@@ -388,15 +388,15 @@ async function updateList(id, input) {
 }
 
 async function listLists() {
-  const { rows } = await db.query('SELECT * FROM crm_lists ORDER BY updated_at DESC');
-  return Promise.all(rows.map(async (list) => {
-    const compiled = compileListFilter(list);
-    const result = await db.query(
-      `SELECT count(*)::int AS count FROM crm_contacts c WHERE ${compiled.clause}`,
-      compiled.values
-    );
-    return { ...list, contact_count: result.rows[0].count };
-  }));
+  const { rows } = await db.query(
+    `SELECT l.*, count(lm.contact_id)::int AS contact_count,
+            max(lm.created_at) AS last_contact_joined_at
+     FROM crm_lists l
+     LEFT JOIN crm_list_memberships lm ON lm.list_id=l.id
+     GROUP BY l.id
+     ORDER BY max(lm.created_at) DESC NULLS LAST,l.updated_at DESC`
+  );
+  return rows;
 }
 
 async function getList(id) {
@@ -438,25 +438,29 @@ async function addContactToListWithClient(client, listId, contactId, source = 'a
 }
 
 async function listContactsForList(list, { limit = 100, offset = 0 } = {}) {
-  const compiled = compileListFilter(list);
-  const limitIndex = compiled.values.length + 1;
-  const offsetIndex = compiled.values.length + 2;
   const [items, count] = await Promise.all([
     db.query(
-      `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause}
-       ORDER BY c.created_at DESC LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
-      [...compiled.values, limit, offset]
+      `SELECT ${CONTACT_SELECT}, lm.created_at AS list_joined_at
+       FROM crm_list_memberships lm
+       JOIN crm_contacts c ON c.id=lm.contact_id
+       WHERE lm.list_id=$1
+       ORDER BY lm.created_at DESC,c.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [list.id, limit, offset]
     ),
-    db.query(`SELECT count(*)::int AS count FROM crm_contacts c WHERE ${compiled.clause}`, compiled.values),
+    db.query('SELECT count(*)::int AS count FROM crm_list_memberships WHERE list_id=$1', [list.id]),
   ]);
   return { contacts: await attachListsToContacts(items.rows), total: count.rows[0].count };
 }
 
 async function exportContactsForList(list) {
-  const compiled = compileListFilter(list);
   const { rows } = await db.query(
-    `SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE ${compiled.clause} ORDER BY c.created_at DESC`,
-    compiled.values
+    `SELECT ${CONTACT_SELECT}, lm.created_at AS list_joined_at
+     FROM crm_list_memberships lm
+     JOIN crm_contacts c ON c.id=lm.contact_id
+     WHERE lm.list_id=$1
+     ORDER BY lm.created_at DESC,c.created_at DESC`,
+    [list.id]
   );
   return attachListsToContacts(rows);
 }
@@ -651,29 +655,86 @@ async function deleteContactStatus(id) {
   return rows[0] || null;
 }
 
-async function createTemplate(input) {
+async function verifyContentFolder(folderId, kind, queryable = db) {
+  if (!folderId) return null;
+  const { rows } = await queryable.query(
+    'SELECT id FROM crm_content_folders WHERE id=$1 AND kind=$2',
+    [folderId, kind]
+  );
+  if (!rows[0]) throw Object.assign(new Error('Content folder not found'), { status: 404 });
+  return rows[0];
+}
+
+async function listContentFolders(kind = null) {
+  const values = kind ? [kind] : [];
+  const where = kind ? 'WHERE folder.kind=$1' : '';
   const { rows } = await db.query(
-    `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,attachments,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    `SELECT folder.*,
+            CASE folder.kind
+              WHEN 'template' THEN (SELECT count(*)::int FROM crm_email_templates item WHERE item.folder_id=folder.id)
+              ELSE (SELECT count(*)::int FROM crm_sequences item WHERE item.folder_id=folder.id)
+            END AS item_count
+     FROM crm_content_folders folder
+     ${where}
+     ORDER BY folder.kind ASC,folder.name ASC`,
+    values
+  );
+  return rows;
+}
+
+async function createContentFolder(input) {
+  const { rows } = await db.query(
+    `INSERT INTO crm_content_folders (kind,name,description,created_by)
+     VALUES ($1,$2,$3,$4) RETURNING *`,
+    [input.kind, input.name, input.description || null, input.createdBy]
+  );
+  return rows[0];
+}
+
+async function updateContentFolder(id, input) {
+  const { rows } = await db.query(
+    `UPDATE crm_content_folders SET name=$2,description=$3,updated_at=now()
+     WHERE id=$1 AND kind=$4 RETURNING *`,
+    [id, input.name, input.description || null, input.kind]
+  );
+  return rows[0] || null;
+}
+
+async function deleteContentFolder(id) {
+  const { rows } = await db.query('DELETE FROM crm_content_folders WHERE id=$1 RETURNING id', [id]);
+  return rows[0] || null;
+}
+
+async function createTemplate(input) {
+  await verifyContentFolder(input.folderId, 'template');
+  const { rows } = await db.query(
+    `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,attachments,folder_id,created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
-     JSON.stringify(input.attachments || []), input.createdBy]
+     JSON.stringify(input.attachments || []), input.folderId, input.createdBy]
   );
   return rows[0];
 }
 
 async function updateTemplate(id, input) {
+  await verifyContentFolder(input.folderId, 'template');
   const { rows } = await db.query(
     `UPDATE crm_email_templates SET name=$2,subject=$3,preheader=$4,html_body=$5,text_body=$6,
-       attachments=$7,updated_at=now()
+       attachments=$7,folder_id=$8,updated_at=now()
      WHERE id=$1 RETURNING *`,
     [id, input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
-     JSON.stringify(input.attachments || [])]
+     JSON.stringify(input.attachments || []), input.folderId]
   );
   return rows[0] || null;
 }
 
 async function listTemplates() {
-  const { rows } = await db.query('SELECT * FROM crm_email_templates ORDER BY updated_at DESC');
+  const { rows } = await db.query(
+    `SELECT template.*,folder.name AS folder_name
+     FROM crm_email_templates template
+     LEFT JOIN crm_content_folders folder ON folder.id=template.folder_id
+     ORDER BY template.updated_at DESC`
+  );
   return rows;
 }
 
@@ -685,8 +746,8 @@ async function getTemplate(id) {
 async function duplicateTemplate(id, createdBy) {
   const { rows } = await db.query(
     `INSERT INTO crm_email_templates
-       (name,subject,preheader,html_body,text_body,attachments,created_by)
-     SELECT name || ' - copia',subject,preheader,html_body,text_body,attachments,$2
+       (name,subject,preheader,html_body,text_body,attachments,folder_id,created_by)
+     SELECT name || ' - copia',subject,preheader,html_body,text_body,attachments,folder_id,$2
      FROM crm_email_templates WHERE id=$1
      RETURNING *`,
     [id, createdBy]
@@ -703,6 +764,7 @@ async function createSequence(input) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
+    await verifyContentFolder(input.folderId, 'sequence', client);
     let triggerList = null;
     if (input.triggerListId) {
       const result = await client.query('SELECT * FROM crm_lists WHERE id=$1', [input.triggerListId]);
@@ -711,11 +773,11 @@ async function createSequence(input) {
     }
     const sequenceResult = await client.query(
       `INSERT INTO crm_sequences
-       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,created_by)
-       VALUES ($1,$2,$3,$4,$5,CASE WHEN $4='list_joined' THEN now() ELSE NULL END,$6,$7)
+       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,folder_id,created_by)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN $4='list_joined' THEN now() ELSE NULL END,$6,$7,$8)
        RETURNING *`,
       [input.name, input.description || null, input.active, input.triggerType,
-       input.triggerListId, JSON.stringify(input.triggerConditions), input.createdBy]
+       input.triggerListId, JSON.stringify(input.triggerConditions), input.folderId, input.createdBy]
     );
     const sequence = sequenceResult.rows[0];
     for (const [position, step] of input.steps.entries()) {
@@ -747,10 +809,10 @@ async function duplicateSequence(id, createdBy) {
     }
     const sequenceResult = await client.query(
       `INSERT INTO crm_sequences
-       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,created_by)
+       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,folder_id,created_by)
        SELECT name || ' - copia',description,FALSE,trigger_type,trigger_list_id,
               CASE WHEN trigger_type='list_joined' THEN now() ELSE NULL END,
-              trigger_conditions,$2
+              trigger_conditions,folder_id,$2
        FROM crm_sequences WHERE id=$1
        RETURNING *`,
       [id, createdBy]
@@ -780,8 +842,9 @@ async function updateSequence(id, input) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
-    const existing = await client.query('SELECT id FROM crm_sequences WHERE id=$1 FOR UPDATE', [id]);
-    if (!existing.rows[0]) {
+    const existing = await client.query('SELECT * FROM crm_sequences WHERE id=$1 FOR UPDATE', [id]);
+    const currentSequence = existing.rows[0];
+    if (!currentSequence) {
       await client.query('ROLLBACK');
       return null;
     }
@@ -789,35 +852,68 @@ async function updateSequence(id, input) {
       'SELECT count(*)::int AS count FROM crm_sequence_enrollments WHERE sequence_id=$1',
       [id]
     );
-    if (enrollment.rows[0].count > 0) {
-      throw Object.assign(new Error('A sequence with enrollments cannot change its steps'), { status: 409 });
-    }
+    const enrollmentCount = enrollment.rows[0].count;
+    await verifyContentFolder(input.folderId, 'sequence', client);
     let triggerList = null;
     if (input.triggerListId) {
       const result = await client.query('SELECT * FROM crm_lists WHERE id=$1', [input.triggerListId]);
       triggerList = result.rows[0];
       if (!triggerList) throw Object.assign(new Error('Trigger list not found'), { status: 404 });
     }
+    const triggerChanged = currentSequence.trigger_type !== input.triggerType
+      || currentSequence.trigger_list_id !== input.triggerListId
+      || JSON.stringify(currentSequence.trigger_conditions || []) !== JSON.stringify(input.triggerConditions || []);
     const sequence = await client.query(
       `UPDATE crm_sequences SET
          name=$2,description=$3,active=$4,trigger_type=$5,trigger_list_id=$6,
-         trigger_started_at=CASE WHEN $5='list_joined' THEN now() ELSE NULL END,
+         trigger_started_at=CASE WHEN $5='list_joined' THEN
+           CASE WHEN $8 THEN now() ELSE COALESCE(trigger_started_at,now()) END
+         ELSE NULL END,
          trigger_conditions=$7,
+         folder_id=$9,
          updated_at=now()
        WHERE id=$1 RETURNING *`,
       [id, input.name, input.description || null, input.active, input.triggerType,
-       input.triggerListId, JSON.stringify(input.triggerConditions)]
+       input.triggerListId, JSON.stringify(input.triggerConditions), triggerChanged, input.folderId]
     );
-    await client.query('DELETE FROM crm_sequence_steps WHERE sequence_id=$1', [id]);
-    await client.query('DELETE FROM crm_sequence_trigger_state WHERE sequence_id=$1', [id]);
-    for (const [position, step] of input.steps.entries()) {
-      await client.query(
-        `INSERT INTO crm_sequence_steps (sequence_id,position,delay_minutes,template_id)
-         VALUES ($1,$2,$3,$4)`,
-        [id, position, step.delayMinutes, step.templateId]
+    if (enrollmentCount > 0) {
+      const existingSteps = await client.query(
+        'SELECT id,position FROM crm_sequence_steps WHERE sequence_id=$1 ORDER BY position ASC FOR UPDATE',
+        [id]
       );
+      if (input.steps.length < existingSteps.rows.length) {
+        throw Object.assign(new Error('Cannot remove sequence steps while enrollments exist'), { status: 409 });
+      }
+      for (const [position, step] of input.steps.entries()) {
+        const existingStep = existingSteps.rows[position];
+        if (existingStep) {
+          await client.query(
+            `UPDATE crm_sequence_steps SET position=$3,delay_minutes=$4,template_id=$5
+             WHERE id=$1 AND sequence_id=$2`,
+            [existingStep.id, id, position, step.delayMinutes, step.templateId]
+          );
+        } else {
+          await client.query(
+            `INSERT INTO crm_sequence_steps (sequence_id,position,delay_minutes,template_id)
+             VALUES ($1,$2,$3,$4)`,
+            [id, position, step.delayMinutes, step.templateId]
+          );
+        }
+      }
+    } else {
+      await client.query('DELETE FROM crm_sequence_steps WHERE sequence_id=$1', [id]);
+      for (const [position, step] of input.steps.entries()) {
+        await client.query(
+          `INSERT INTO crm_sequence_steps (sequence_id,position,delay_minutes,template_id)
+           VALUES ($1,$2,$3,$4)`,
+          [id, position, step.delayMinutes, step.templateId]
+        );
+      }
     }
-    if (triggerList) await seedSequenceTriggerState(client, id, triggerList);
+    if (triggerChanged) {
+      await client.query('DELETE FROM crm_sequence_trigger_state WHERE sequence_id=$1', [id]);
+      if (triggerList) await seedSequenceTriggerState(client, id, triggerList);
+    }
     await client.query('COMMIT');
     return sequence.rows[0];
   } catch (error) {
@@ -879,6 +975,7 @@ async function listSequences() {
   const { rows } = await db.query(
     `SELECT s.*,
             l.name AS trigger_list_name,
+            folder.name AS folder_name,
             COALESCE(jsonb_agg(jsonb_build_object(
               'id', st.id, 'position', st.position, 'delayMinutes', st.delay_minutes,
               'templateId', st.template_id, 'templateName', t.name
@@ -889,10 +986,11 @@ async function listSequences() {
             count(DISTINCT e.id) FILTER (WHERE e.status='failed')::int AS failed_count
      FROM crm_sequences s
      LEFT JOIN crm_lists l ON l.id = s.trigger_list_id
+     LEFT JOIN crm_content_folders folder ON folder.id = s.folder_id
      LEFT JOIN crm_sequence_steps st ON st.sequence_id = s.id
      LEFT JOIN crm_email_templates t ON t.id = st.template_id
      LEFT JOIN crm_sequence_enrollments e ON e.sequence_id = s.id
-     GROUP BY s.id,l.name ORDER BY s.updated_at DESC`
+     GROUP BY s.id,l.name,folder.name ORDER BY s.updated_at DESC`
   );
   return rows;
 }
@@ -1201,7 +1299,7 @@ async function listEmailJobs(filters = {}, { limit = 100, offset = 0 } = {}) {
 }
 
 async function emailDashboard() {
-  const [summaryResult, listResult, tagResult, typeResult, eventResult] = await Promise.all([
+  const [summaryResult, listResult, tagResult, typeResult, sourceResult, eventResult] = await Promise.all([
     db.query(
       `SELECT
          count(*)::int AS total_jobs,
@@ -1255,6 +1353,18 @@ async function emailDashboard() {
        ORDER BY contacts DESC`
     ),
     db.query(
+      `SELECT COALESCE(NULLIF(c.source,''),'n/a') AS source,
+              count(DISTINCT c.id)::int AS contacts,
+              count(j.id)::int AS email_jobs,
+              count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
+              count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
+              count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
+       FROM crm_contacts c
+       LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+       GROUP BY COALESCE(NULLIF(c.source,''),'n/a')
+       ORDER BY contacts DESC,source ASC LIMIT 25`
+    ),
+    db.query(
       `SELECT ev.id,ev.event_type,ev.url,ev.created_at,
               c.first_name,c.last_name,c.email,t.name AS template_name
        FROM crm_email_events ev
@@ -1269,6 +1379,7 @@ async function emailDashboard() {
     byList: listResult.rows,
     byTag: tagResult.rows,
     byContactType: typeResult.rows,
+    bySource: sourceResult.rows,
     recentEvents: eventResult.rows,
   };
 }
@@ -1569,6 +1680,10 @@ module.exports = {
   listContactStatuses,
   createContactStatus,
   deleteContactStatus,
+  listContentFolders,
+  createContentFolder,
+  updateContentFolder,
+  deleteContentFolder,
   createTemplate,
   updateTemplate,
   listTemplates,

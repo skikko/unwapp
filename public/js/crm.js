@@ -4,6 +4,7 @@ const state = {
   lists: [],
   templates: [],
   sequences: [],
+  folders: { template: [], sequence: [] },
   campaigns: [],
   emailDashboard: null,
   emailLogs: [],
@@ -14,6 +15,7 @@ const state = {
   selectAllMatching: false,
   totalContacts: 0,
   totalEmailLogs: 0,
+  activeContactId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -51,6 +53,22 @@ async function api(path, options = {}) {
 function localDateTimeValue(date = new Date()) {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+const romeDateTimeFormatter = new Intl.DateTimeFormat('it-IT', {
+  timeZone: 'Europe/Rome',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+function formatRomeDateTime(value) {
+  if (!value) return 'n/a';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'n/a';
+  return romeDateTimeFormatter.format(date);
 }
 
 function statusLabel(status) {
@@ -189,6 +207,9 @@ async function loadEmailDashboard() {
   $('emailDashboardContactTypes').innerHTML = dashboardTable(['Tipo', 'Contatti', 'Email', 'Inviate', 'Aperte', 'Click'], (dashboard.byContactType || []).map((row) => (
     `<tr><td>${esc(contactTypeLabel(row.contact_type))}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.sent_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
   )), 'Nessun dato per tipo contatto.');
+  $('emailDashboardSources').innerHTML = dashboardTable(['Sorgente', 'Contatti', 'Email', 'Inviate', 'Aperte', 'Click'], (dashboard.bySource || []).map((row) => (
+    `<tr><td>${esc(row.source)}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.sent_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
+  )), 'Nessun dato per sorgente.');
   $('emailDashboardEvents').innerHTML = dashboardTable(['Data', 'Evento', 'Contatto', 'Template', 'URL'], (dashboard.recentEvents || []).map((event) => {
     const name = [event.first_name, event.last_name].filter(Boolean).join(' ') || event.email || 'Senza nome';
     return `<tr><td>${esc(new Date(event.created_at).toLocaleString('it-IT'))}</td><td>${esc(eventTypeLabel(event.event_type))}</td><td>${esc(name)}</td><td>${esc(event.template_name || 'n/a')}</td><td>${esc(event.url || 'n/a')}</td></tr>`;
@@ -236,9 +257,9 @@ async function loadContacts() {
     const fullName = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
     const tags = (contact.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join('');
     const lists = (contact.lists || []).map((list) => `<span>${esc(list.name)}</span>`).join('');
-    return `<tr>
+    return `<tr class="crm-contact-row" data-open-contact="${contact.id}" tabindex="0" aria-label="Apri profilo di ${esc(fullName)}">
       ${can('crm:write') ? `<td><input type="checkbox" data-select-contact="${contact.id}" aria-label="Seleziona ${esc(fullName)}"></td>` : '<td hidden></td>'}
-      <td><div class="crm-contact-name"><strong>${esc(fullName)}</strong><small>${esc(new Date(contact.created_at).toLocaleDateString('it-IT'))}</small></div></td>
+      <td><div class="crm-contact-name"><strong>${esc(fullName)}</strong><small>Ingresso lead ${esc(formatRomeDateTime(contact.created_at))} Roma</small></div></td>
       <td>${esc(contactTypeLabel(contact.contact_type))}</td>
       <td>${esc(contact.email || 'n/a')}</td>
       <td>${esc(contact.phone || 'n/a')}</td>
@@ -253,6 +274,16 @@ async function loadContacts() {
   }).join('') : '<tr><td colspan="12"><div class="crm-empty">Nessun contatto corrisponde ai filtri.</div></td></tr>';
 
   document.querySelectorAll('[data-view-contact]').forEach((button) => button.addEventListener('click', () => loadContactProfile(button.dataset.viewContact)));
+  document.querySelectorAll('[data-open-contact]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('button,input,a,select')) return;
+      loadContactProfile(row.dataset.openContact);
+    });
+    row.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      loadContactProfile(row.dataset.openContact);
+    });
+  });
   document.querySelectorAll('[data-edit-contact]').forEach((button) => button.addEventListener('click', () => editContact(button.dataset.editContact)));
   document.querySelectorAll('[data-delete-contact]').forEach((button) => button.addEventListener('click', () => removeContact(button.dataset.deleteContact)));
   document.querySelectorAll('[data-select-contact]').forEach((checkbox) => checkbox.addEventListener('change', () => {
@@ -264,8 +295,46 @@ async function loadContacts() {
   updateContactSelectionUi();
 }
 
-function profileSection(title, rows, emptyMessage) {
-  return `<section><div class="section-heading compact"><div><h3>${esc(title)}</h3></div></div>${rows || `<div class="crm-empty">${esc(emptyMessage)}</div>`}</section>`;
+function profileEmpty(value) {
+  return value === undefined || value === null || value === '' ? '-' : esc(value);
+}
+
+function contactInitials(contact) {
+  const letters = [contact.first_name, contact.last_name]
+    .filter(Boolean)
+    .map((value) => String(value).trim().charAt(0).toUpperCase())
+    .join('');
+  return letters || '--';
+}
+
+function contactEventTitle(type) {
+  return {
+    contact_created: 'Contatto creato',
+    contact_updated: 'Dati del contatto aggiornati',
+    list_joined: 'Contatto aggiunto a una lista',
+    bulk_updated: 'Contatto aggiornato con modifica massiva',
+    email_unsubscribed: 'Contatto disiscritto dalle email',
+  }[type] || type.replaceAll('_', ' ');
+}
+
+function profileTimelineItem({ code, title, time, meta, details = null, tone = '' }) {
+  return `<li class="un-timeline__item"><span class="un-timeline__icon ${tone}">${esc(code)}</span><div><div class="un-timeline__head"><span class="un-timeline__title">${esc(title)}</span><time class="un-timeline__time">${esc(formatRomeDateTime(time))}</time></div><div class="un-timeline__meta">${esc(meta)}</div>${details ? `<details><summary>Mostra dettagli</summary><pre class="contact-profile-payload">${esc(JSON.stringify(details, null, 2))}</pre></details>` : ''}</div></li>`;
+}
+
+function profileTable(headers, rows, emptyMessage) {
+  if (!rows.length) return `<div class="contact-profile-empty"><strong>${esc(emptyMessage)}</strong><span>Le nuove attività compariranno qui.</span></div>`;
+  return `<div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${esc(header)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+function setContactProfileTab(name) {
+  document.querySelectorAll('[data-profile-tab]').forEach((tab) => {
+    const active = tab.dataset.profileTab === name;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-profile-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.profilePanel !== name;
+  });
 }
 
 async function loadContactProfile(id) {
@@ -274,34 +343,63 @@ async function loadContactProfile(id) {
   $('contactProfileTitle').textContent = 'Profilo contatto';
   $('contactProfileMeta').textContent = 'Caricamento...';
   $('contactProfileSummary').innerHTML = '';
+  $('contactProfileLists').innerHTML = '';
   $('contactProfileSections').innerHTML = '';
   try {
     const profile = await api(`/api/crm/contacts/${id}/profile`);
     const contact = profile.contact;
     const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+    state.activeContactId = id;
     $('contactProfileTitle').textContent = name;
-    $('contactProfileMeta').textContent = `Creato ${new Date(contact.created_at).toLocaleString('it-IT')}`;
+    $('contactProfileCrumb').textContent = name;
+    $('contactProfileAvatar').textContent = contactInitials(contact);
+    $('contactProfileMeta').innerHTML = `<span>${esc(contactTypeLabel(contact.contact_type, 'Tipo non specificato'))}</span><span>Creato il ${esc(formatRomeDateTime(contact.created_at))}</span><span class="un-badge ${contact.email_status === 'subscribed' ? 'un-badge--success' : ''}">Email: ${esc(statusLabel(contact.email_status))}</span>`;
+    $('editContactFromProfileBtn').dataset.contactId = id;
     $('contactProfileSummary').innerHTML = `
-      <div><span>Email</span><strong>${esc(contact.email || 'n/a')}</strong></div>
-      <div><span>Telefono</span><strong>${esc(contact.phone || 'n/a')}</strong></div>
-      <div><span>Origine</span><strong>${esc(contact.source)}</strong></div>
-      <div><span>Stato email</span><strong>${esc(statusLabel(contact.email_status))}</strong></div>
-      <div><span>Stato contatto</span><strong>${esc(contact.contact_status_name || 'n/a')}</strong></div>
-      <div><span>Studente/Genitore</span><strong>${esc(contactTypeLabel(contact.contact_type))}</strong></div>
-      <div><span>Iscrizione webinar</span><strong>${contact.webinar_registered_at ? esc(new Date(`${contact.webinar_registered_at}T00:00:00`).toLocaleDateString('it-IT')) : 'n/a'}</strong></div>
-      <div><span>Liste</span><strong>${esc((contact.lists || []).map((list) => list.name).join(', ') || 'n/a')}</strong></div>
-      <div><span>Consenso</span><strong>${contact.consent_at ? esc(new Date(contact.consent_at).toLocaleString('it-IT')) : 'Non registrato'}</strong><small>${esc(contact.consent_source || '')}</small></div>
-      <div><span>UTM</span><strong>${esc([contact.utm_source, contact.utm_medium, contact.utm_campaign].filter(Boolean).join(' / ') || 'n/a')}</strong><small>${esc([contact.utm_term, contact.utm_content].filter(Boolean).join(' / '))}</small></div>`;
-    const eventRows = profile.events.map((event) => `<tr><td>${esc(new Date(event.created_at).toLocaleString('it-IT'))}</td><td>${esc(event.event_type)}</td><td>${esc(event.actor || 'sistema')}</td><td>${esc(JSON.stringify(event.event_data || {}))}</td></tr>`).join('');
-    const messageRows = profile.messages.map((message) => `<tr><td>${esc(new Date(message.created_at).toLocaleString('it-IT'))}</td><td>${esc(message.bot_name)}</td><td>${esc(message.role)}</td><td>${esc(message.content)}</td><td>${esc(message.provider_status || 'n/a')}</td></tr>`).join('');
-    const emailRows = profile.emailJobs.map((job) => `<tr><td>${esc(new Date(job.scheduled_at).toLocaleString('it-IT'))}</td><td>${esc(job.campaign_name || job.sequence_name || job.kind)}</td><td>${esc(job.template_name)}</td><td>${esc(statusLabel(job.status))}</td><td>${esc(job.last_error || '')}</td></tr>`).join('');
-    const enrollmentRows = profile.enrollments.map((enrollment) => `<tr><td>${esc(enrollment.sequence_name)}</td><td>${esc(enrollmentStatusLabel(enrollment.status))}</td><td>${enrollment.next_run_at ? esc(new Date(enrollment.next_run_at).toLocaleString('it-IT')) : 'n/a'}</td><td>${esc(enrollment.last_error || '')}</td></tr>`).join('');
-    $('contactProfileSections').innerHTML = [
-      profileSection('Storico', eventRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Evento</th><th>Autore</th><th>Dettagli</th></tr></thead><tbody>${eventRows}</tbody></table></div>` : '', 'Nessun evento registrato.'),
-      profileSection('Messaggi WhatsApp', messageRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>BOT</th><th>Ruolo</th><th>Messaggio</th><th>Consegna</th></tr></thead><tbody>${messageRows}</tbody></table></div>` : '', 'Nessun messaggio associato.'),
-      profileSection('Invii email', emailRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Invio</th><th>Template</th><th>Stato</th><th>Errore</th></tr></thead><tbody>${emailRows}</tbody></table></div>` : '', 'Nessuna email associata.'),
-      profileSection('Sequenze', enrollmentRows ? `<div class="table-wrap"><table><thead><tr><th>Sequenza</th><th>Stato</th><th>Prossima attività</th><th>Errore</th></tr></thead><tbody>${enrollmentRows}</tbody></table></div>` : '', 'Nessuna sequenza associata.'),
-    ].join('');
+      <div class="un-dl-group"><h4 class="un-dl-group__title">Contatto</h4><dl class="un-dl">
+        <dt>Email</dt><dd>${profileEmpty(contact.email)}${contact.email ? `<button class="contact-copy" type="button" data-copy-value="${esc(contact.email)}">Copia</button>` : ''}</dd>
+        <dt>Telefono</dt><dd>${profileEmpty(contact.phone)}${contact.phone ? `<button class="contact-copy" type="button" data-copy-value="${esc(contact.phone)}">Copia</button>` : ''}</dd>
+        <dt>Tipo</dt><dd>${profileEmpty(contactTypeLabel(contact.contact_type, ''))}</dd>
+      </dl></div>
+      <div class="un-dl-group"><h4 class="un-dl-group__title">Iscrizione</h4><dl class="un-dl">
+        <dt>Stato email</dt><dd>${esc(statusLabel(contact.email_status))}</dd><dt>Stato contatto</dt><dd>${profileEmpty(contact.contact_status_name)}</dd>
+        <dt>Consenso</dt><dd>${contact.consent_at ? esc(formatRomeDateTime(contact.consent_at)) : '-'}${contact.consent_source ? `<br><span class="contact-profile-muted">via ${esc(contact.consent_source)}</span>` : ''}</dd>
+        <dt>Webinar</dt><dd>${contact.webinar_registered_at ? esc(new Date(`${contact.webinar_registered_at}T00:00:00`).toLocaleDateString('it-IT')) : '-'}</dd>
+      </dl></div>
+      <div class="un-dl-group"><h4 class="un-dl-group__title">Acquisizione</h4><dl class="un-dl">
+        <dt>Origine</dt><dd>${profileEmpty(contact.source)}</dd><dt>UTM</dt><dd>${profileEmpty([contact.utm_source, contact.utm_medium, contact.utm_campaign, contact.utm_term, contact.utm_content].filter(Boolean).join(' / '))}</dd>
+        <dt>Tag</dt><dd>${profileEmpty((contact.tags || []).join(', '))}</dd>
+      </dl></div>`;
+    const lists = contact.lists || [];
+    $('contactProfileListCount').textContent = lists.length;
+    $('contactProfileLists').innerHTML = lists.length
+      ? lists.map((list) => `<span class="un-tag">${esc(list.name)}</span>`).join('')
+      : '<span class="contact-profile-muted">Nessuna lista</span>';
+
+    const messageRows = profile.messages.map((message) => `<tr><td>${esc(formatRomeDateTime(message.created_at))}</td><td>${esc(message.bot_name)}</td><td>${esc(message.role)}</td><td>${esc(message.content)}</td><td>${profileEmpty(message.provider_status)}</td></tr>`);
+    const emailRows = profile.emailJobs.map((job) => `<tr><td>${esc(formatRomeDateTime(job.sent_at || job.scheduled_at))}</td><td>${esc(job.campaign_name || job.sequence_name || job.kind)}</td><td>${esc(job.template_name)}</td><td>${esc(statusLabel(job.status))}</td><td>${profileEmpty(job.last_error)}</td></tr>`);
+    const enrollmentRows = profile.enrollments.map((enrollment) => `<tr><td>${esc(enrollment.sequence_name)}</td><td>${esc(enrollmentStatusLabel(enrollment.status))}</td><td>${enrollment.next_run_at ? esc(formatRomeDateTime(enrollment.next_run_at)) : '-'}</td><td>${profileEmpty(enrollment.last_error)}</td></tr>`);
+    const timeline = [
+      ...profile.events.map((event) => ({ time: event.created_at, html: profileTimelineItem({ code: 'EV', title: contactEventTitle(event.event_type), time: event.created_at, meta: event.actor || 'sistema', details: event.event_data }) })),
+      ...profile.messages.map((message) => ({ time: message.created_at, html: profileTimelineItem({ code: 'WA', title: message.role === 'user' ? 'Messaggio WhatsApp ricevuto' : 'Messaggio WhatsApp inviato', time: message.created_at, meta: `${message.bot_name}: ${message.content}`, tone: 'un-timeline__icon--accent' }) })),
+      ...profile.emailJobs.map((job) => ({ time: job.sent_at || job.scheduled_at, html: profileTimelineItem({ code: 'EM', title: `Email ${statusLabel(job.status).toLowerCase()}`, time: job.sent_at || job.scheduled_at, meta: `${job.template_name} | ${job.campaign_name || job.sequence_name || emailKindLabel(job.kind)}`, tone: job.status === 'sent' ? 'un-timeline__icon--success' : '' }) })),
+      ...profile.enrollments.map((enrollment) => ({ time: enrollment.created_at, html: profileTimelineItem({ code: 'SQ', title: `Sequenza ${enrollmentStatusLabel(enrollment.status).toLowerCase()}`, time: enrollment.created_at, meta: enrollment.sequence_name }) })),
+    ].sort((left, right) => new Date(right.time) - new Date(left.time)).map((item) => item.html).join('');
+    const activityCount = profile.events.length + profile.messages.length + profile.emailJobs.length + profile.enrollments.length;
+    $('profileActivityCount').textContent = activityCount;
+    $('profileWhatsappCount').textContent = profile.messages.length;
+    $('profileEmailCount').textContent = profile.emailJobs.length;
+    $('profileSequenceCount').textContent = profile.enrollments.length;
+    $('contactProfileSections').innerHTML = `
+      <div data-profile-panel="activity">${timeline ? `<ol class="un-timeline">${timeline}</ol>` : '<div class="contact-profile-empty"><strong>Nessuna attività</strong><span>Le nuove attività compariranno qui.</span></div>'}</div>
+      <div data-profile-panel="whatsapp" hidden>${profileTable(['Data', 'BOT', 'Ruolo', 'Messaggio', 'Consegna'], messageRows, 'Nessun messaggio WhatsApp')}</div>
+      <div data-profile-panel="email" hidden>${profileTable(['Data', 'Invio', 'Template', 'Stato', 'Errore'], emailRows, 'Nessuna email')}</div>
+      <div data-profile-panel="sequences" hidden>${profileTable(['Sequenza', 'Stato', 'Prossima attività', 'Errore'], enrollmentRows, 'Nessuna sequenza')}</div>`;
+    document.querySelectorAll('[data-copy-value]').forEach((button) => button.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(button.dataset.copyValue);
+      toast('Valore copiato');
+    }));
+    setContactProfileTab('activity');
     $('contactProfile').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
     $('contactProfileMeta').textContent = '';
@@ -314,8 +412,12 @@ function closeContactProfile() {
   $('contactsListView').hidden = false;
   $('contactProfileTitle').textContent = 'Profilo contatto';
   $('contactProfileMeta').textContent = '';
+  $('contactProfileCrumb').textContent = 'Profilo';
+  $('contactProfileAvatar').textContent = '--';
   $('contactProfileSummary').innerHTML = '';
+  $('contactProfileLists').innerHTML = '';
   $('contactProfileSections').innerHTML = '';
+  state.activeContactId = null;
   $('panel-contacts').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -618,7 +720,10 @@ async function loadLists() {
   const { lists } = await api('/api/crm/lists');
   state.lists = lists;
   $('listsGrid').innerHTML = lists.length ? lists.map((list) => {
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${list.contact_count === 1 ? '1 contatto' : `${list.contact_count} contatti`}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
+    const lastJoin = list.last_contact_joined_at
+      ? `Ultimo ingresso ${formatRomeDateTime(list.last_contact_joined_at)} Roma`
+      : 'Nessun ingresso registrato';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${esc(lastJoin)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista e aggiungi i contatti dalla rubrica o tramite CSV.</div>';
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
   document.querySelectorAll('[data-edit-list]').forEach((button) => button.addEventListener('click', () => editList(button.dataset.editList)));
@@ -645,7 +750,7 @@ async function loadListContacts(id) {
     container.innerHTML = contacts.length
       ? `<div class="section-heading compact"><div><h3>Contatti iscritti</h3><span>${total} ${total === 1 ? 'contatto' : 'contatti'}</span></div></div><div class="table-wrap"><table><thead><tr><th>Contatto</th><th>Email</th><th>Telefono</th><th>Origine</th><th>Tag</th><th>Stato</th></tr></thead><tbody>${contacts.map((contact) => {
         const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
-        return `<tr><td><div class="crm-contact-name"><strong>${esc(name)}</strong><small>${esc(new Date(contact.created_at).toLocaleDateString('it-IT'))}</small></div></td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contact.source)}</td><td><div class="crm-tags">${(contact.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join('') || '<span>n/a</span>'}</div></td><td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td></tr>`;
+        return `<tr><td><div class="crm-contact-name"><strong>${esc(name)}</strong><small>Ingresso lista ${esc(formatRomeDateTime(contact.list_joined_at || contact.created_at))} Roma</small></div></td><td>${esc(contact.email || 'n/a')}</td><td>${esc(contact.phone || 'n/a')}</td><td>${esc(contact.source)}</td><td><div class="crm-tags">${(contact.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join('') || '<span>n/a</span>'}</div></td><td><span class="badge ${contact.email_status === 'subscribed' ? 'on' : contact.email_status === 'bounced' ? 'off' : 'warn'}">${esc(statusLabel(contact.email_status))}</span></td></tr>`;
       }).join('')}</tbody></table></div>`
       : '<div class="crm-empty">Nessun contatto è iscritto a questa lista.</div>';
   } catch (error) {
@@ -713,16 +818,114 @@ async function removeList(id) {
   }
 }
 
-async function loadTemplates() {
-  const { templates } = await api('/api/crm/templates');
-  state.templates = templates;
+function folderManager(kind) {
+  return document.querySelector(`[data-folder-manager="${kind}"]`);
+}
+
+function folderTypeLabel(kind) {
+  return kind === 'template' ? 'template' : 'sequenze';
+}
+
+function resetFolderEditor(kind) {
+  const manager = folderManager(kind);
+  manager.querySelector('[data-folder-id]').value = '';
+  manager.querySelector('[data-folder-name]').value = '';
+  manager.querySelector('[data-folder-description]').value = '';
+  manager.querySelector('[data-folder-save]').textContent = 'Salva cartella';
+  manager.querySelector('[data-folder-name]').focus();
+}
+
+function renderFolderManager(kind) {
+  const manager = folderManager(kind);
+  const folders = state.folders[kind];
+  manager.querySelector('[data-folder-list]').innerHTML = folders.length
+    ? folders.map((folder) => `<div class="crm-folder-row"><div><strong>${esc(folder.name)}</strong><span>${esc(folder.description || 'Nessuna descrizione')} | ${folder.item_count} ${folder.item_count === 1 ? 'elemento' : 'elementi'}</span></div><div class="row-actions"><button class="secondary" type="button" data-edit-folder="${folder.id}" data-folder-kind="${kind}">Rinomina</button><button class="danger" type="button" data-delete-folder="${folder.id}" data-folder-kind="${kind}">Elimina</button></div></div>`).join('')
+    : `<div class="crm-empty">Nessuna cartella per ${folderTypeLabel(kind)}.</div>`;
+  manager.querySelectorAll('[data-edit-folder]').forEach((button) => button.addEventListener('click', () => {
+    const folder = state.folders[kind].find((item) => item.id === button.dataset.editFolder);
+    if (!folder) return;
+    manager.querySelector('[data-folder-id]').value = folder.id;
+    manager.querySelector('[data-folder-name]').value = folder.name;
+    manager.querySelector('[data-folder-description]').value = folder.description || '';
+    manager.querySelector('[data-folder-save]').textContent = 'Salva modifiche';
+    manager.querySelector('[data-folder-name]').focus();
+  }));
+  manager.querySelectorAll('[data-delete-folder]').forEach((button) => button.addEventListener('click', () => removeContentFolder(kind, button.dataset.deleteFolder)));
+}
+
+function refreshFolderControls(kind) {
+  const folders = state.folders[kind];
+  const options = folders.map((folder) => `<option value="${folder.id}">${esc(folder.name)}</option>`).join('');
+  const filter = $(`${kind}FolderFilter`);
+  const editor = $(`${kind}Folder`);
+  const filterValue = filter.value;
+  const editorValue = editor.value;
+  filter.innerHTML = `<option value="">Tutte le cartelle</option><option value="__none__">Senza cartella</option>${options}`;
+  editor.innerHTML = `<option value="">Senza cartella</option>${options}`;
+  if ([...filter.options].some((option) => option.value === filterValue)) filter.value = filterValue;
+  if ([...editor.options].some((option) => option.value === editorValue)) editor.value = editorValue;
+  renderFolderManager(kind);
+}
+
+async function loadContentFolders() {
+  const { folders } = await api('/api/crm/folders');
+  state.folders.template = folders.filter((folder) => folder.kind === 'template');
+  state.folders.sequence = folders.filter((folder) => folder.kind === 'sequence');
+  refreshFolderControls('template');
+  refreshFolderControls('sequence');
+}
+
+async function saveContentFolder(event) {
+  event.preventDefault();
+  const manager = event.currentTarget;
+  const kind = manager.dataset.folderManager;
+  const id = manager.querySelector('[data-folder-id]').value;
+  try {
+    await api(id ? `/api/crm/folders/${id}` : '/api/crm/folders', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify({
+        kind,
+        name: manager.querySelector('[data-folder-name]').value,
+        description: manager.querySelector('[data-folder-description]').value,
+      }),
+    });
+    toast(id ? 'Cartella aggiornata' : 'Cartella creata');
+    resetFolderEditor(kind);
+    await Promise.all([loadContentFolders(), loadTemplates(), loadSequences()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function removeContentFolder(kind, id) {
+  if (!confirm('Eliminare la cartella? I contenuti resteranno disponibili senza cartella.')) return;
+  try {
+    await api(`/api/crm/folders/${id}`, { method: 'DELETE' });
+    toast('Cartella eliminata');
+    resetFolderEditor(kind);
+    await Promise.all([loadContentFolders(), loadTemplates(), loadSequences()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+function renderTemplates() {
+  const filter = $('templateFolderFilter').value;
+  const templates = state.templates.filter((template) => !filter
+    || (filter === '__none__' ? !template.folder_id : template.folder_id === filter));
   $('templatesGrid').innerHTML = templates.length ? templates.map((template) => {
     const attachmentsCount = (template.attachments || []).length;
-    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-duplicate-template="${template.id}">Duplica</button><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
-  }).join('') : '<div class="crm-empty-card">Non ci sono template email.</div>';
+    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><div class="crm-object-labels"><span class="badge">${esc(template.folder_name || 'Senza cartella')}</span><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-duplicate-template="${template.id}">Duplica</button><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono template nella cartella selezionata.</div>';
   document.querySelectorAll('[data-duplicate-template]').forEach((button) => button.addEventListener('click', () => duplicateTemplate(button.dataset.duplicateTemplate, button)));
   document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
   document.querySelectorAll('[data-delete-template]').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.deleteTemplate)));
+}
+
+async function loadTemplates() {
+  const { templates } = await api('/api/crm/templates');
+  state.templates = templates;
+  renderTemplates();
   refreshSelects();
   renderSequenceSteps();
 }
@@ -990,6 +1193,7 @@ function templatePayload() {
     htmlBody,
     textBody,
     attachments: state.templateAttachments,
+    folderId: $('templateFolder').value,
   };
 }
 
@@ -1000,6 +1204,7 @@ function editTemplate(id) {
   $('templateName').value = template.name;
   $('templateSubject').value = template.subject;
   $('templatePreheader').value = template.preheader || '';
+  $('templateFolder').value = template.folder_id || '';
   $('templateHtml').value = template.html_body;
   $('templateVisual').innerHTML = template.html_body;
   $('templateText').value = template.text_body || '';
@@ -1027,7 +1232,7 @@ async function saveTemplate(event) {
     state.templateAttachments = [];
     renderTemplateAttachments();
     toast(id ? 'Template aggiornato' : 'Template creato');
-    await Promise.all([loadTemplates(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadTemplates(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
   }
@@ -1058,7 +1263,7 @@ async function removeTemplate(id) {
   try {
     await api(`/api/crm/templates/${id}`, { method: 'DELETE' });
     toast('Template eliminato');
-    await Promise.all([loadTemplates(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadTemplates(), loadSummary()]);
   } catch (error) {
     toast('Il template è usato da un invio o da una sequenza e non può essere eliminato.', 'err');
   }
@@ -1069,7 +1274,7 @@ async function duplicateTemplate(id, button) {
   try {
     await api(`/api/crm/templates/${id}/duplicate`, { method: 'POST' });
     toast('Template duplicato');
-    await Promise.all([loadTemplates(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadTemplates(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
     button.disabled = false;
@@ -1240,14 +1445,16 @@ function sequenceConditionSummary(conditions = []) {
 async function loadSequences() {
   const { sequences } = await api('/api/crm/sequences');
   state.sequences = sequences;
+  const folderFilter = $('sequenceFolderFilter').value;
+  const visibleSequences = sequences.filter((sequence) => !folderFilter
+    || (folderFilter === '__none__' ? !sequence.folder_id : sequence.folder_id === folderFilter));
   const listOptions = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
-  $('sequencesGrid').innerHTML = sequences.length ? sequences.map((sequence) => {
+  $('sequencesGrid').innerHTML = visibleSequences.length ? visibleSequences.map((sequence) => {
     let elapsed = 0;
     const timeline = sequence.steps.map((step, index) => {
       elapsed += step.delayMinutes;
       return `<li><span class="sequence-timeline-index">${String(index + 1).padStart(2, '0')}</span><div><strong>${esc(step.templateName)}</strong><span>${step.delayMinutes ? `Attesa ${formatDuration(step.delayMinutes)}` : 'Invio immediato'} | ${elapsed ? `T+ ${formatDuration(elapsed)}` : 'T+ 0'}</span></div></li>`;
     }).join('');
-    const editDisabled = sequence.enrollment_count > 0;
     const automaticTrigger = sequence.trigger_type === 'list_joined';
     const triggerLabel = automaticTrigger
       ? `Contatto entrato nella lista ${esc(sequence.trigger_list_name || 'rimossa')}`
@@ -1257,10 +1464,13 @@ async function loadSequences() {
       ? `<select data-enroll-list="${sequence.id}">${listOptions}</select><button data-enroll-sequence="${sequence.id}" ${state.lists.length && sequence.active ? '' : 'disabled'}>Iscrivi lista</button>`
       : '';
     const writeActions = can('crm:write')
-      ? `${sequence.active ? `<button class="secondary" data-pause-sequence="${sequence.id}">Pausa</button><button class="secondary" data-toggle-sequence="${sequence.id}" data-active="true">Disattiva</button>` : `<button class="secondary" data-toggle-sequence="${sequence.id}" data-active="false">Riattiva</button>`}<button class="secondary" data-duplicate-sequence="${sequence.id}">Duplica</button><button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>`
+      ? `${sequence.active ? `<button class="secondary" data-pause-sequence="${sequence.id}">Pausa</button><button class="secondary" data-toggle-sequence="${sequence.id}" data-active="true">Disattiva</button>` : `<button class="secondary" data-toggle-sequence="${sequence.id}" data-active="false">Riattiva</button>`}<button class="secondary" data-duplicate-sequence="${sequence.id}">Duplica</button><button class="secondary" data-edit-sequence="${sequence.id}">Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>`
       : '';
-    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><span class="badge ${sequence.active ? 'on' : 'off'}">${sequence.active ? 'Attiva' : 'Disattivata'}</span></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${writeActions}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
-  }).join('') : '<div class="crm-empty-card">Non ci sono sequenze.</div>';
+    const editNote = sequence.enrollment_count > 0
+      ? 'Workflow modificabile. Gli invii già in coda restano invariati.'
+      : 'Workflow modificabile.';
+    return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><div class="crm-object-labels"><span class="badge">${esc(sequence.folder_name || 'Senza cartella')}</span><span class="badge ${sequence.active ? 'on' : 'off'}">${sequence.active ? 'Attiva' : 'Disattivata'}</span></div></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${esc(editNote)}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${writeActions}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono sequenze nella cartella selezionata.</div>';
   document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
   document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
   document.querySelectorAll('[data-duplicate-sequence]').forEach((button) => button.addEventListener('click', () => duplicateSequence(button.dataset.duplicateSequence, button)));
@@ -1272,11 +1482,12 @@ async function loadSequences() {
 
 function editSequence(id) {
   const sequence = state.sequences.find((item) => item.id === id);
-  if (!sequence || sequence.enrollment_count > 0) return;
+  if (!sequence) return;
   $('sequenceEditor').reset();
   $('sequenceId').value = sequence.id;
   $('sequenceName').value = sequence.name;
   $('sequenceDescription').value = sequence.description || '';
+  $('sequenceFolder').value = sequence.folder_id || '';
   $('sequenceActive').checked = sequence.active;
   $('sequenceTriggerType').value = sequence.trigger_type || 'manual';
   $('sequenceTriggerList').value = sequence.trigger_list_id || '';
@@ -1295,7 +1506,7 @@ async function duplicateSequence(id, button) {
   try {
     await api(`/api/crm/sequences/${id}/duplicate`, { method: 'POST' });
     toast('Sequenza duplicata e disattivata');
-    await Promise.all([loadSequences(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadSequences(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
     button.disabled = false;
@@ -1336,6 +1547,7 @@ async function saveSequence(event) {
       body: JSON.stringify({
         name: $('sequenceName').value,
         description: $('sequenceDescription').value,
+        folderId: $('sequenceFolder').value,
         active: $('sequenceActive').checked,
         trigger: {
           type: $('sequenceTriggerType').value,
@@ -1350,7 +1562,7 @@ async function saveSequence(event) {
     $('sequenceSteps').innerHTML = '';
     $('sequenceId').value = '';
     toast(id ? 'Sequenza aggiornata' : 'Sequenza creata');
-    await Promise.all([loadSequences(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadSequences(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
   }
@@ -1421,7 +1633,7 @@ async function removeSequence(id) {
   try {
     await api(`/api/crm/sequences/${id}`, { method: 'DELETE' });
     toast('Sequenza eliminata');
-    await Promise.all([loadSequences(), loadSummary()]);
+    await Promise.all([loadContentFolders(), loadSequences(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');
   }
@@ -1631,6 +1843,7 @@ function resetTemplateEditor() {
   $('templateVisual').innerHTML = $('templateHtml').value;
   savedEditorRange = null;
   $('templateEditorTitle').textContent = 'Nuovo template';
+  $('templateFolder').value = $('templateFolderFilter').value === '__none__' ? '' : $('templateFolderFilter').value;
   setEditorMode('visual');
   $('templateSaveState').textContent = 'Nuova bozza';
   openEditor('templateEditor');
@@ -1639,6 +1852,7 @@ function resetTemplateEditor() {
 function resetSequenceEditor() {
   $('sequenceEditor').reset();
   $('sequenceId').value = '';
+  $('sequenceFolder').value = $('sequenceFolderFilter').value === '__none__' ? '' : $('sequenceFolderFilter').value;
   $('sequenceActive').checked = true;
   $('sequenceTriggerType').value = state.lists.length ? 'list_joined' : 'manual';
   syncSequenceTriggerFields();
@@ -1682,8 +1896,26 @@ $('listEditor').addEventListener('submit', saveList);
 $('templateEditor').addEventListener('submit', saveTemplate);
 $('sequenceEditor').addEventListener('submit', saveSequence);
 $('campaignEditor').addEventListener('submit', saveCampaign);
+document.querySelectorAll('[data-folder-manager]').forEach((manager) => manager.addEventListener('submit', saveContentFolder));
+document.querySelectorAll('[data-manage-folders]').forEach((button) => button.addEventListener('click', () => {
+  const kind = button.dataset.manageFolders;
+  const manager = folderManager(kind);
+  manager.hidden = false;
+  resetFolderEditor(kind);
+  manager.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}));
+document.querySelectorAll('[data-folder-reset]').forEach((button) => button.addEventListener('click', () => resetFolderEditor(button.closest('[data-folder-manager]').dataset.folderManager)));
+$('templateFolderFilter').addEventListener('change', renderTemplates);
+$('sequenceFolderFilter').addEventListener('change', () => loadSequences().catch((error) => toast(error.message, 'err')));
 $('newContactBtn').addEventListener('click', resetContactEditor);
 $('closeContactProfileBtn').addEventListener('click', closeContactProfile);
+$('editContactFromProfileBtn').addEventListener('click', () => {
+  const id = $('editContactFromProfileBtn').dataset.contactId;
+  if (!id) return;
+  closeContactProfile();
+  editContact(id);
+});
+document.querySelectorAll('[data-profile-tab]').forEach((tab) => tab.addEventListener('click', () => setContactProfileTab(tab.dataset.profileTab)));
 $('importContactsBtn').addEventListener('click', () => resetContactImport());
 $('downloadContactTemplateBtn').addEventListener('click', downloadContactTemplate);
 $('exportContactsBtn').addEventListener('click', exportFilteredContacts);
@@ -1799,6 +2031,7 @@ document.querySelectorAll('[data-preview-size]').forEach((button) => button.addE
   try {
     await loadMe();
     await loadContactStatuses();
+    await loadContentFolders();
     await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadCampaigns()]);
     await loadSequences();
     $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));

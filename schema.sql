@@ -303,6 +303,8 @@ CREATE TABLE IF NOT EXISTS crm_list_memberships (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_list_memberships_contact
   ON crm_list_memberships (contact_id);
+CREATE INDEX IF NOT EXISTS idx_crm_list_memberships_list_created
+  ON crm_list_memberships (list_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS crm_list_exclusions (
   list_id            UUID NOT NULL REFERENCES crm_lists(id) ON DELETE CASCADE,
@@ -325,6 +327,18 @@ CREATE TABLE IF NOT EXISTS crm_contact_events (
 CREATE INDEX IF NOT EXISTS idx_crm_contact_events_contact
   ON crm_contact_events (contact_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS crm_content_folders (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind               TEXT NOT NULL CHECK (kind IN ('template','sequence')),
+  name               TEXT NOT NULL,
+  description        TEXT,
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_content_folders_kind_name
+  ON crm_content_folders (kind, lower(name));
+
 CREATE TABLE IF NOT EXISTS crm_email_templates (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name               TEXT NOT NULL,
@@ -333,6 +347,7 @@ CREATE TABLE IF NOT EXISTS crm_email_templates (
   html_body          TEXT NOT NULL,
   text_body          TEXT,
   attachments        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  folder_id          UUID REFERENCES crm_content_folders(id) ON DELETE SET NULL,
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -347,6 +362,7 @@ CREATE TABLE IF NOT EXISTS crm_sequences (
   trigger_list_id    UUID REFERENCES crm_lists(id) ON DELETE RESTRICT,
   trigger_started_at TIMESTAMPTZ,
   trigger_conditions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  folder_id          UUID REFERENCES crm_content_folders(id) ON DELETE SET NULL,
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -370,6 +386,10 @@ ALTER TABLE crm_sequences ADD CONSTRAINT crm_sequences_trigger_conditions_check
   CHECK (jsonb_typeof(trigger_conditions) = 'array');
 CREATE INDEX IF NOT EXISTS idx_crm_sequences_trigger_list
   ON crm_sequences (trigger_list_id) WHERE trigger_type = 'list_joined';
+CREATE INDEX IF NOT EXISTS idx_crm_email_templates_folder
+  ON crm_email_templates (folder_id);
+CREATE INDEX IF NOT EXISTS idx_crm_sequences_folder
+  ON crm_sequences (folder_id);
 
 CREATE TABLE IF NOT EXISTS crm_sequence_steps (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -508,6 +528,9 @@ CREATE TRIGGER trg_crm_lists_updated_at BEFORE UPDATE ON crm_lists
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_crm_templates_updated_at ON crm_email_templates;
 CREATE TRIGGER trg_crm_templates_updated_at BEFORE UPDATE ON crm_email_templates
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_crm_content_folders_updated_at ON crm_content_folders;
+CREATE TRIGGER trg_crm_content_folders_updated_at BEFORE UPDATE ON crm_content_folders
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_crm_sequences_updated_at ON crm_sequences;
 CREATE TRIGGER trg_crm_sequences_updated_at BEFORE UPDATE ON crm_sequences
