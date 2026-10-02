@@ -284,6 +284,12 @@ async function updateTemplate(req, res) {
   res.json({ template });
 }
 
+async function duplicateTemplate(req, res) {
+  const template = await crmRepo.duplicateTemplate(req.params.id, req.user.username);
+  if (!template) return res.status(404).json({ error: 'Template non trovato' });
+  res.status(201).json({ template });
+}
+
 async function sendTemplateTest(req, res) {
   const to = crmService.normalizeEmail(req.body.to);
   if (!to) return res.status(400).json({ error: 'Test recipient is required' });
@@ -314,6 +320,12 @@ async function createSequence(req, res) {
     ...crmService.validateSequence(req.body),
     createdBy: req.user.username,
   });
+  res.status(201).json({ sequence });
+}
+
+async function duplicateSequence(req, res) {
+  const sequence = await crmRepo.duplicateSequence(req.params.id, req.user.username);
+  if (!sequence) return res.status(404).json({ error: 'Sequenza non trovata' });
   res.status(201).json({ sequence });
 }
 
@@ -472,11 +484,13 @@ module.exports = {
   listTemplates,
   createTemplate,
   updateTemplate,
+  duplicateTemplate,
   sendTemplateTest,
   deleteTemplate,
   listSequences,
   listSequenceEnrollments,
   createSequence,
+  duplicateSequence,
   updateSequence,
   updateSequenceStatus,
   pauseSequence,

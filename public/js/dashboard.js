@@ -90,10 +90,12 @@ async function selectBot(botId) {
   $('conversationStatus').value = '';
   $('conversationBroadcast').value = '';
   $('conversationArchive').value = 'active';
+  $('conversationUnread').setAttribute('aria-pressed', 'false');
   $('conversationSearch').disabled = false;
   $('conversationStatus').disabled = false;
   $('conversationBroadcast').disabled = false;
   $('conversationArchive').disabled = false;
+  $('conversationUnread').disabled = false;
   $('botSelect').value = botId;
   renderChatActions();
   renderChat();
@@ -110,10 +112,12 @@ async function loadConversations() {
   const status = $('conversationStatus').value;
   const broadcast = $('conversationBroadcast').value;
   const archived = $('conversationArchive').value === 'archived';
+  const unread = $('conversationUnread').getAttribute('aria-pressed') === 'true';
   if (search) params.set('search', search);
   if (status) params.set('status', status);
   if (broadcast) params.set('broadcast', broadcast);
   if (archived) params.set('archived', 'true');
+  if (unread) params.set('unread', 'true');
   const { conversations, filters = {} } = await api(`/api/chat/conversations?${params}`);
   if (requestId !== state.conversationRequest || cid !== state.selectedBotId) return;
   state.conversations = conversations;
@@ -121,7 +125,7 @@ async function loadConversations() {
   renderConversationFilterOptions();
   const el = $('conversationsList');
   if (!conversations.length) {
-    const hasFilters = Boolean(search || status || broadcast || archived);
+    const hasFilters = Boolean(search || status || broadcast || archived || unread);
     el.innerHTML = `<div class="empty-list">${hasFilters ? 'Nessun risultato' : 'Nessuna conversazione'}</div>`;
     return;
   }
@@ -676,6 +680,11 @@ $('conversationSearch').addEventListener('input', () => {
 $('conversationStatus').addEventListener('change', loadConversations);
 $('conversationBroadcast').addEventListener('change', loadConversations);
 $('botSelect').addEventListener('change', (event) => selectBot(event.target.value));
+$('conversationUnread').addEventListener('click', () => {
+  const button = $('conversationUnread');
+  button.setAttribute('aria-pressed', button.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+  loadConversations();
+});
 $('conversationArchive').addEventListener('change', () => {
   state.selectedConversationId = null;
   state.currentConversation = null;

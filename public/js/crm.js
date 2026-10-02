@@ -718,8 +718,9 @@ async function loadTemplates() {
   state.templates = templates;
   $('templatesGrid').innerHTML = templates.length ? templates.map((template) => {
     const attachmentsCount = (template.attachments || []).length;
-    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
+    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-duplicate-template="${template.id}">Duplica</button><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono template email.</div>';
+  document.querySelectorAll('[data-duplicate-template]').forEach((button) => button.addEventListener('click', () => duplicateTemplate(button.dataset.duplicateTemplate, button)));
   document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
   document.querySelectorAll('[data-delete-template]').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.deleteTemplate)));
   refreshSelects();
@@ -1063,6 +1064,18 @@ async function removeTemplate(id) {
   }
 }
 
+async function duplicateTemplate(id, button) {
+  button.disabled = true;
+  try {
+    await api(`/api/crm/templates/${id}/duplicate`, { method: 'POST' });
+    toast('Template duplicato');
+    await Promise.all([loadTemplates(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+    button.disabled = false;
+  }
+}
+
 function templateOptions(selected = '') {
   return state.templates.map((template) => `<option value="${template.id}" ${template.id === selected ? 'selected' : ''}>${esc(template.name)}</option>`).join('');
 }
@@ -1244,12 +1257,13 @@ async function loadSequences() {
       ? `<select data-enroll-list="${sequence.id}">${listOptions}</select><button data-enroll-sequence="${sequence.id}" ${state.lists.length && sequence.active ? '' : 'disabled'}>Iscrivi lista</button>`
       : '';
     const writeActions = can('crm:write')
-      ? `${sequence.active ? `<button class="secondary" data-pause-sequence="${sequence.id}">Pausa</button><button class="secondary" data-toggle-sequence="${sequence.id}" data-active="true">Disattiva</button>` : `<button class="secondary" data-toggle-sequence="${sequence.id}" data-active="false">Riattiva</button>`}<button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>`
+      ? `${sequence.active ? `<button class="secondary" data-pause-sequence="${sequence.id}">Pausa</button><button class="secondary" data-toggle-sequence="${sequence.id}" data-active="true">Disattiva</button>` : `<button class="secondary" data-toggle-sequence="${sequence.id}" data-active="false">Riattiva</button>`}<button class="secondary" data-duplicate-sequence="${sequence.id}">Duplica</button><button class="secondary" data-edit-sequence="${sequence.id}" ${editDisabled ? 'disabled' : ''}>Modifica</button><button class="danger" data-delete-sequence="${sequence.id}">Elimina</button>`
       : '';
     return `<article class="crm-object-card wide sequence-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Workflow email</span><h3>${esc(sequence.name)}</h3><p>${esc(sequence.description || 'Nessuna descrizione')}</p></div><span class="badge ${sequence.active ? 'on' : 'off'}">${sequence.active ? 'Attiva' : 'Disattivata'}</span></div><div class="sequence-trigger"><span>Trigger</span><strong>${triggerLabel}${conditionsLabel ? `<small>${conditionsLabel}</small>` : ''}</strong></div><ol class="sequence-timeline">${timeline}</ol><div class="sequence-card-stats"><div><strong>${sequence.steps.length}</strong><span>email</span></div><div><strong>${formatDuration(sequence.steps.reduce((sum, step) => sum + step.delayMinutes, 0))}</strong><span>durata</span></div><div><strong>${sequence.enrollment_count}</strong><span>entrati</span></div><div><strong>${sequence.active_count}</strong><span>in corso</span></div><div><strong>${sequence.completed_count}</strong><span>completati</span></div></div><div class="crm-object-meta"><span>${editDisabled ? 'I passaggi non sono modificabili dopo il primo ingresso.' : 'Workflow modificabile.'}</span><div class="crm-inline-action">${manualEnrollment}<button class="secondary" data-view-sequence-contacts="${sequence.id}">Vedi contatti</button>${writeActions}</div></div><div class="sequence-enrollments" id="sequenceEnrollments-${sequence.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono sequenze.</div>';
   document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
   document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
+  document.querySelectorAll('[data-duplicate-sequence]').forEach((button) => button.addEventListener('click', () => duplicateSequence(button.dataset.duplicateSequence, button)));
   document.querySelectorAll('[data-edit-sequence]').forEach((button) => button.addEventListener('click', () => editSequence(button.dataset.editSequence)));
   document.querySelectorAll('[data-toggle-sequence]').forEach((button) => button.addEventListener('click', () => toggleSequence(button.dataset.toggleSequence, button.dataset.active !== 'true')));
   document.querySelectorAll('[data-pause-sequence]').forEach((button) => button.addEventListener('click', () => pauseSequence(button.dataset.pauseSequence)));
@@ -1274,6 +1288,18 @@ function editSequence(id) {
   $('sequenceEditorTitle').textContent = 'Modifica sequenza';
   $('saveSequenceBtn').textContent = 'Salva modifiche';
   openEditor('sequenceEditor');
+}
+
+async function duplicateSequence(id, button) {
+  button.disabled = true;
+  try {
+    await api(`/api/crm/sequences/${id}/duplicate`, { method: 'POST' });
+    toast('Sequenza duplicata e disattivata');
+    await Promise.all([loadSequences(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+    button.disabled = false;
+  }
 }
 
 async function toggleSequence(id, active) {

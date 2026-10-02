@@ -15,6 +15,7 @@ async function listConversations(req, res) {
     status: req.query.status,
     broadcast: req.query.broadcast,
     archived: req.query.archived === 'true',
+    unread: req.query.unread === 'true',
   });
   const filters = await conversationRepo.listFiltersByBot(botId);
   res.json({ bot: { id: bot.id, name: bot.name }, conversations, filters });

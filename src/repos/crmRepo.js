@@ -682,6 +682,18 @@ async function getTemplate(id) {
   return rows[0] || null;
 }
 
+async function duplicateTemplate(id, createdBy) {
+  const { rows } = await db.query(
+    `INSERT INTO crm_email_templates
+       (name,subject,preheader,html_body,text_body,attachments,created_by)
+     SELECT name || ' - copia',subject,preheader,html_body,text_body,attachments,$2
+     FROM crm_email_templates WHERE id=$1
+     RETURNING *`,
+    [id, createdBy]
+  );
+  return rows[0] || null;
+}
+
 async function deleteTemplate(id) {
   const { rows } = await db.query('DELETE FROM crm_email_templates WHERE id = $1 RETURNING id', [id]);
   return rows[0] || null;
@@ -714,6 +726,46 @@ async function createSequence(input) {
       );
     }
     if (triggerList) await seedSequenceTriggerState(client, sequence.id, triggerList);
+    await client.query('COMMIT');
+    return sequence;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function duplicateSequence(id, createdBy) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const source = await client.query('SELECT * FROM crm_sequences WHERE id=$1 FOR UPDATE', [id]);
+    if (!source.rows[0]) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const sequenceResult = await client.query(
+      `INSERT INTO crm_sequences
+       (name,description,active,trigger_type,trigger_list_id,trigger_started_at,trigger_conditions,created_by)
+       SELECT name || ' - copia',description,FALSE,trigger_type,trigger_list_id,
+              CASE WHEN trigger_type='list_joined' THEN now() ELSE NULL END,
+              trigger_conditions,$2
+       FROM crm_sequences WHERE id=$1
+       RETURNING *`,
+      [id, createdBy]
+    );
+    const sequence = sequenceResult.rows[0];
+    await client.query(
+      `INSERT INTO crm_sequence_steps (sequence_id,position,delay_minutes,template_id)
+       SELECT $2,position,delay_minutes,template_id
+       FROM crm_sequence_steps WHERE sequence_id=$1 ORDER BY position`,
+      [id, sequence.id]
+    );
+    if (sequence.trigger_list_id) {
+      const list = await client.query('SELECT * FROM crm_lists WHERE id=$1', [sequence.trigger_list_id]);
+      if (list.rows[0]) await seedSequenceTriggerState(client, sequence.id, list.rows[0]);
+    }
     await client.query('COMMIT');
     return sequence;
   } catch (error) {
@@ -1521,8 +1573,10 @@ module.exports = {
   updateTemplate,
   listTemplates,
   getTemplate,
+  duplicateTemplate,
   deleteTemplate,
   createSequence,
+  duplicateSequence,
   updateSequence,
   setSequenceActive,
   pauseSequence,

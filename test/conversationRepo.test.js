@@ -52,3 +52,18 @@ test('separa le conversazioni attive da quelle archiviate', async (t) => {
   assert.match(queryCall.sql, /c\.archived_at IS NOT NULL/);
   assert.equal(queryCall.values[5], true);
 });
+
+test('filtra soltanto le conversazioni non lette', async (t) => {
+  const originalQuery = db.query;
+  let queryCall;
+  db.query = async (sql, values) => {
+    queryCall = { sql, values };
+    return { rows: [] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  await conversationRepo.listByBot('bot-1', { unread: true });
+
+  assert.match(queryCall.sql, /c\.unread_count > 0/);
+  assert.equal(queryCall.values[6], true);
+});

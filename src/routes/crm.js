@@ -39,12 +39,14 @@ router.delete('/contact-statuses/:id', requireAdmin, handle(controller.deleteCon
 router.get('/templates', read, handle(controller.listTemplates));
 router.post('/templates', write, handle(controller.createTemplate));
 router.post('/templates/test', write, handle(controller.sendTemplateTest));
+router.post('/templates/:id/duplicate', write, handle(controller.duplicateTemplate));
 router.put('/templates/:id', write, handle(controller.updateTemplate));
 router.delete('/templates/:id', write, handle(controller.deleteTemplate));
 
 router.get('/sequences', read, handle(controller.listSequences));
 router.get('/sequences/:id/enrollments', read, handle(controller.listSequenceEnrollments));
 router.post('/sequences', write, handle(controller.createSequence));
+router.post('/sequences/:id/duplicate', write, handle(controller.duplicateSequence));
 router.put('/sequences/:id', write, handle(controller.updateSequence));
 router.patch('/sequences/:id/status', write, handle(controller.updateSequenceStatus));
 router.post('/sequences/:id/pause', write, handle(controller.pauseSequence));

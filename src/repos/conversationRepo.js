@@ -49,7 +49,7 @@ function parseBroadcastFilter(value) {
 }
 
 async function listByBot(botId, {
-  limit = 100, search = '', status = '', broadcast = '', archived = false,
+  limit = 100, search = '', status = '', broadcast = '', archived = false, unread = false,
 } = {}) {
   const normalizedSearch = String(search || '').trim().slice(0, 120);
   const normalizedStatus = ['active', 'human', 'closed'].includes(status) ? status : '';
@@ -91,6 +91,7 @@ async function listByBot(botId, {
        AND ($3::text = '' OR c.status = $3)
        AND (($6::boolean = TRUE AND c.archived_at IS NOT NULL)
          OR ($6::boolean = FALSE AND c.archived_at IS NULL))
+       AND ($7::boolean = FALSE OR c.unread_count > 0)
        AND ($4::text = ''
          OR ($4::text = 'template' AND EXISTS (
            SELECT 1 FROM broadcast_recipients fbr
@@ -103,8 +104,9 @@ async function listByBot(botId, {
            WHERE fbc.bot_id = c.bot_id AND fbr.phone_number = c.phone_number AND fbc.id::text = $5
          )))
      ORDER BY c.last_message_at DESC
-     LIMIT $7`,
-    [botId, normalizedSearch, normalizedStatus, broadcastFilter.type, broadcastFilter.value, Boolean(archived), limit]
+     LIMIT $8`,
+    [botId, normalizedSearch, normalizedStatus, broadcastFilter.type, broadcastFilter.value,
+     Boolean(archived), Boolean(unread), limit]
   );
   return rows;
 }

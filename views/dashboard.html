@@ -45,13 +45,14 @@
               <option value="human">Operatore</option>
               <option value="closed">Chiuse</option>
             </select>
-            <select id="conversationBroadcast" aria-label="Filtra per broadcast" disabled>
-              <option value="">Tutti i broadcast</option>
-            </select>
             <select id="conversationArchive" aria-label="Filtra per archivio" disabled>
               <option value="active">Chat attive</option>
               <option value="archived">Chat archiviate</option>
             </select>
+            <select id="conversationBroadcast" aria-label="Filtra per broadcast" disabled>
+              <option value="">Tutti i broadcast</option>
+            </select>
+            <button class="filter-toggle" id="conversationUnread" type="button" aria-pressed="false" disabled>Solo non lette</button>
           </div>
         </div>
         <div class="col-body" id="conversationsList"><div class="empty-list">Seleziona un BOT</div></div>
