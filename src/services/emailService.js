@@ -26,6 +26,9 @@ let workerPromise = null;
 let stopping = false;
 const emailClaimTimeoutMinutes = Math.max(1, Number(process.env.EMAIL_CLAIM_TIMEOUT_MINUTES || 30));
 const EMAIL_FOOTER = '© 2026 United Network | P.IVA: 13513131006 - PEC: uneuropa@pec.it';
+const RECONTACT_LIST_NAME = process.env.CRM_RECONTACT_LIST_NAME || 'Da Ricontattare';
+const RECONTACT_THANK_YOU_URL = process.env.CRM_RECONTACT_THANK_YOU_URL
+  || 'https://www.unitednetwork.it/grazie-ricontatto/';
 
 function decrypt(row) {
   return row?.value_encrypted ? secretService.decrypt(row.value_encrypted).trim() : '';
@@ -154,12 +157,22 @@ function tokenValues(contact) {
   };
 }
 
-function renderTemplate(value, contact, { html = false } = {}) {
-  const values = tokenValues(contact);
+function renderTemplate(value, contact, { html = false, variables = {} } = {}) {
+  const values = { ...tokenValues(contact), ...variables };
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_match, key) => {
     const replacement = values[key] ?? '';
     return html ? escapeHtml(replacement) : String(replacement);
   });
+}
+
+function recontactActionUrl(baseUrl) {
+  return new URL('/email/recontact', baseUrl).toString();
+}
+
+function recontactThankYouUrl() {
+  const url = new URL(RECONTACT_THANK_YOU_URL);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid recontact thank you URL');
+  return url.toString();
 }
 
 function unsubscribeSecret() {
@@ -316,14 +329,16 @@ async function trackEmailClick(input = {}) {
   })) {
     throw Object.assign(new Error('Invalid tracking signature'), { status: 400 });
   }
+  const isRecontactRequest = target.pathname === '/email/recontact';
   await crmRepo.recordEmailEvent({
     jobId: input.jobId,
     eventType: 'click',
     url: target.toString(),
     userAgent: input.userAgent,
     ip: input.ip,
+    listName: isRecontactRequest ? RECONTACT_LIST_NAME : null,
   });
-  return target.toString();
+  return isRecontactRequest ? recontactThankYouUrl() : target.toString();
 }
 
 async function unsubscribeContact({ cid, email, sig } = {}) {
@@ -392,8 +407,9 @@ async function sendJob(job) {
   const settings = await getSettings();
   const { errors } = validateSettings({}, settings);
   if (errors.length) throw new Error(errors.join('. '));
-  const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true }), job, settings.publicBaseUrl);
-  const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job), job, settings.publicBaseUrl);
+  const variables = { recontact_url: recontactActionUrl(settings.publicBaseUrl) };
+  const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true, variables }), job, settings.publicBaseUrl);
+  const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job, { variables }), job, settings.publicBaseUrl);
   const rendered = await inlineStoredMedia(html);
   const trackedHtml = applyEmailTracking(rendered.html, job, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(job.attachments);
@@ -423,8 +439,9 @@ async function sendTestEmail(to, template) {
     source: 'email-test',
     custom_fields: { city: 'Roma' },
   };
-  const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true }), contact, settings.publicBaseUrl);
-  const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact), contact, settings.publicBaseUrl);
+  const variables = { recontact_url: recontactThankYouUrl() };
+  const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true, variables }), contact, settings.publicBaseUrl);
+  const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact, { variables }), contact, settings.publicBaseUrl);
   const rendered = await inlineStoredMedia(html);
   const attachments = await storedTemplateAttachments(template.attachments);
   const info = await createTransport(settings).sendMail({

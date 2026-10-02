@@ -938,6 +938,7 @@ function sampleTemplate(value) {
     email: 'mario.rossi@example.com',
     phone: '+393331234567',
     source: 'newsletter',
+    recontact_url: 'https://www.unitednetwork.it/grazie-ricontatto/',
   };
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_match, key) => esc(samples[key] || `{{${key}}}`));
 }
@@ -1139,6 +1140,7 @@ function insertEmailBlock(type) {
     spacer: '<div style="height:24px;line-height:24px">&nbsp;</div>',
     divider: '<hr style="margin:24px 0;border:0;border-top:1px solid #d6d6d6">',
     social: '<p style="margin:0;text-align:center;font-family:Arial,sans-serif;font-size:12px;line-height:1.8"><a href="https://www.facebook.com/unitednetwork.eu" style="color:#85294f;text-decoration:underline">Facebook</a>&nbsp;&nbsp; <a href="https://www.instagram.com/unitednetworkeu" style="color:#85294f;text-decoration:underline">Instagram</a>&nbsp;&nbsp; <a href="https://www.linkedin.com/company/united-network-europa" style="color:#85294f;text-decoration:underline">LinkedIn</a>&nbsp;&nbsp; <a href="https://open.spotify.com/show/1aLlejLxalrKOWcPFmVWjI" style="color:#85294f;text-decoration:underline">Spotify</a></p>',
+    recontact: '<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="{{recontact_url}}" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">Ricontattami</a></td></tr></tbody></table>',
     footer: '<div style="padding:24px 12px;text-align:center;color:#6b6b6b;font-family:Arial,sans-serif;font-size:11px;line-height:1.6"><strong style="color:#85294f;font-size:22px">UN</strong><br>United Network, Via Parigi 11, 00185 Roma, Italia<br><a href="https://www.unitednetwork.it/" style="color:#85294f;text-decoration:underline">unitednetwork.it</a><br><a href="mailto:info@unitednetwork.it?subject=Disiscrizione" style="color:#85294f;text-decoration:underline">Annulla l’iscrizione</a></div>',
   };
   if (type === 'image') {

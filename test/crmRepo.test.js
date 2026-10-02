@@ -68,3 +68,36 @@ test('crea e rinomina cartelle contenuto mantenendo il tipo', async (t) => {
   assert.deepEqual(calls[1].values, ['folder-1', 'Webinar 2026', null, 'template']);
   assert.match(calls[1].sql, /WHERE id=\$1 AND kind=\$4/);
 });
+
+test('registra il click e iscrive il contatto alla lista in modo atomico', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.startsWith('SELECT id,contact_id FROM crm_email_jobs')) {
+        return { rows: [{ id: 'job-1', contact_id: 'contact-1' }] };
+      }
+      if (sql.includes('FROM crm_lists WHERE lower(name)')) {
+        return { rows: [{ id: 'list-1', name: 'Da Ricontattare' }] };
+      }
+      if (sql.includes('INSERT INTO crm_list_memberships')) return { rows: [{ contact_id: 'contact-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  const result = await crmRepo.recordEmailEvent({
+    jobId: 'job-1',
+    eventType: 'click',
+    url: 'https://crm.example.com/email/recontact',
+    listName: 'Da Ricontattare',
+  });
+
+  assert.equal(result.membershipAdded, true);
+  assert.ok(calls.some((call) => call.sql.includes('INSERT INTO crm_email_events')));
+  assert.ok(calls.some((call) => call.sql.includes('INSERT INTO crm_list_memberships')));
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+});

@@ -1384,11 +1384,11 @@ async function emailDashboard() {
   };
 }
 
-async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null, ip = null }) {
+async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null, ip = null, listName = null }) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
-    const job = await client.query('SELECT id FROM crm_email_jobs WHERE id=$1 FOR UPDATE', [jobId]);
+    const job = await client.query('SELECT id,contact_id FROM crm_email_jobs WHERE id=$1 FOR UPDATE', [jobId]);
     if (!job.rows[0]) {
       await client.query('COMMIT');
       return null;
@@ -1417,8 +1417,20 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
         [jobId]
       );
     }
+    let membershipAdded = false;
+    if (listName) {
+      const list = await getListByNameWithClient(client, listName);
+      if (!list) throw Object.assign(new Error('Recontact list not found'), { status: 404 });
+      membershipAdded = Boolean(await addContactToListWithClient(
+        client,
+        list.id,
+        job.rows[0].contact_id,
+        'email_cta',
+        'email_recontact'
+      ));
+    }
     await client.query('COMMIT');
-    return { id: jobId };
+    return { id: jobId, membershipAdded };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

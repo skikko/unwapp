@@ -63,6 +63,33 @@ test('rende le variabili del template e protegge il corpo HTML', () => {
   const contact = { first_name: '<Mario>', last_name: 'Rossi', custom_fields: { city: 'Roma' } };
   assert.equal(emailService.renderTemplate('Ciao {{full_name}} da {{city}}', contact), 'Ciao <Mario> Rossi da Roma');
   assert.equal(emailService.renderTemplate('<p>{{first_name}}</p>', contact, { html: true }), '<p>&lt;Mario&gt;</p>');
+  assert.equal(emailService.renderTemplate('{{recontact_url}}', contact, {
+    variables: { recontact_url: 'https://crm.example.com/email/recontact' },
+  }), 'https://crm.example.com/email/recontact');
+});
+
+test('il click Ricontattami registra la richiesta e apre la thank you page', async (t) => {
+  const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
+  process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
+  const originalRecordEmailEvent = crmRepo.recordEmailEvent;
+  let recorded;
+  crmRepo.recordEmailEvent = async (input) => { recorded = input; };
+  t.after(() => {
+    crmRepo.recordEmailEvent = originalRecordEmailEvent;
+    if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
+    else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
+  });
+  const jobId = '123e4567-e89b-42d3-a456-426614174000';
+  const actionUrl = 'https://crm.example.com/email/recontact';
+  const redirect = await emailService.trackEmailClick({
+    jobId,
+    urlToken: emailService.encodeTrackingUrl(actionUrl),
+    sig: emailService.signEmailTracking(jobId, 'click', actionUrl),
+  });
+
+  assert.equal(redirect, 'https://www.unitednetwork.it/grazie-ricontatto/');
+  assert.equal(recorded.listName, 'Da Ricontattare');
+  assert.equal(recorded.eventType, 'click');
 });
 
 test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {
@@ -150,6 +177,15 @@ test('sanitizza il codice HTML del template email', () => {
     type: 'application/pdf',
     size: 1234,
   }]);
+});
+
+test('mantiene il token firmato della CTA Ricontattami nel template', () => {
+  const template = crmService.validateTemplate({
+    name: 'Richiesta ricontatto',
+    subject: 'Possiamo aiutarti',
+    htmlBody: '<a href="{{recontact_url}}">Ricontattami</a>',
+  });
+  assert.match(template.htmlBody, /href="{{recontact_url}}"/);
 });
 
 test('mantiene gli stili sicuri necessari ai blocchi email', () => {
