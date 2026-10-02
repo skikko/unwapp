@@ -248,7 +248,7 @@ function appendComplianceFooter(html, contact, baseUrl) {
   const unsubscribeLink = url
     ? `<a href="${escapeHtml(url)}" style="color:#5b6270;text-decoration:underline;">Disiscriviti</a>`
     : 'Disiscriviti';
-  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #d6d6d6;color:#5b6270;font-family:Arial, sans-serif;font-size:12px;line-height:1.5;">${escapeHtml(EMAIL_FOOTER)}<br>${unsubscribeLink}</div>`;
+  const footer = `<div style="max-width:640px;margin:28px auto 0;padding-top:16px;border-top:1px solid #d6d6d6;color:#5b6270;font-family:Arial, sans-serif;font-size:12px;line-height:1.5;">${escapeHtml(EMAIL_FOOTER)}<br>${unsubscribeLink}</div>`;
   return `${String(html || '')}${footer}`;
 }
 
@@ -431,8 +431,7 @@ async function sendJob(job) {
   const variables = { recontact_url: recontactActionUrl(job.id, settings.publicBaseUrl) };
   const html = appendComplianceFooter(renderTemplate(job.html_body, job, { html: true, variables }), job, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job, { variables }), job, settings.publicBaseUrl);
-  const rendered = await inlineStoredMedia(html);
-  const trackedHtml = applyEmailTracking(rendered.html, job, settings.publicBaseUrl);
+  const trackedHtml = applyEmailTracking(html, job, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(job.attachments);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
@@ -441,7 +440,7 @@ async function sendJob(job) {
     subject: renderTemplate(job.subject, job),
     text: text || undefined,
     html: trackedHtml,
-    attachments: [...rendered.attachments, ...attachments],
+    attachments,
   });
   return info.messageId;
 }
@@ -463,7 +462,6 @@ async function sendTestEmail(to, template) {
   const variables = { recontact_url: recontactThankYouUrl() };
   const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true, variables }), contact, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact, { variables }), contact, settings.publicBaseUrl);
-  const rendered = await inlineStoredMedia(html);
   const attachments = await storedTemplateAttachments(template.attachments);
   const info = await createTransport(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
@@ -471,8 +469,8 @@ async function sendTestEmail(to, template) {
     to,
     subject: `[TEST] ${renderTemplate(template.subject, contact)}`,
     text: text || undefined,
-    html: rendered.html,
-    attachments: [...rendered.attachments, ...attachments],
+    html,
+    attachments,
   });
   return { messageId: info.messageId };
 }
