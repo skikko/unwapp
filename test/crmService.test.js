@@ -585,7 +585,7 @@ test('mappa e prepara i contatti CRM da un CSV', () => {
   assert.equal(result.contacts[0].phoneNormalized, '+393331234567');
   assert.deepEqual(result.contacts[0].tags, ['newsletter', 'lead', 'evento']);
   assert.deepEqual(result.contacts[0].customFields, { Citta: 'Roma' });
-  assert.equal(result.contacts[0].emailStatus, 'unknown');
+  assert.equal(result.contacts[0].emailStatus, 'subscribed');
 });
 
 test('scarta righe non valide e duplicati nel CSV CRM', () => {
@@ -606,6 +606,12 @@ test('mappa le colonne del CSV webinar', () => {
   assert.equal(result.contacts[0].utmCampaign, 'webinar');
   assert.equal(result.contacts[0].utmContent, 'video');
   assert.equal(result.mapping.phone, '');
+});
+
+test('imposta sempre come iscritti i contatti email importati da CSV', () => {
+  const parsed = csvService.parseCsv('Email,Stato email\nanna@example.com,Disiscritto\n');
+  const result = crmImportService.prepareImport(parsed);
+  assert.equal(result.contacts[0].emailStatus, 'subscribed');
 });
 
 test('riconosce le intestazioni telefoniche abbreviate', () => {

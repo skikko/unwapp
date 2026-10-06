@@ -538,9 +538,9 @@ async function exportFilteredContacts() {
 }
 
 function downloadContactTemplate() {
-  const csv = '\uFEFFemail,telefono,nome,cognome,origine,stato_email,tag,data_iscrizione_webinar,genitore_studente,utm_source,utm_medium,utm_campaign,utm_term,utm_content\n'
-    + 'mario.rossi@example.com,+393331234567,Mario,Rossi,evento,subscribed,"newsletter|webinar",15/09/2026,Studente,google,cpc,webinar_settembre,orientamento,annuncio_a\n'
-    + 'giulia.bianchi@example.com,+393491234567,Giulia,Bianchi,partner,unknown,lead,16/09/2026,Genitore,meta,social,webinar_settembre,,video\n';
+  const csv = '\uFEFFemail,telefono,nome,cognome,origine,tag,data_iscrizione_webinar,genitore_studente,utm_source,utm_medium,utm_campaign,utm_term,utm_content\n'
+    + 'mario.rossi@example.com,+393331234567,Mario,Rossi,evento,"newsletter|webinar",15/09/2026,Studente,google,cpc,webinar_settembre,orientamento,annuncio_a\n'
+    + 'giulia.bianchi@example.com,+393491234567,Giulia,Bianchi,partner,lead,16/09/2026,Genitore,meta,social,webinar_settembre,,video\n';
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;

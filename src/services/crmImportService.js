@@ -75,9 +75,7 @@ function prepareImport(parsed, options = {}) {
         firstName: mapping.firstName ? data[mapping.firstName] : '',
         lastName: mapping.lastName ? data[mapping.lastName] : '',
         source: mapping.source && data[mapping.source] ? data[mapping.source] : options.source || 'csv',
-        emailStatus: mapping.emailStatus && data[mapping.emailStatus]
-          ? normalizeEmailStatus(data[mapping.emailStatus])
-          : 'unknown',
+        emailStatus: 'subscribed',
         tags: [...commonTags, ...tagsFromRow(mapping.tags ? data[mapping.tags] : '')],
         webinarRegisteredAt: mapping.webinarRegisteredAt ? data[mapping.webinarRegisteredAt] : '',
         contactType: mapping.contactType ? data[mapping.contactType] : '',
