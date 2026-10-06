@@ -1825,8 +1825,18 @@ async function saveSequence(event) {
     delayMinutes: sequenceStepMinutes(row),
   }));
   const id = $('sequenceId').value;
+  const currentSequence = id ? state.sequences.find((sequence) => sequence.id === id) : null;
+  let includeCompletedEnrollments = false;
+  if (currentSequence
+      && steps.length > currentSequence.steps.length
+      && currentSequence.completed_count > 0) {
+    includeCompletedEnrollments = confirm(
+      `La sequenza contiene ${currentSequence.completed_count} contatti che hanno già completato il flusso. `
+      + 'Premi OK per includerli nei nuovi step oppure Annulla per applicare i nuovi step solo ai contatti attivi e futuri.'
+    );
+  }
   try {
-    await api(id ? `/api/crm/sequences/${id}` : '/api/crm/sequences', {
+    const { sequence } = await api(id ? `/api/crm/sequences/${id}` : '/api/crm/sequences', {
       method: id ? 'PUT' : 'POST',
       body: JSON.stringify({
         name: $('sequenceName').value,
@@ -1839,13 +1849,17 @@ async function saveSequence(event) {
           conditions: readSequenceConditions(),
         },
         steps,
+        includeCompletedEnrollments,
       }),
     });
     $('sequenceEditor').hidden = true;
     $('sequenceEditor').reset();
     $('sequenceSteps').innerHTML = '';
     $('sequenceId').value = '';
-    toast(id ? 'Sequenza aggiornata' : 'Sequenza creata');
+    const resumedCount = sequence.resumedEnrollmentCount || 0;
+    toast(resumedCount > 0
+      ? `Sequenza aggiornata. ${resumedCount} contatti completati sono stati inclusi nei nuovi step.`
+      : (id ? 'Sequenza aggiornata' : 'Sequenza creata'));
     await Promise.all([loadContentFolders(), loadSequences(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');

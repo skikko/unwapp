@@ -440,7 +440,11 @@ async function duplicateSequence(req, res) {
 }
 
 async function updateSequence(req, res) {
-  const sequence = await crmRepo.updateSequence(req.params.id, crmService.validateSequence(req.body));
+  const sequence = await crmRepo.updateSequence(
+    req.params.id,
+    crmService.validateSequence(req.body),
+    { includeCompletedEnrollments: req.body.includeCompletedEnrollments === true }
+  );
   if (!sequence) return res.status(404).json({ error: 'Sequenza non trovata' });
   res.json({ sequence });
 }

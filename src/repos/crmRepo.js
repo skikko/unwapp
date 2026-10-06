@@ -944,7 +944,7 @@ async function duplicateSequence(id, createdBy) {
   }
 }
 
-async function updateSequence(id, input) {
+async function updateSequence(id, input, { includeCompletedEnrollments = false } = {}) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -982,6 +982,7 @@ async function updateSequence(id, input) {
       [id, input.name, input.description || null, input.active, input.triggerType,
        input.triggerListId, JSON.stringify(input.triggerConditions), triggerChanged, input.folderId]
     );
+    let addedSteps = false;
     if (enrollmentCount > 0) {
       const existingSteps = await client.query(
         'SELECT id,position FROM crm_sequence_steps WHERE sequence_id=$1 ORDER BY position ASC FOR UPDATE',
@@ -990,6 +991,7 @@ async function updateSequence(id, input) {
       if (input.steps.length < existingSteps.rows.length) {
         throw Object.assign(new Error('Cannot remove sequence steps while enrollments exist'), { status: 409 });
       }
+      addedSteps = input.steps.length > existingSteps.rows.length;
       for (const [position, step] of input.steps.entries()) {
         const existingStep = existingSteps.rows[position];
         if (existingStep) {
@@ -1016,12 +1018,48 @@ async function updateSequence(id, input) {
         );
       }
     }
+    let resumedEnrollmentCount = 0;
+    if (includeCompletedEnrollments && addedSteps) {
+      const resumed = await client.query(
+        `WITH completed AS (
+           SELECT e.id,e.contact_id,e.current_step
+           FROM crm_sequence_enrollments e
+           WHERE e.sequence_id=$1 AND e.status='completed'
+           FOR UPDATE
+         ), next_steps AS (
+           SELECT completed.id AS enrollment_id,completed.contact_id,
+                  step.id AS sequence_step_id,step.template_id,step.delay_minutes
+           FROM completed
+           JOIN LATERAL (
+             SELECT id,template_id,delay_minutes
+             FROM crm_sequence_steps
+             WHERE sequence_id=$1 AND position > completed.current_step
+             ORDER BY position ASC LIMIT 1
+           ) step ON TRUE
+         ), jobs AS (
+           INSERT INTO crm_email_jobs
+             (kind,enrollment_id,sequence_step_id,contact_id,template_id,scheduled_at)
+           SELECT 'sequence',enrollment_id,sequence_step_id,contact_id,template_id,
+                  now() + (delay_minutes * interval '1 minute')
+           FROM next_steps
+           ON CONFLICT (enrollment_id,sequence_step_id) DO NOTHING
+           RETURNING enrollment_id,scheduled_at
+         )
+         UPDATE crm_sequence_enrollments e
+         SET status='active',next_run_at=jobs.scheduled_at,last_error=NULL,updated_at=now()
+         FROM jobs
+         WHERE e.id=jobs.enrollment_id AND e.status='completed'
+         RETURNING e.id`,
+        [id]
+      );
+      resumedEnrollmentCount = resumed.rowCount;
+    }
     if (triggerChanged) {
       await client.query('DELETE FROM crm_sequence_trigger_state WHERE sequence_id=$1', [id]);
       if (triggerList) await seedSequenceTriggerState(client, id, triggerList);
     }
     await client.query('COMMIT');
-    return sequence.rows[0];
+    return { ...sequence.rows[0], resumedEnrollmentCount };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

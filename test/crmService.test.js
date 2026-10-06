@@ -479,6 +479,90 @@ test('aggiorna una sequenza con iscrizioni senza cancellare i passaggi', async (
   assert.equal(calls.filter((query) => /UPDATE crm_sequence_steps/.test(query)).length, 2);
 });
 
+test('include i contatti completati nei nuovi step solo su richiesta esplicita', async (t) => {
+  const db = require('../src/config/db');
+  const originalGetClient = db.getClient;
+  const calls = [];
+  t.after(() => { db.getClient = originalGetClient; });
+  db.getClient = async () => ({
+    query: async (text) => {
+      calls.push(text);
+      if (/SELECT \* FROM crm_sequences/.test(text)) {
+        return { rows: [{ id: 'sequence-1', trigger_type: 'manual', trigger_list_id: null, trigger_conditions: [] }] };
+      }
+      if (/SELECT count\(\*\)::int AS count FROM crm_sequence_enrollments/.test(text)) {
+        return { rows: [{ count: 21 }] };
+      }
+      if (/UPDATE crm_sequences/.test(text)) return { rows: [{ id: 'sequence-1' }] };
+      if (/SELECT id,position FROM crm_sequence_steps/.test(text)) {
+        return { rows: [{ id: 'step-1', position: 0 }] };
+      }
+      if (/WITH completed AS/.test(text)) {
+        return { rows: [{ id: 'enrollment-1' }, { id: 'enrollment-2' }], rowCount: 2 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {},
+  });
+
+  const sequence = await crmRepo.updateSequence('sequence-1', {
+    name: 'Sequenza aggiornata',
+    description: '',
+    active: true,
+    triggerType: 'manual',
+    triggerListId: null,
+    triggerConditions: [],
+    steps: [
+      { templateId: 'template-1', delayMinutes: 0 },
+      { templateId: 'template-2', delayMinutes: 4320 },
+    ],
+  }, { includeCompletedEnrollments: true });
+
+  assert.equal(sequence.resumedEnrollmentCount, 2);
+  assert.equal(calls.some((query) => /INSERT INTO crm_email_jobs/.test(query)), true);
+  assert.equal(calls.some((query) => /e\.status='completed'/.test(query)), true);
+});
+
+test('non include i contatti completati senza richiesta esplicita', async (t) => {
+  const db = require('../src/config/db');
+  const originalGetClient = db.getClient;
+  const calls = [];
+  t.after(() => { db.getClient = originalGetClient; });
+  db.getClient = async () => ({
+    query: async (text) => {
+      calls.push(text);
+      if (/SELECT \* FROM crm_sequences/.test(text)) {
+        return { rows: [{ id: 'sequence-1', trigger_type: 'manual', trigger_list_id: null, trigger_conditions: [] }] };
+      }
+      if (/SELECT count\(\*\)::int AS count FROM crm_sequence_enrollments/.test(text)) {
+        return { rows: [{ count: 21 }] };
+      }
+      if (/UPDATE crm_sequences/.test(text)) return { rows: [{ id: 'sequence-1' }] };
+      if (/SELECT id,position FROM crm_sequence_steps/.test(text)) {
+        return { rows: [{ id: 'step-1', position: 0 }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {},
+  });
+
+  const sequence = await crmRepo.updateSequence('sequence-1', {
+    name: 'Sequenza aggiornata',
+    description: '',
+    active: true,
+    triggerType: 'manual',
+    triggerListId: null,
+    triggerConditions: [],
+    steps: [
+      { templateId: 'template-1', delayMinutes: 0 },
+      { templateId: 'template-2', delayMinutes: 4320 },
+    ],
+  });
+
+  assert.equal(sequence.resumedEnrollmentCount, 0);
+  assert.equal(calls.some((query) => /WITH completed AS/.test(query)), false);
+});
+
 test('normalizza le modifiche massive dei contatti', () => {
   const changes = crmService.normalizeBulkContactChanges({
     emailStatus: 'subscribed', addTags: 'Newsletter, Evento',
