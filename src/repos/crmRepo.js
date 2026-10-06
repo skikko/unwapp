@@ -1459,6 +1459,62 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
   }
 }
 
+async function recordEmailTestRecontact({ email, userAgent = null, ip = null, listName }) {
+  const emailNormalized = String(email || '').trim().toLowerCase();
+  if (!emailNormalized) throw Object.assign(new Error('Email is required'), { status: 400 });
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const contact = await upsertContactWithClient(client, {
+      firstName: null,
+      lastName: null,
+      email: emailNormalized,
+      emailNormalized,
+      phone: null,
+      phoneNormalized: null,
+      source: 'email-test',
+      emailStatus: null,
+      tags: [],
+      customFields: {},
+      consentAt: null,
+      consentSource: null,
+      consentProof: {},
+      contactStatusId: null,
+      contactType: null,
+      webinarRegisteredAt: null,
+      utmSource: null,
+      utmMedium: null,
+      utmCampaign: null,
+      utmTerm: null,
+      utmContent: null,
+    }, { actor: 'email_test_recontact' });
+    const list = await ensureListByNameWithClient(client, listName, 'email_test_recontact');
+    const membershipAdded = Boolean(await addContactToListWithClient(
+      client,
+      list.id,
+      contact.contact.id,
+      'email_test_cta',
+      'email_test_recontact'
+    ));
+    await addContactEvent(client, contact.contact.id, 'recontact_requested', {
+      listId: list.id,
+      listName,
+      membershipAdded,
+      url: '/api/public/recontact-request',
+      testEmail: true,
+      userAgent,
+      ip,
+    }, 'email_test_recontact');
+    await client.query('COMMIT');
+    return { contactId: contact.contact.id, membershipAdded };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function claimDueJob() {
   const client = await db.getClient();
   try {
@@ -1740,6 +1796,7 @@ module.exports = {
   listEmailJobs,
   emailDashboard,
   recordEmailEvent,
+  recordEmailTestRecontact,
   claimDueJob,
   recoverStaleEmailJobs,
   markJobSent,
