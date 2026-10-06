@@ -1489,7 +1489,7 @@ function syncSequenceCondition(row, condition = {}) {
 }
 
 function addSequenceCondition(condition = {}) {
-  if (document.querySelectorAll('.sequence-condition').length >= 10) {
+  if ($('sequenceConditions').querySelectorAll('.sequence-condition').length >= 10) {
     toast('Puoi aggiungere al massimo 10 condizioni', 'err');
     return;
   }
@@ -1508,7 +1508,7 @@ function addSequenceCondition(condition = {}) {
 }
 
 function readSequenceConditions() {
-  return [...document.querySelectorAll('.sequence-condition')].map((row) => ({
+  return [...$('sequenceConditions').querySelectorAll('.sequence-condition')].map((row) => ({
     field: row.querySelector('[data-condition-field]').value,
     operator: row.querySelector('[data-condition-operator]').value,
     value: row.querySelector('[data-condition-value]')?.value || null,
