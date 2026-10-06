@@ -159,7 +159,11 @@
               <div class="form-field"><label for="contactWebinarRegisteredAt">Data iscrizione webinar</label><input id="contactWebinarRegisteredAt" type="date" /></div>
               <div class="form-field"><label for="contactConsentAt">Data consenso</label><input id="contactConsentAt" type="datetime-local" /></div>
               <div class="form-field"><label for="contactConsentSource">Origine consenso</label><input id="contactConsentSource" placeholder="form wordpress, evento" /></div>
-              <div class="form-field span-2"><label for="contactListIds">Liste</label><select id="contactListIds" multiple size="4"></select><small>Usa Cmd o Ctrl per selezionare più liste.</small></div>
+              <fieldset class="form-field span-2 contact-list-fieldset">
+                <legend>Liste</legend>
+                <div class="contact-list-picker" id="contactListPicker"></div>
+                <small>Seleziona tutte le liste a cui deve appartenere il contatto.</small>
+              </fieldset>
               <div class="form-field span-2"><label for="contactTags">Tag separati da virgola</label><input id="contactTags" /></div>
               <div class="form-field"><label for="contactUtmSource">UTM source</label><input id="contactUtmSource" /></div>
               <div class="form-field"><label for="contactUtmMedium">UTM medium</label><input id="contactUtmMedium" /></div>
@@ -172,10 +176,10 @@
           <div class="crm-table-card"><div class="table-wrap"><table><thead><tr><th data-write><input id="selectPageContacts" type="checkbox" aria-label="Seleziona i contatti visibili" /></th><th>Contatto</th><th>Studente/Genitore</th><th>Email</th><th>Telefono</th><th>Origine</th><th>UTM source</th><th>Tag</th><th>Liste</th><th>Stato contatto</th><th>Stato email</th><th>Azioni</th></tr></thead><tbody id="contactsBody"></tbody></table></div><div class="crm-table-footer"><span id="contactsCount">0 contatti</span></div></div>
           </div>
           <section class="contact-profile-page" id="contactProfile" hidden>
-            <nav class="contact-profile-crumbs" aria-label="Percorso"><button class="ghost" type="button" id="closeContactProfileBtn">CRM / Contatti</button><span>/</span><strong id="contactProfileCrumb">Profilo</strong></nav>
+            <nav class="contact-profile-crumbs" aria-label="Percorso"><button class="secondary" type="button" id="closeContactProfileBtn">Torna ai contatti</button><span>Profilo</span><strong id="contactProfileCrumb">Contatto</strong></nav>
             <header class="un-record-head contact-profile-head">
               <span class="un-avatar un-avatar--xl" id="contactProfileAvatar">--</span>
-              <div><h2 class="un-record-head__name" id="contactProfileTitle">Profilo contatto</h2><div class="un-record-head__meta" id="contactProfileMeta"></div></div>
+              <div class="contact-profile-identity"><h2 class="un-record-head__name" id="contactProfileTitle">Profilo contatto</h2><div class="un-record-head__meta" id="contactProfileMeta"></div></div>
               <div class="un-record-head__actions" data-write><button class="secondary" type="button" id="editContactFromProfileBtn">Modifica contatto</button></div>
             </header>
             <div class="un-record contact-profile-layout">
@@ -207,6 +211,12 @@
             </div>
             <div class="form-actions"><button type="submit" id="saveListBtn">Crea lista</button></div>
           </form>
+          <section class="card crm-editor list-contact-picker-panel" id="listContactPicker" hidden>
+            <div class="section-heading compact"><div><h2>Aggiungi un contatto esistente</h2><span id="listContactPickerTarget"></span></div><button class="ghost" type="button" data-close="listContactPicker">Chiudi</button></div>
+            <input id="listContactPickerListId" type="hidden" />
+            <div class="form-field"><label for="listContactSearch">Cerca contatto</label><input id="listContactSearch" type="search" placeholder="Nome, email o telefono" autocomplete="off" /></div>
+            <div class="list-contact-results" id="listContactResults" aria-live="polite"></div>
+          </section>
           <div class="crm-card-grid" id="listsGrid"></div>
         </section>
 

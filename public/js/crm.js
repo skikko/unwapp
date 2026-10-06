@@ -17,6 +17,7 @@ const state = {
   totalContacts: 0,
   totalEmailLogs: 0,
   activeContactId: null,
+  listContactPickerListId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -361,6 +362,7 @@ function setContactProfileTab(name) {
 async function loadContactProfile(id) {
   $('contactsListView').hidden = true;
   $('contactProfile').hidden = false;
+  document.body.classList.add('crm-profile-open');
   $('contactProfileTitle').textContent = 'Profilo contatto';
   $('contactProfileMeta').textContent = 'Caricamento...';
   $('contactProfileSummary').innerHTML = '';
@@ -431,6 +433,7 @@ async function loadContactProfile(id) {
 function closeContactProfile() {
   $('contactProfile').hidden = true;
   $('contactsListView').hidden = false;
+  document.body.classList.remove('crm-profile-open');
   $('contactProfileTitle').textContent = 'Profilo contatto';
   $('contactProfileMeta').textContent = '';
   $('contactProfileCrumb').textContent = 'Profilo';
@@ -686,8 +689,7 @@ function editContact(id) {
   $('contactTags').value = (contact.tags || []).join(', ');
   $('contactConsentAt').value = contact.consent_at ? localDateTimeValue(new Date(contact.consent_at)) : '';
   $('contactConsentSource').value = contact.consent_source || '';
-  const contactLists = new Set((contact.lists || []).map((list) => list.id));
-  [...$('contactListIds').options].forEach((option) => { option.selected = contactLists.has(option.value); });
+  renderContactListPicker(new Set((contact.lists || []).map((list) => list.id)));
   $('contactEditorTitle').textContent = 'Modifica contatto';
   $('contactEditor').hidden = false;
   $('contactFirstName').focus();
@@ -723,7 +725,7 @@ async function saveContact(event) {
     utmTerm: $('contactUtmTerm').value,
     utmContent: $('contactUtmContent').value,
     tags: $('contactTags').value,
-    listIds: [...$('contactListIds').selectedOptions].map((option) => option.value),
+    listIds: [...document.querySelectorAll('[data-contact-list-id]:checked')].map((input) => input.value),
     consentAt: $('contactConsentAt').value ? new Date($('contactConsentAt').value).toISOString() : null,
     consentSource: $('contactConsentSource').value,
   };
@@ -758,10 +760,65 @@ async function loadLists() {
     resetContactImport(button.dataset.importList);
   }));
   document.querySelectorAll('[data-manual-list]').forEach((button) => button.addEventListener('click', () => {
-    changeTab('contacts');
-    resetContactEditor(button.dataset.manualList);
+    openListContactPicker(button.dataset.manualList);
   }));
   refreshSelects();
+}
+
+function renderListContactCandidates(contacts, total) {
+  const listId = state.listContactPickerListId;
+  if (!contacts.length) {
+    $('listContactResults').innerHTML = '<div class="crm-empty">Nessun contatto trovato.</div>';
+    return;
+  }
+  $('listContactResults').innerHTML = `<div class="list-contact-results-head"><span>${total} ${total === 1 ? 'risultato' : 'risultati'}</span><span>Seleziona un contatto da aggiungere</span></div>${contacts.map((contact) => {
+    const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+    const alreadyAdded = (contact.lists || []).some((list) => list.id === listId);
+    const details = [contact.email, contact.phone, contactTypeLabel(contact.contact_type, '')].filter(Boolean).join(' | ') || 'Nessun recapito';
+    return `<div class="list-contact-result"><div><strong>${esc(name)}</strong><span>${esc(details)}</span></div><button class="secondary" type="button" data-add-existing-contact="${contact.id}" ${alreadyAdded ? 'disabled' : ''}>${alreadyAdded ? 'Già presente' : 'Aggiungi'}</button></div>`;
+  }).join('')}`;
+  document.querySelectorAll('[data-add-existing-contact]').forEach((button) => button.addEventListener('click', () => addExistingContactToList(button.dataset.addExistingContact)));
+}
+
+async function loadListContactCandidates() {
+  const query = $('listContactSearch').value.trim();
+  $('listContactResults').innerHTML = '<div class="crm-empty">Ricerca in corso...</div>';
+  try {
+    const params = new URLSearchParams({ limit: '20' });
+    if (query) params.set('query', query);
+    const { contacts, total } = await api(`/api/crm/contacts?${params}`);
+    renderListContactCandidates(contacts, total);
+  } catch (error) {
+    $('listContactResults').innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function openListContactPicker(listId) {
+  const list = state.lists.find((item) => item.id === listId);
+  if (!list) return;
+  state.listContactPickerListId = listId;
+  $('listContactPickerListId').value = listId;
+  $('listContactPickerTarget').textContent = `Lista: ${list.name}`;
+  $('listContactSearch').value = '';
+  openEditor('listContactPicker');
+  $('listContactPicker').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadListContactCandidates();
+}
+
+async function addExistingContactToList(contactId) {
+  const listId = state.listContactPickerListId;
+  if (!listId) return;
+  try {
+    const result = await api(`/api/crm/lists/${listId}/contacts`, {
+      method: 'POST',
+      body: JSON.stringify({ contactId }),
+    });
+    toast(result.added ? 'Contatto aggiunto alla lista' : 'Il contatto è già presente nella lista');
+    await Promise.all([loadLists(), loadSummary()]);
+    await loadListContactCandidates();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
 }
 
 async function loadListContacts(id) {
@@ -1882,10 +1939,8 @@ function refreshSelects() {
   const selectedTriggerList = triggerList.value;
   triggerList.innerHTML = listOptionHtml;
   if (state.lists.some((list) => list.id === selectedTriggerList)) triggerList.value = selectedTriggerList;
-  const contactLists = $('contactListIds');
-  const selectedContactLists = new Set([...contactLists.selectedOptions].map((option) => option.value));
-  contactLists.innerHTML = listOptionHtml;
-  [...contactLists.options].forEach((option) => { option.selected = selectedContactLists.has(option.value); });
+  const selectedContactLists = new Set([...document.querySelectorAll('[data-contact-list-id]:checked')].map((input) => input.value));
+  renderContactListPicker(selectedContactLists);
   ['automationTriggerList', 'automationTargetList'].forEach((id) => {
     const select = $(id);
     const selected = select.value;
@@ -2062,6 +2117,12 @@ function openEditor(id) {
   $(id).querySelector('input:not([type="hidden"]), select, textarea')?.focus();
 }
 
+function renderContactListPicker(selectedIds = new Set()) {
+  $('contactListPicker').innerHTML = state.lists.length
+    ? state.lists.map((list) => `<label class="contact-list-option"><input type="checkbox" value="${list.id}" data-contact-list-id ${selectedIds.has(list.id) ? 'checked' : ''} /><span><strong>${esc(list.name)}</strong><small>${list.contact_count} ${list.contact_count === 1 ? 'contatto' : 'contatti'}</small></span></label>`).join('')
+    : '<span class="contact-profile-muted">Nessuna lista disponibile.</span>';
+}
+
 function resetContactEditor(listId = '') {
   if (!$('contactProfile').hidden) closeContactProfile();
   $('contactEditor').reset();
@@ -2069,7 +2130,7 @@ function resetContactEditor(listId = '') {
   $('contactSource').value = 'manual';
   $('contactEmailStatus').value = 'subscribed';
   $('contactCrmStatus').value = '';
-  [...$('contactListIds').options].forEach((option) => { option.selected = option.value === listId; });
+  renderContactListPicker(new Set(listId ? [listId] : []));
   $('contactEditorTitle').textContent = 'Nuovo contatto';
   openEditor('contactEditor');
 }
@@ -2105,6 +2166,7 @@ function resetSequenceEditor() {
 }
 
 function changeTab(name) {
+  if (name !== 'contacts' && !$('contactProfile').hidden) closeContactProfile();
   document.querySelectorAll('.crm-tab').forEach((tab) => {
     const active = tab.dataset.tab === name;
     tab.classList.toggle('active', active);
@@ -2123,6 +2185,7 @@ function changeTab(name) {
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
 document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => { $(button.dataset.close).hidden = true; }));
 let contactFilterTimer;
+let listContactSearchTimer;
 function scheduleContactFilter() {
   clearTimeout(contactFilterTimer);
   contactFilterTimer = setTimeout(() => loadContacts().catch((error) => toast(error.message, 'err')), 250);
@@ -2130,6 +2193,10 @@ function scheduleContactFilter() {
 $('contactFilters').addEventListener('submit', (event) => { event.preventDefault(); scheduleContactFilter(); });
 $('contactFilters').addEventListener('input', scheduleContactFilter);
 $('contactFilters').addEventListener('change', scheduleContactFilter);
+$('listContactSearch').addEventListener('input', () => {
+  clearTimeout(listContactSearchTimer);
+  listContactSearchTimer = setTimeout(loadListContactCandidates, 250);
+});
 $('contactEditor').addEventListener('submit', saveContact);
 $('contactBulkEditor').addEventListener('submit', saveBulkContacts);
 $('contactImportEditor').addEventListener('submit', runContactImport);
