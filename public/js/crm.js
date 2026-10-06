@@ -22,6 +22,11 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 let savedEditorRange = null;
+let selectedTemplateComponent = null;
+let templateComponentTextNodes = [];
+let templateComponentLinks = [];
+let templateComponentImages = [];
+let templateImageReplacementTarget = null;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[character]));
@@ -1029,8 +1034,19 @@ function sampleTemplate(value) {
 }
 
 function currentTemplateHtml() {
-  if (!$('templateVisual').hidden) $('templateHtml').value = $('templateVisual').innerHTML.trim();
+  if (!$('templateVisual').hidden) {
+    const cleanEditor = $('templateVisual').cloneNode(true);
+    cleanEditor.querySelectorAll('.email-component-selected').forEach(removeTemplateSelectionClass);
+    cleanEditor.querySelectorAll('[class=""]').forEach((element) => element.removeAttribute('class'));
+    $('templateHtml').value = cleanEditor.innerHTML.trim();
+  }
   return $('templateHtml').value.trim();
+}
+
+function removeTemplateSelectionClass(element) {
+  if (!element) return;
+  element.classList.remove('email-component-selected');
+  if (!element.className) element.removeAttribute('class');
 }
 
 function updateTemplatePreview() {
@@ -1044,13 +1060,221 @@ function updateTemplatePreview() {
 function setEditorMode(mode) {
   const visual = mode === 'visual';
   if (visual) $('templateVisual').innerHTML = $('templateHtml').value;
-  else $('templateHtml').value = $('templateVisual').innerHTML.trim();
+  else currentTemplateHtml();
+  clearTemplateComponentSelection();
   $('templateVisual').hidden = !visual;
   $('templateHtml').hidden = visual;
+  $('templateComponentInspector').hidden = !visual || !selectedTemplateComponent;
   $('emailToolbar').hidden = !visual;
   $('emailBlockLibrary').hidden = !visual;
   document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === mode));
   updateTemplatePreview();
+}
+
+function templateComponentRoot(node) {
+  const editor = $('templateVisual');
+  let element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  while (element && element.parentElement !== editor) element = element.parentElement;
+  return element?.parentElement === editor ? element : null;
+}
+
+function templateComponentLabel(component) {
+  if (!component) return 'Componente';
+  const links = component.matches('a') ? [component] : component.querySelectorAll('a');
+  if (component.matches('img') || component.querySelector('img')) return 'Immagine';
+  if (component.matches('hr')) return 'Separatore';
+  if (component.matches('h1, h2, h3')) return 'Titolo';
+  if (component.matches('p, blockquote')) return links.length > 1 ? 'Social' : 'Testo';
+  if (links.length === 1 && component.matches('table')) return links[0].getAttribute('href') === '{{recontact_url}}' ? 'CTA Ricontattami' : 'Pulsante';
+  if (links.length > 1) return 'Social e link';
+  if (component.matches('div') && component.textContent.trim() === '') return 'Spaziatura';
+  if (component.matches('table')) return 'Header o struttura';
+  if (component.matches('div')) return 'Sezione';
+  return 'Componente';
+}
+
+function collectTemplateComponentContent(component) {
+  templateComponentTextNodes = [];
+  templateComponentLinks = component.matches('a') ? [component] : [...component.querySelectorAll('a')];
+  templateComponentImages = component.matches('img') ? [component] : [...component.querySelectorAll('img')];
+  const walker = document.createTreeWalker(component, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const value = node.nodeValue.replace(/\u00a0/g, ' ').trim();
+    if (value && !node.parentElement.closest('a')) templateComponentTextNodes.push(node);
+    node = walker.nextNode();
+  }
+}
+
+function templateComponentStyleTargets(component = selectedTemplateComponent) {
+  if (!component) return {};
+  const link = component.querySelector('a');
+  const cell = component.querySelector('td');
+  const image = component.matches('img') ? component : component.querySelector('img');
+  const simpleText = component.matches('p, h1, h2, h3, blockquote, span, strong') ? component : null;
+  return {
+    text: link || simpleText || cell || component,
+    box: link && cell ? cell : image || cell || component,
+    spacing: component,
+    padding: link && cell ? link : cell || component,
+  };
+}
+
+function colorInputValue(value, fallback) {
+  const normalized = String(value || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized;
+  const rgb = normalized.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!rgb) return fallback;
+  return `#${rgb.slice(1, 4).map((channel) => Number(channel).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function numericStyleValue(element, property) {
+  if (!element) return '';
+  const value = getComputedStyle(element)[property];
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? String(Math.round(number * 10) / 10) : '';
+}
+
+function renderTemplateComponentFields() {
+  if (!selectedTemplateComponent) return;
+  collectTemplateComponentContent(selectedTemplateComponent);
+  const textFields = templateComponentTextNodes.map((node, index) => `
+    <div class="email-component-field">
+      <label><span>Testo ${index + 1}</span><textarea rows="2" data-component-text="${index}">${esc(node.nodeValue.trim())}</textarea></label>
+    </div>`).join('');
+  const linkFields = templateComponentLinks.map((link, index) => `
+    <div class="email-component-field">
+      <label><span>Testo link ${index + 1}</span><input data-component-link-label="${index}" value="${esc(link.textContent.trim())}" /></label>
+      <label><span>Destinazione</span><input data-component-link-url="${index}" value="${esc(link.getAttribute('href') || '')}" /></label>
+    </div>`).join('');
+  const imageFields = templateComponentImages.map((image, index) => {
+    const width = Number.parseFloat(image.style.width || image.getAttribute('width') || '100');
+    const centered = image.style.marginLeft === 'auto' && image.style.marginRight === 'auto';
+    const alignment = centered ? 'center' : image.style.marginLeft === 'auto' ? 'right' : 'left';
+    return `<div class="email-component-field">
+      <label><span>URL immagine ${index + 1}</span><input data-component-image-url="${index}" value="${esc(image.getAttribute('src') || '')}" /></label>
+      <label><span>Testo alternativo</span><input data-component-image-alt="${index}" value="${esc(image.getAttribute('alt') || '')}" /></label>
+      <div class="email-component-field-grid">
+        <label><span>Larghezza %</span><input type="number" min="10" max="100" data-component-image-width="${index}" value="${Number.isFinite(width) ? width : 100}" /></label>
+        <label><span>Allinea</span><select data-component-image-align="${index}"><option value="left" ${alignment === 'left' ? 'selected' : ''}>Sinistra</option><option value="center" ${alignment === 'center' ? 'selected' : ''}>Centro</option><option value="right" ${alignment === 'right' ? 'selected' : ''}>Destra</option></select></label>
+      </div>
+      <button class="secondary" type="button" data-replace-component-image="${index}">Sostituisci file</button>
+    </div>`;
+  }).join('');
+  $('templateComponentFields').innerHTML = textFields + linkFields + imageFields
+    || '<div class="email-component-empty">Questo componente non contiene testi, link o immagini. Puoi personalizzarne spaziatura e aspetto nella sezione Stile.</div>';
+}
+
+function syncTemplateComponentStyleFields() {
+  const targets = templateComponentStyleTargets();
+  if (!targets.text) return;
+  const textStyle = getComputedStyle(targets.text);
+  const boxStyle = getComputedStyle(targets.box);
+  const transparentBackground = boxStyle.backgroundColor === 'transparent' || /rgba\([^)]*,\s*0\s*\)$/.test(boxStyle.backgroundColor);
+  $('templateComponentTextColor').value = colorInputValue(textStyle.color, '#333333');
+  $('templateComponentBackground').value = colorInputValue(transparentBackground ? '' : boxStyle.backgroundColor, '#ffffff');
+  $('templateComponentTransparentBackground').checked = transparentBackground;
+  $('templateComponentBackground').disabled = transparentBackground;
+  $('templateComponentFontSize').value = numericStyleValue(targets.text, 'fontSize');
+  const inlineLineHeight = Number.parseFloat(targets.text.style.lineHeight);
+  $('templateComponentLineHeight').value = Number.isFinite(inlineLineHeight) && inlineLineHeight <= 3 ? inlineLineHeight : '';
+  $('templateComponentAlignment').value = ['left', 'center', 'right', 'justify'].includes(textStyle.textAlign) ? textStyle.textAlign : '';
+  $('templateComponentMarginTop').value = numericStyleValue(targets.spacing, 'marginTop');
+  $('templateComponentMarginBottom').value = numericStyleValue(targets.spacing, 'marginBottom');
+  $('templateComponentPaddingVertical').value = numericStyleValue(targets.padding, 'paddingTop');
+  $('templateComponentPaddingHorizontal').value = numericStyleValue(targets.padding, 'paddingLeft');
+  $('templateComponentBorderRadius').value = numericStyleValue(targets.box, 'borderRadius');
+}
+
+function selectTemplateComponent(component) {
+  removeTemplateSelectionClass(selectedTemplateComponent);
+  selectedTemplateComponent = component && $('templateVisual').contains(component) ? component : null;
+  if (!selectedTemplateComponent) {
+    $('templateComponentInspector').hidden = true;
+    return;
+  }
+  selectedTemplateComponent.classList.add('email-component-selected');
+  $('templateComponentType').textContent = templateComponentLabel(selectedTemplateComponent);
+  $('templateComponentInspector').hidden = false;
+  renderTemplateComponentFields();
+  syncTemplateComponentStyleFields();
+}
+
+function clearTemplateComponentSelection() {
+  removeTemplateSelectionClass(selectedTemplateComponent);
+  selectedTemplateComponent = null;
+  templateComponentTextNodes = [];
+  templateComponentLinks = [];
+  templateComponentImages = [];
+  $('templateComponentInspector').hidden = true;
+}
+
+function updateSelectedTemplateComponent() {
+  updateTemplatePreview();
+  $('templateSaveState').textContent = 'Modifiche non salvate';
+}
+
+function moveSelectedTemplateComponent(direction) {
+  if (!selectedTemplateComponent) return;
+  const sibling = direction === 'up'
+    ? selectedTemplateComponent.previousElementSibling
+    : selectedTemplateComponent.nextElementSibling;
+  if (!sibling) return;
+  if (direction === 'up') sibling.before(selectedTemplateComponent);
+  else sibling.after(selectedTemplateComponent);
+  updateSelectedTemplateComponent();
+}
+
+function duplicateSelectedTemplateComponent() {
+  if (!selectedTemplateComponent) return;
+  const copy = selectedTemplateComponent.cloneNode(true);
+  removeTemplateSelectionClass(copy);
+  selectedTemplateComponent.after(copy);
+  selectTemplateComponent(copy);
+  updateSelectedTemplateComponent();
+}
+
+function deleteSelectedTemplateComponent() {
+  if (!selectedTemplateComponent || !confirm('Rimuovere questo componente dal template?')) return;
+  const nextSelection = selectedTemplateComponent.nextElementSibling || selectedTemplateComponent.previousElementSibling;
+  selectedTemplateComponent.remove();
+  selectTemplateComponent(nextSelection);
+  updateSelectedTemplateComponent();
+}
+
+function applyTemplateComponentStyle(property, value, targetName) {
+  const target = templateComponentStyleTargets()[targetName];
+  if (!target) return;
+  target.style[property] = value;
+  updateSelectedTemplateComponent();
+}
+
+function applyTemplateComponentPadding() {
+  const target = templateComponentStyleTargets().padding;
+  if (!target) return;
+  const vertical = $('templateComponentPaddingVertical').value;
+  const horizontal = $('templateComponentPaddingHorizontal').value;
+  target.style.padding = vertical || horizontal ? `${vertical || 0}px ${horizontal || 0}px` : '';
+  updateSelectedTemplateComponent();
+}
+
+function replaceTextNodeContent(node, value) {
+  const current = node.nodeValue;
+  const leading = current.match(/^\s*/)?.[0] || '';
+  const trailing = current.match(/\s*$/)?.[0] || '';
+  node.nodeValue = `${leading}${value}${trailing}`;
+}
+
+function alignTemplateComponentImage(image, alignment) {
+  image.style.display = 'block';
+  if (alignment === 'center') image.style.marginLeft = image.style.marginRight = 'auto';
+  else if (alignment === 'right') {
+    image.style.marginLeft = 'auto';
+    image.style.marginRight = '0';
+  } else {
+    image.style.marginLeft = '0';
+    image.style.marginRight = 'auto';
+  }
 }
 
 function editorRange() {
@@ -1165,11 +1389,26 @@ function runEditorCommand(command, value = null) {
   rememberEditorRange();
 }
 
-async function uploadTemplateImage(file) {
+async function uploadTemplateImage(file, targetImage = null) {
   const form = new FormData();
   form.append('media', file);
   const { media } = await api('/media/upload/crm', { method: 'POST', body: form });
-  runEditorCommand('insertHTML', `<img src="${esc(media.url)}" alt="${esc(media.name)}" width="640" style="display:block;width:100%;max-width:640px;height:auto;margin:18px auto">`);
+  if (targetImage && $('templateVisual').contains(targetImage)) {
+    targetImage.setAttribute('src', media.url);
+    targetImage.setAttribute('alt', media.name);
+    renderTemplateComponentFields();
+    updateSelectedTemplateComponent();
+    toast('Immagine sostituita');
+    return;
+  }
+  const image = document.createElement('img');
+  image.src = media.url;
+  image.alt = media.name;
+  image.width = 640;
+  image.style.cssText = 'display:block;width:100%;max-width:640px;height:auto;margin:18px auto';
+  insertEditorNode(image);
+  selectTemplateComponent(templateComponentRoot(image));
+  updateSelectedTemplateComponent();
   toast('Immagine inserita');
 }
 
@@ -1229,6 +1468,7 @@ function insertEmailBlock(type) {
     footer: '<div style="padding:24px 12px;text-align:center;color:#6b6b6b;font-family:Arial,sans-serif;font-size:11px;line-height:1.6"><strong style="color:#85294f;font-size:22px">UN</strong><br>United Network, Via Parigi 11, 00185 Roma, Italia<br><a href="https://www.unitednetwork.it/" style="color:#85294f;text-decoration:underline">unitednetwork.it</a><br><a href="mailto:info@unitednetwork.it?subject=Disiscrizione" style="color:#85294f;text-decoration:underline">Annulla l’iscrizione</a></div>',
   };
   if (type === 'image') {
+    templateImageReplacementTarget = null;
     $('templateImageFile').click();
     return;
   }
@@ -1264,6 +1504,7 @@ function insertEmailBlock(type) {
     context.selection.removeAllRanges();
     context.selection.addRange(nextRange);
   }
+  selectTemplateComponent(templateComponentRoot(lastInserted));
   updateTemplatePreview();
   rememberEditorRange();
 }
@@ -1298,6 +1539,7 @@ function editTemplate(id) {
   state.templateAttachments = normalizeTemplateAttachments(template.attachments);
   renderTemplateAttachments();
   savedEditorRange = null;
+  clearTemplateComponentSelection();
   $('templateEditorTitle').textContent = 'Modifica template';
   $('templateEditor').hidden = false;
   setEditorMode('visual');
@@ -2157,6 +2399,7 @@ function resetTemplateEditor() {
   $('templateHtml').value = '<p>Ciao {{first_name}},</p><p>Scrivi qui il contenuto della tua email.</p><p>A presto.</p>';
   $('templateVisual').innerHTML = $('templateHtml').value;
   savedEditorRange = null;
+  clearTemplateComponentSelection();
   $('templateEditorTitle').textContent = 'Nuovo template';
   $('templateFolder').value = $('templateFolderFilter').value === '__none__' ? '' : $('templateFolderFilter').value;
   setEditorMode('visual');
@@ -2295,6 +2538,7 @@ $('refreshEmailDashboardBtn').addEventListener('click', () => loadEmailDashboard
 $('refreshEmailLogsBtn').addEventListener('click', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('emailLogFilters').addEventListener('change', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('templateVisual').addEventListener('input', updateTemplatePreview);
+$('templateVisual').addEventListener('click', (event) => selectTemplateComponent(templateComponentRoot(event.target)));
 $('templateVisual').addEventListener('mouseup', rememberEditorRange);
 $('templateVisual').addEventListener('keyup', rememberEditorRange);
 $('templateHtml').addEventListener('input', updateTemplatePreview);
@@ -2329,16 +2573,20 @@ $('insertLinkBtn').addEventListener('click', () => {
     toast('URL non valido', 'err');
   }
 });
-$('insertImageBtn').addEventListener('click', () => $('templateImageFile').click());
+$('insertImageBtn').addEventListener('click', () => {
+  templateImageReplacementTarget = null;
+  $('templateImageFile').click();
+});
 $('addTemplateAttachmentBtn').addEventListener('click', () => $('templateAttachmentFile').click());
 $('templateImageFile').addEventListener('change', async () => {
   const [file] = $('templateImageFile').files;
   if (!file) return;
   try {
-    await uploadTemplateImage(file);
+    await uploadTemplateImage(file, templateImageReplacementTarget);
   } catch (error) {
     toast(error.message, 'err');
   } finally {
+    templateImageReplacementTarget = null;
     $('templateImageFile').value = '';
   }
 });
@@ -2358,6 +2606,61 @@ document.querySelectorAll('[data-preview-size]').forEach((button) => button.addE
   $('emailPreviewWrap').classList.toggle('mobile', mobile);
   document.querySelectorAll('[data-preview-size]').forEach((item) => item.classList.toggle('active', item === button));
 }));
+$('closeTemplateComponentInspector').addEventListener('click', clearTemplateComponentSelection);
+$('moveTemplateComponentUp').addEventListener('click', () => moveSelectedTemplateComponent('up'));
+$('moveTemplateComponentDown').addEventListener('click', () => moveSelectedTemplateComponent('down'));
+$('duplicateTemplateComponent').addEventListener('click', duplicateSelectedTemplateComponent);
+$('deleteTemplateComponent').addEventListener('click', deleteSelectedTemplateComponent);
+$('templateComponentFields').addEventListener('input', (event) => {
+  const input = event.target;
+  if (input.dataset.componentText !== undefined) {
+    const node = templateComponentTextNodes[Number(input.dataset.componentText)];
+    if (node) replaceTextNodeContent(node, input.value);
+  } else if (input.dataset.componentLinkLabel !== undefined) {
+    const link = templateComponentLinks[Number(input.dataset.componentLinkLabel)];
+    if (link) link.textContent = input.value;
+  } else if (input.dataset.componentLinkUrl !== undefined) {
+    const link = templateComponentLinks[Number(input.dataset.componentLinkUrl)];
+    if (link) link.setAttribute('href', input.value.trim());
+  } else if (input.dataset.componentImageUrl !== undefined) {
+    const image = templateComponentImages[Number(input.dataset.componentImageUrl)];
+    if (image) image.setAttribute('src', input.value.trim());
+  } else if (input.dataset.componentImageAlt !== undefined) {
+    const image = templateComponentImages[Number(input.dataset.componentImageAlt)];
+    if (image) image.setAttribute('alt', input.value);
+  } else if (input.dataset.componentImageWidth !== undefined) {
+    const image = templateComponentImages[Number(input.dataset.componentImageWidth)];
+    if (image) image.style.width = input.value ? `${Math.min(100, Math.max(10, Number(input.value)))}%` : '';
+  } else if (input.dataset.componentImageAlign !== undefined) {
+    const image = templateComponentImages[Number(input.dataset.componentImageAlign)];
+    if (image) alignTemplateComponentImage(image, input.value);
+  }
+  updateSelectedTemplateComponent();
+});
+$('templateComponentFields').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-replace-component-image]');
+  if (!button) return;
+  templateImageReplacementTarget = templateComponentImages[Number(button.dataset.replaceComponentImage)] || null;
+  if (templateImageReplacementTarget) $('templateImageFile').click();
+});
+$('templateComponentTextColor').addEventListener('input', () => applyTemplateComponentStyle('color', $('templateComponentTextColor').value, 'text'));
+$('templateComponentBackground').addEventListener('input', () => {
+  $('templateComponentTransparentBackground').checked = false;
+  applyTemplateComponentStyle('backgroundColor', $('templateComponentBackground').value, 'box');
+});
+$('templateComponentTransparentBackground').addEventListener('change', () => {
+  const transparent = $('templateComponentTransparentBackground').checked;
+  $('templateComponentBackground').disabled = transparent;
+  applyTemplateComponentStyle('backgroundColor', transparent ? '' : $('templateComponentBackground').value, 'box');
+});
+$('templateComponentFontSize').addEventListener('input', () => applyTemplateComponentStyle('fontSize', $('templateComponentFontSize').value ? `${$('templateComponentFontSize').value}px` : '', 'text'));
+$('templateComponentLineHeight').addEventListener('input', () => applyTemplateComponentStyle('lineHeight', $('templateComponentLineHeight').value, 'text'));
+$('templateComponentAlignment').addEventListener('change', () => applyTemplateComponentStyle('textAlign', $('templateComponentAlignment').value, 'text'));
+$('templateComponentMarginTop').addEventListener('input', () => applyTemplateComponentStyle('marginTop', $('templateComponentMarginTop').value ? `${$('templateComponentMarginTop').value}px` : '', 'spacing'));
+$('templateComponentMarginBottom').addEventListener('input', () => applyTemplateComponentStyle('marginBottom', $('templateComponentMarginBottom').value ? `${$('templateComponentMarginBottom').value}px` : '', 'spacing'));
+$('templateComponentPaddingVertical').addEventListener('input', applyTemplateComponentPadding);
+$('templateComponentPaddingHorizontal').addEventListener('input', applyTemplateComponentPadding);
+$('templateComponentBorderRadius').addEventListener('input', () => applyTemplateComponentStyle('borderRadius', $('templateComponentBorderRadius').value ? `${$('templateComponentBorderRadius').value}px` : '', 'box'));
 
 (async () => {
   try {

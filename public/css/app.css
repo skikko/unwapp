@@ -597,11 +597,40 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .email-block-library button { width: auto; min-height: 32px; padding: 6px 9px; font-size: 10px; border-radius: 8px; }
 .email-color-control { min-height: 34px; padding: 4px 8px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink-soft); font-size: 10px; font-weight: 700; }
 .email-color-control input { width: 24px; min-height: 24px; height: 24px; padding: 1px; border: 0; }
+.email-editor-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: start; background: white; }
+.email-editor-workspace:has(.email-component-inspector[hidden]) { grid-template-columns: 1fr; }
+.email-editor-stage { min-width: 0; }
 .email-editor-canvas, .email-html-source { width: 100%; min-height: 440px; padding: 32px; border: 0; border-radius: 0; background: white; box-shadow: none; color: var(--ink); font-size: 15px; line-height: 1.65; }
 .email-editor-canvas { outline: none; overflow-wrap: anywhere; }
 .email-editor-canvas:focus { box-shadow: inset 0 0 0 2px var(--accent); }
 .email-editor-canvas img { max-width: 100%; height: auto; }
+.email-editor-canvas > * { position: relative; cursor: pointer; }
+.email-editor-canvas > .email-component-selected { outline: 2px solid var(--accent); outline-offset: 5px; }
+.email-editor-canvas > .email-component-selected::after { content: "Selezionato"; position: absolute; z-index: 2; top: -9px; right: -5px; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: white; font: 700 9px/1.4 var(--font-sans); letter-spacing: .03em; }
 .email-html-source { resize: vertical; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+.email-component-inspector { min-width: 0; max-height: 620px; overflow: auto; position: sticky; top: 0; border-left: 1px solid var(--line); background: var(--surface-soft); }
+.email-component-inspector-head { min-height: 58px; padding: 11px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); background: white; }
+.email-component-inspector-head > div { min-width: 0; display: grid; gap: 2px; }
+.email-component-inspector-head span { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.email-component-inspector-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.email-component-inspector-head button { min-height: 30px; padding: 5px 7px; font-size: 9px; }
+.email-component-actions { padding: 9px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; border-bottom: 1px solid var(--line); background: white; }
+.email-component-actions button { min-height: 32px; padding: 6px 7px; font-size: 9px; }
+.email-component-section { padding: 12px; border-bottom: 1px solid var(--line); }
+.email-component-section h3 { margin: 0 0 10px; color: var(--ink-soft); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.email-component-fields { display: grid; gap: 10px; }
+.email-component-field { min-width: 0; padding: 9px; display: grid; gap: 7px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.email-component-field > label, .email-component-style-grid > label { min-width: 0; display: grid; gap: 5px; color: var(--ink-soft); font-size: 10px; font-weight: 750; }
+.email-component-field input, .email-component-field textarea, .email-component-style-grid input, .email-component-style-grid select { min-width: 0; min-height: 36px; padding: 7px 8px; border-radius: 7px; font-size: 11px; }
+.email-component-field textarea { resize: vertical; }
+.email-component-field-grid { display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 6px; }
+.email-component-field button { min-height: 32px; padding: 6px 8px; font-size: 9px; }
+.email-component-empty { padding: 10px; border: 1px dashed var(--line-control); border-radius: 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.email-component-style-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.email-component-style-grid .span-2 { grid-column: 1 / -1; }
+.email-component-style-grid input[type="color"] { width: 100%; padding: 4px; }
+.email-component-style-grid .email-component-check { min-height: 32px; padding: 6px 8px; display: flex; align-items: center; grid-template-columns: none; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+.email-component-style-grid .email-component-check input { width: 15px; min-height: 15px; height: 15px; padding: 0; }
 .email-compose-pane .template-token-note { margin: 0; border-radius: 0; border-top: 1px solid var(--line); }
 .email-fallback { padding: 13px 14px; border-top: 1px solid var(--line); background: white; }
 .email-fallback summary { cursor: pointer; color: var(--ink-soft); font-size: 12px; font-weight: 750; }
@@ -747,6 +776,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .contact-import-grid { grid-template-columns: 1fr; }
   .contact-mapping-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .email-builder { grid-template-columns: 1fr; }
+  .email-editor-workspace { grid-template-columns: minmax(0, 1fr) 280px; }
   .email-preview-pane { position: static; }
   .campaign-compose-grid { grid-template-columns: 1fr; }
   .sequence-step-content { grid-template-columns: 1fr; }
@@ -830,6 +860,8 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
   .crm-object-card.wide { grid-column: auto; }
   .email-editor-canvas, .email-html-source { min-height: 360px; padding: 20px; }
   .email-test-row { grid-template-columns: 1fr; }
+  .email-editor-workspace { grid-template-columns: 1fr; }
+  .email-component-inspector { position: static; max-height: none; border-top: 1px solid var(--line); border-left: 0; }
   .sequence-builder-header { align-items: flex-start; flex-direction: column; }
   .sequence-builder-header > div:last-child { justify-items: start; }
   .sequence-trigger { align-items: flex-start; flex-direction: column; }

@@ -295,8 +295,44 @@
                   <button class="secondary" type="button" data-email-block="social">Social</button>
                   <button class="secondary" type="button" data-email-block="footer">Footer</button>
                 </div>
-                <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenuto email"></div>
-                <textarea class="email-html-source" id="templateHtml" rows="18" aria-label="Codice HTML del template" hidden></textarea>
+                <div class="email-editor-workspace">
+                  <div class="email-editor-stage">
+                    <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenuto email"></div>
+                    <textarea class="email-html-source" id="templateHtml" rows="18" aria-label="Codice HTML del template" hidden></textarea>
+                  </div>
+                  <aside class="email-component-inspector" id="templateComponentInspector" aria-label="Editor componente" hidden>
+                    <div class="email-component-inspector-head">
+                      <div><span>Componente selezionato</span><strong id="templateComponentType">Componente</strong></div>
+                      <button class="ghost" type="button" id="closeTemplateComponentInspector">Chiudi</button>
+                    </div>
+                    <div class="email-component-actions" role="group" aria-label="Azioni componente">
+                      <button class="secondary" type="button" id="moveTemplateComponentUp">Su</button>
+                      <button class="secondary" type="button" id="moveTemplateComponentDown">Giù</button>
+                      <button class="secondary" type="button" id="duplicateTemplateComponent">Duplica</button>
+                      <button class="danger" type="button" id="deleteTemplateComponent">Rimuovi</button>
+                    </div>
+                    <section class="email-component-section">
+                      <h3>Contenuti</h3>
+                      <div class="email-component-fields" id="templateComponentFields"></div>
+                    </section>
+                    <section class="email-component-section">
+                      <h3>Stile</h3>
+                      <div class="email-component-style-grid">
+                        <label><span>Colore testo</span><input id="templateComponentTextColor" type="color" value="#333333" /></label>
+                        <label><span>Sfondo</span><input id="templateComponentBackground" type="color" value="#ffffff" /></label>
+                        <label class="span-2 email-component-check"><input id="templateComponentTransparentBackground" type="checkbox" /><span>Sfondo trasparente</span></label>
+                        <label><span>Dimensione testo</span><input id="templateComponentFontSize" type="number" min="8" max="72" placeholder="Auto" /></label>
+                        <label><span>Interlinea</span><input id="templateComponentLineHeight" type="number" min="0.8" max="3" step="0.1" placeholder="Auto" /></label>
+                        <label class="span-2"><span>Allineamento</span><select id="templateComponentAlignment"><option value="">Ereditato</option><option value="left">Sinistra</option><option value="center">Centro</option><option value="right">Destra</option><option value="justify">Giustificato</option></select></label>
+                        <label><span>Spazio sopra</span><input id="templateComponentMarginTop" type="number" min="0" max="160" placeholder="0" /></label>
+                        <label><span>Spazio sotto</span><input id="templateComponentMarginBottom" type="number" min="0" max="160" placeholder="0" /></label>
+                        <label><span>Padding verticale</span><input id="templateComponentPaddingVertical" type="number" min="0" max="160" placeholder="0" /></label>
+                        <label><span>Padding orizzontale</span><input id="templateComponentPaddingHorizontal" type="number" min="0" max="160" placeholder="0" /></label>
+                        <label><span>Arrotondamento</span><input id="templateComponentBorderRadius" type="number" min="0" max="100" placeholder="0" /></label>
+                      </div>
+                    </section>
+                  </aside>
+                </div>
                 <div class="template-token-note">Puoi inserire immagini fino a 5 MB e allegati fino a 16 MB. Le variabili vengono sostituite per ogni contatto.</div>
                 <div class="template-attachments" id="templateAttachments"></div>
                 <details class="email-fallback">
