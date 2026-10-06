@@ -62,6 +62,7 @@ app.use('/api/chat', require('./routes/chat'));
 app.use('/api/documents', require('./routes/documents'));
 app.use('/api/broadcast', require('./routes/broadcast'));
 app.use('/api/crm', require('./routes/crm'));
+app.use('/api/public', require('./routes/publicCrm'));
 app.use('/api/ingest', require('./routes/crmIngest'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/auth', require('./routes/auth'));

@@ -68,7 +68,30 @@ test('rende le variabili del template e protegge il corpo HTML', () => {
   }), 'https://crm.example.com/email/recontact');
 });
 
-test('il click Ricontattami registra la richiesta e apre la thank you page', async (t) => {
+test('il link Ricontattami apre la thank you page con token senza iscrivere il contatto', async (t) => {
+  const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
+  process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
+  const originalRecordEmailEvent = crmRepo.recordEmailEvent;
+  crmRepo.recordEmailEvent = async (input) => {
+    throw new Error(`Unexpected email event: ${input.eventType}`);
+  };
+  t.after(() => {
+    crmRepo.recordEmailEvent = originalRecordEmailEvent;
+    if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
+    else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
+  });
+  const jobId = '123e4567-e89b-42d3-a456-426614174000';
+  const redirect = await emailService.requestRecontact({
+    jobId,
+    sig: emailService.signEmailTracking(jobId, 'recontact'),
+  });
+
+  const url = new URL(redirect);
+  assert.equal(`${url.origin}${url.pathname}`, 'https://www.unitednetwork.it/grazie-ricontatto/');
+  assert.equal(emailService.verifyRecontactToken(url.searchParams.get('token')), jobId);
+});
+
+test('il bottone Ricontattami registra la richiesta e iscrive alla lista', async (t) => {
   const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
   process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
   const originalRecordEmailEvent = crmRepo.recordEmailEvent;
@@ -83,14 +106,15 @@ test('il click Ricontattami registra la richiesta e apre la thank you page', asy
     else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
   });
   const jobId = '123e4567-e89b-42d3-a456-426614174000';
-  const redirect = await emailService.requestRecontact({
-    jobId,
-    sig: emailService.signEmailTracking(jobId, 'recontact'),
+  const result = await emailService.confirmRecontact({
+    token: emailService.recontactToken(jobId),
   });
 
-  assert.equal(redirect, 'https://www.unitednetwork.it/grazie-ricontatto/');
+  assert.deepEqual(result, { success: true, membershipAdded: true });
+  assert.equal(recorded.jobId, jobId);
   assert.equal(recorded.listName, 'Da Ricontattare');
   assert.equal(recorded.eventType, 'click');
+  assert.equal(recorded.url, '/api/public/recontact-request');
 });
 
 test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {

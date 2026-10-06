@@ -165,17 +165,40 @@ function renderTemplate(value, contact, { html = false, variables = {} } = {}) {
   });
 }
 
-function recontactActionUrl(jobId, baseUrl) {
-  const url = new URL('/email/recontact', baseUrl);
-  url.searchParams.set('jid', jobId);
-  url.searchParams.set('sig', signEmailTracking(jobId, 'recontact'));
+function recontactToken(jobId) {
+  const normalizedJobId = String(jobId || '').trim();
+  if (!normalizedJobId) throw new Error('Email job id is required');
+  const payload = encodeTrackingUrl(JSON.stringify({ jid: normalizedJobId }));
+  return `${payload}.${signEmailTracking(normalizedJobId, 'recontact')}`;
+}
+
+function verifyRecontactToken(token) {
+  const [payloadToken, signature, extra] = String(token || '').trim().split('.');
+  if (!payloadToken || !signature || extra !== undefined) {
+    throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
+  }
+  let payload;
+  try {
+    payload = JSON.parse(decodeTrackingUrl(payloadToken));
+  } catch {
+    throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
+  }
+  const jobId = String(payload?.jid || '').trim();
+  if (!jobId || !verifyEmailTracking({ jobId, eventType: 'recontact', sig: signature })) {
+    throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
+  }
+  return jobId;
+}
+
+function recontactThankYouUrl(jobId = null) {
+  const url = new URL(RECONTACT_THANK_YOU_URL);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid recontact thank you URL');
+  if (jobId) url.searchParams.set('token', recontactToken(jobId));
   return url.toString();
 }
 
-function recontactThankYouUrl() {
-  const url = new URL(RECONTACT_THANK_YOU_URL);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid recontact thank you URL');
-  return url.toString();
+function recontactActionUrl(jobId) {
+  return recontactThankYouUrl(jobId);
 }
 
 function unsubscribeSecret() {
@@ -350,16 +373,21 @@ async function requestRecontact(input = {}) {
   })) {
     throw Object.assign(new Error('Invalid recontact signature'), { status: 400 });
   }
+  return recontactThankYouUrl(input.jobId);
+}
+
+async function confirmRecontact(input = {}) {
+  const jobId = verifyRecontactToken(input.token);
   const event = await crmRepo.recordEmailEvent({
-    jobId: input.jobId,
+    jobId,
     eventType: 'click',
-    url: '/email/recontact',
+    url: '/api/public/recontact-request',
     userAgent: input.userAgent,
     ip: input.ip,
     listName: RECONTACT_LIST_NAME,
   });
   if (!event) throw Object.assign(new Error('Email job not found'), { status: 404 });
-  return recontactThankYouUrl();
+  return { success: true, membershipAdded: event.membershipAdded };
 }
 
 async function unsubscribeContact({ cid, email, sig } = {}) {
@@ -539,10 +567,14 @@ module.exports = {
   verifyEmailTracking,
   encodeTrackingUrl,
   decodeTrackingUrl,
+  recontactToken,
+  verifyRecontactToken,
+  recontactThankYouUrl,
   applyEmailTracking,
   trackEmailOpen,
   trackEmailClick,
   requestRecontact,
+  confirmRecontact,
   inlineStoredMedia,
   storedTemplateAttachments,
   processDueJobs,

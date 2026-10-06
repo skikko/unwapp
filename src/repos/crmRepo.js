@@ -1419,8 +1419,7 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
     }
     let membershipAdded = false;
     if (listName) {
-      const list = await getListByNameWithClient(client, listName);
-      if (!list) throw Object.assign(new Error('Recontact list not found'), { status: 404 });
+      const list = await ensureListByNameWithClient(client, listName, 'email_recontact');
       membershipAdded = Boolean(await addContactToListWithClient(
         client,
         list.id,
@@ -1428,6 +1427,13 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
         'email_cta',
         'email_recontact'
       ));
+      await addContactEvent(client, job.rows[0].contact_id, 'recontact_requested', {
+        jobId,
+        listId: list.id,
+        listName,
+        membershipAdded,
+        url,
+      }, 'email_recontact');
     }
     await client.query('COMMIT');
     return { id: jobId, membershipAdded };
