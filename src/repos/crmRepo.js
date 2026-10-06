@@ -976,21 +976,35 @@ async function listSequences() {
     `SELECT s.*,
             l.name AS trigger_list_name,
             folder.name AS folder_name,
-            COALESCE(jsonb_agg(jsonb_build_object(
-              'id', st.id, 'position', st.position, 'delayMinutes', st.delay_minutes,
-              'templateId', st.template_id, 'templateName', t.name
-            ) ORDER BY st.position) FILTER (WHERE st.id IS NOT NULL), '[]'::jsonb) AS steps,
-            count(DISTINCT e.id)::int AS enrollment_count,
-            count(DISTINCT e.id) FILTER (WHERE e.status='active')::int AS active_count,
-            count(DISTINCT e.id) FILTER (WHERE e.status='completed')::int AS completed_count,
-            count(DISTINCT e.id) FILTER (WHERE e.status='failed')::int AS failed_count
+            COALESCE(steps.steps, '[]'::jsonb) AS steps,
+            COALESCE(stats.enrollment_count, 0)::int AS enrollment_count,
+            COALESCE(stats.active_count, 0)::int AS active_count,
+            COALESCE(stats.completed_count, 0)::int AS completed_count,
+            COALESCE(stats.failed_count, 0)::int AS failed_count
      FROM crm_sequences s
      LEFT JOIN crm_lists l ON l.id = s.trigger_list_id
      LEFT JOIN crm_content_folders folder ON folder.id = s.folder_id
-     LEFT JOIN crm_sequence_steps st ON st.sequence_id = s.id
-     LEFT JOIN crm_email_templates t ON t.id = st.template_id
-     LEFT JOIN crm_sequence_enrollments e ON e.sequence_id = s.id
-     GROUP BY s.id,l.name,folder.name ORDER BY s.updated_at DESC`
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(jsonb_build_object(
+                'id', st.id,
+                'position', st.position,
+                'delayMinutes', st.delay_minutes,
+                'templateId', st.template_id,
+                'templateName', t.name
+              ) ORDER BY st.position) AS steps
+       FROM crm_sequence_steps st
+       LEFT JOIN crm_email_templates t ON t.id = st.template_id
+       WHERE st.sequence_id = s.id
+     ) steps ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT count(*)::int AS enrollment_count,
+              count(*) FILTER (WHERE e.status='active')::int AS active_count,
+              count(*) FILTER (WHERE e.status='completed')::int AS completed_count,
+              count(*) FILTER (WHERE e.status='failed')::int AS failed_count
+       FROM crm_sequence_enrollments e
+       WHERE e.sequence_id = s.id
+     ) stats ON TRUE
+     ORDER BY s.updated_at DESC`
   );
   return rows;
 }

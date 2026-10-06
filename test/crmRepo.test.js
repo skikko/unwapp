@@ -52,6 +52,32 @@ test('duplica una sequenza disattivata senza copiare le iscrizioni', async (t) =
   assert.equal(calls.at(-1).sql, 'COMMIT');
 });
 
+test('lista sequenze senza duplicare gli step per iscrizione', async (t) => {
+  const originalQuery = db.query;
+  let capturedSql = '';
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return {
+      rows: [{
+        id: 'sequence-1',
+        steps: [{ id: 'step-1', position: 0, templateName: 'Template 1' }],
+        enrollment_count: 21,
+        active_count: 5,
+        completed_count: 16,
+        failed_count: 0,
+      }],
+    };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  const sequences = await crmRepo.listSequences();
+
+  assert.equal(sequences[0].steps.length, 1);
+  assert.equal(sequences[0].enrollment_count, 21);
+  assert.match(capturedSql, /LEFT JOIN LATERAL/);
+  assert.doesNotMatch(capturedSql, /LEFT JOIN crm_sequence_enrollments e ON e\.sequence_id = s\.id/);
+});
+
 test('crea e rinomina cartelle contenuto mantenendo il tipo', async (t) => {
   const originalQuery = db.query;
   const calls = [];
