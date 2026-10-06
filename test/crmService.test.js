@@ -127,6 +127,7 @@ test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {
     };
     const html = emailService.appendComplianceFooter('<p>Ciao</p>', contact, 'https://crm.example.com');
     assert.match(html, /P\.IVA: 13513131006/);
+    assert.match(html, /max-width:640px/);
     assert.match(html, /\/unsubscribe\?cid=123e4567-e89b-42d3-a456-426614174000&amp;email=mario%40example\.com&amp;sig=/);
     const text = emailService.appendComplianceFooterText('Ciao', contact, 'https://crm.example.com');
     assert.match(text, /Disiscriviti: https:\/\/crm\.example\.com\/unsubscribe/);
@@ -337,6 +338,35 @@ test('rifiuta campi e operatori non previsti nelle condizioni di sequenza', () =
     },
     steps: [{ templateId: 'template-1' }],
   }), /Invalid sequence trigger condition/);
+});
+
+test('normalizza una automazione su campo contatto con azioni lista e notifica', () => {
+  const automation = crmService.validateAutomation({
+    name: 'Lead genitori',
+    trigger: {
+      type: 'contact_saved',
+      condition: { field: 'contactType', operator: 'equals', value: 'Genitore' },
+    },
+    actions: [
+      { type: 'add_to_list', targetListId: '123e4567-e89b-12d3-a456-426614174000' },
+      { type: 'notify_email', toEmail: ' Team@Example.com ', subject: 'Nuovo lead', body: 'Controlla il contatto' },
+    ],
+  });
+  assert.equal(automation.triggerType, 'contact_saved');
+  assert.deepEqual(automation.triggerCondition, { field: 'contactType', operator: 'equals', value: 'parent' });
+  assert.equal(automation.actions[0].targetListId, '123e4567-e89b-12d3-a456-426614174000');
+  assert.equal(automation.actions[1].toEmail, 'team@example.com');
+});
+
+test('richiede almeno una azione per una automazione', () => {
+  assert.throws(() => crmService.validateAutomation({
+    name: 'Automazione vuota',
+    trigger: {
+      type: 'contact_saved',
+      condition: { field: 'email', operator: 'is_set' },
+    },
+    actions: [],
+  }), /at least one automation action/i);
 });
 
 test('compila le condizioni di sequenza con parametri SQL tipizzati', () => {

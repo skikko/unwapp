@@ -27,6 +27,23 @@ const SEQUENCE_CONDITION_FIELDS = new Map([
   ['utmTerm', new Set(['equals', 'not_equals', 'contains'])],
   ['utmContent', new Set(['equals', 'not_equals', 'contains'])],
 ]);
+const AUTOMATION_CONDITION_FIELDS = new Map([
+  ['contactType', new Set(['equals', 'not_equals', 'is_set', 'is_not_set'])],
+  ['contactStatusId', new Set(['equals', 'not_equals', 'is_set', 'is_not_set'])],
+  ['emailStatus', new Set(['equals', 'not_equals'])],
+  ['source', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['firstName', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['lastName', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['email', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['phone', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['tags', new Set(['contains', 'not_contains', 'is_set', 'is_not_set'])],
+  ['webinarRegisteredAt', new Set(['equals', 'before', 'after', 'is_set', 'is_not_set'])],
+  ['utmSource', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['utmMedium', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['utmCampaign', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['utmTerm', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+  ['utmContent', new Set(['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'])],
+]);
 
 function normalizeEmail(value) {
   const email = String(value || '').trim().toLowerCase();
@@ -88,11 +105,20 @@ function normalizeContactStatusId(value) {
   return id;
 }
 
-function normalizeFolderId(value) {
+function normalizeUuid(value, label) {
   const id = String(value || '').trim();
   if (!id) return null;
-  if (!UUID_PATTERN.test(id)) throw Object.assign(new Error('Invalid content folder'), { status: 400 });
+  if (!UUID_PATTERN.test(id)) throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
   return id;
+}
+
+function normalizeFolderId(value) {
+  return normalizeUuid(value, 'content folder');
+}
+
+function normalizeListIds(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(items.map((item) => normalizeUuid(item, 'list')).filter(Boolean))].slice(0, 100);
 }
 
 function normalizeFilters(value = {}) {
@@ -286,6 +312,73 @@ function validateSequence(input = {}) {
   };
 }
 
+function normalizeAutomationCondition(value = {}) {
+  const field = String(value?.field || '').trim();
+  const operator = String(value?.operator || '').trim();
+  const operators = AUTOMATION_CONDITION_FIELDS.get(field);
+  if (!operators || !operators.has(operator)) {
+    throw Object.assign(new Error('Invalid automation trigger condition'), { status: 400 });
+  }
+  if (operator === 'is_set' || operator === 'is_not_set') return { field, operator, value: null };
+  let normalizedValue = String(value?.value || '').trim();
+  if (!normalizedValue) {
+    throw Object.assign(new Error('A value is required for the automation trigger condition'), { status: 400 });
+  }
+  if (field === 'contactType') normalizedValue = normalizeContactType(normalizedValue);
+  if (field === 'contactStatusId') normalizedValue = normalizeContactStatusId(normalizedValue);
+  if (field === 'emailStatus' && !EMAIL_STATUSES.has(normalizedValue)) {
+    throw Object.assign(new Error('Invalid email status in automation trigger condition'), { status: 400 });
+  }
+  if (field === 'webinarRegisteredAt') normalizedValue = normalizeWebinarDate(normalizedValue);
+  if (field === 'tags') normalizedValue = normalizeTags([normalizedValue])[0];
+  if (!normalizedValue) {
+    throw Object.assign(new Error('A value is required for the automation trigger condition'), { status: 400 });
+  }
+  return { field, operator, value: normalizedValue.slice(0, 255) };
+}
+
+function validateAutomation(input = {}) {
+  const name = String(input.name || '').trim();
+  const triggerType = input.trigger?.type === 'list_joined' ? 'list_joined' : 'contact_saved';
+  const triggerListId = triggerType === 'list_joined' ? normalizeUuid(input.trigger?.listId, 'list') : null;
+  const triggerCondition = triggerType === 'contact_saved'
+    ? normalizeAutomationCondition(input.trigger?.condition)
+    : null;
+  const actions = Array.isArray(input.actions) ? input.actions.map((action) => {
+    const actionType = String(action?.type || '').trim();
+    if (actionType === 'add_to_list') {
+      const targetListId = normalizeUuid(action.targetListId, 'list');
+      if (!targetListId) throw Object.assign(new Error('A target list is required for the automation action'), { status: 400 });
+      return { type: actionType, targetListId };
+    }
+    if (actionType === 'notify_email') {
+      const toEmail = normalizeEmail(action.toEmail);
+      if (!toEmail) throw Object.assign(new Error('A notification email is required for the automation action'), { status: 400 });
+      return {
+        type: actionType,
+        toEmail,
+        subject: String(action.subject || '').trim().replace(/[\r\n]+/g, ' ').slice(0, 180) || 'Notifica Automation Studio',
+        body: String(action.body || '').trim().slice(0, 3000),
+      };
+    }
+    throw Object.assign(new Error('Invalid automation action'), { status: 400 });
+  }) : [];
+  if (!name) throw Object.assign(new Error('Automation name is required'), { status: 400 });
+  if (triggerType === 'list_joined' && !triggerListId) {
+    throw Object.assign(new Error('A list is required for the selected automation trigger'), { status: 400 });
+  }
+  if (!actions.length) throw Object.assign(new Error('At least one automation action is required'), { status: 400 });
+  return {
+    name,
+    description: String(input.description || '').trim().slice(0, 500),
+    active: input.active !== false,
+    triggerType,
+    triggerListId,
+    triggerCondition,
+    actions,
+  };
+}
+
 function normalizeSequenceConditions(value) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 10) {
@@ -368,11 +461,13 @@ module.exports = {
   normalizeWebinarDate,
   normalizeFilters,
   normalizeContact,
+  normalizeListIds,
   normalizeTemplateAttachments,
   saveContact,
   sanitizeEmailHtml,
   validateTemplate,
   validateSequence,
+  validateAutomation,
   normalizeSequenceConditions,
   normalizeBulkContactChanges,
   contactFiltersFromQuery,

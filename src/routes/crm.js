@@ -30,6 +30,7 @@ router.post('/lists', write, handle(controller.createList));
 router.put('/lists/:id', write, handle(controller.updateList));
 router.get('/lists/:id/contacts', read, handle(controller.listContactsInList));
 router.get('/lists/:id/export', read, handle(controller.exportContactsInList));
+router.post('/lists/:id/contacts', write, handle(controller.addContactToList));
 router.delete('/lists/:id', write, handle(controller.deleteList));
 
 router.get('/contact-statuses', read, handle(controller.listContactStatuses));
@@ -47,6 +48,12 @@ router.post('/templates/test', write, handle(controller.sendTemplateTest));
 router.post('/templates/:id/duplicate', write, handle(controller.duplicateTemplate));
 router.put('/templates/:id', write, handle(controller.updateTemplate));
 router.delete('/templates/:id', write, handle(controller.deleteTemplate));
+
+router.get('/automations', read, handle(controller.listAutomations));
+router.post('/automations', write, handle(controller.createAutomation));
+router.put('/automations/:id', write, handle(controller.updateAutomation));
+router.patch('/automations/:id/status', write, handle(controller.updateAutomationStatus));
+router.delete('/automations/:id', write, handle(controller.deleteAutomation));
 
 router.get('/sequences', read, handle(controller.listSequences));
 router.get('/sequences/:id/enrollments', read, handle(controller.listSequenceEnrollments));

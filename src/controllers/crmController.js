@@ -96,6 +96,8 @@ async function bulkUpdateContacts(req, res) {
 
 async function createContact(req, res) {
   const contact = await crmService.saveContact(req.body || {}, { actor: req.user.username });
+  const listIds = crmService.normalizeListIds(req.body.listIds);
+  if (listIds.length) await crmRepo.setContactLists(contact.id, listIds, req.user.username);
   res.status(201).json({ contact });
 }
 
@@ -131,6 +133,9 @@ async function updateContact(req, res) {
     utmContent: req.body.utmContent === undefined ? existing.utm_content : req.body.utmContent,
   });
   const contact = await crmRepo.updateContact(req.params.id, normalized, req.user.username);
+  if (req.body.listIds !== undefined) {
+    await crmRepo.setContactLists(contact.id, crmService.normalizeListIds(req.body.listIds), req.user.username);
+  }
   res.json({ contact });
 }
 
@@ -180,6 +185,27 @@ async function exportContactsInList(req, res) {
   const slug = list.name.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'lista';
   sendContactsCsv(res, `contatti-${slug}.csv`, contacts);
+}
+
+async function addContactToList(req, res) {
+  const list = await crmRepo.getList(req.params.id);
+  if (!list) return res.status(404).json({ error: 'Lista non trovata' });
+  let contactId = String(req.body.contactId || '').trim();
+  if (!contactId) {
+    const contact = await crmService.saveContact({
+      firstName: req.body.firstName,
+      lastName: req.body.lastName,
+      email: req.body.email,
+      phone: req.body.phone,
+      source: req.body.source || 'manual',
+      emailStatus: req.body.emailStatus || (req.body.email ? 'subscribed' : 'unknown'),
+      contactType: req.body.contactType,
+      tags: req.body.tags,
+    }, { actor: req.user.username });
+    contactId = contact.id;
+  }
+  const result = await crmRepo.addContactToList(req.params.id, contactId, 'manual', req.user.username);
+  res.status(201).json(result);
 }
 
 function parseImportMapping(value) {
@@ -361,6 +387,37 @@ async function listSequences(_req, res) {
   res.json({ sequences: await crmRepo.listSequences() });
 }
 
+async function listAutomations(_req, res) {
+  res.json({ automations: await crmRepo.listAutomations() });
+}
+
+async function createAutomation(req, res) {
+  const automation = await crmRepo.createAutomation({
+    ...crmService.validateAutomation(req.body),
+    createdBy: req.user.username,
+  });
+  res.status(201).json({ automation });
+}
+
+async function updateAutomation(req, res) {
+  const automation = await crmRepo.updateAutomation(req.params.id, crmService.validateAutomation(req.body));
+  if (!automation) return res.status(404).json({ error: 'Automazione non trovata' });
+  res.json({ automation });
+}
+
+async function updateAutomationStatus(req, res) {
+  if (typeof req.body.active !== 'boolean') return res.status(400).json({ error: 'Active status must be boolean' });
+  const automation = await crmRepo.setAutomationActive(req.params.id, req.body.active);
+  if (!automation) return res.status(404).json({ error: 'Automazione non trovata' });
+  res.json({ automation });
+}
+
+async function deleteAutomation(req, res) {
+  const removed = await crmRepo.deleteAutomation(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Automazione non trovata' });
+  res.status(204).end();
+}
+
 async function listSequenceEnrollments(req, res) {
   const sequence = (await crmRepo.listSequences()).find((item) => item.id === req.params.id);
   if (!sequence) return res.status(404).json({ error: 'Sequenza non trovata' });
@@ -530,6 +587,7 @@ module.exports = {
   updateList,
   listContactsInList,
   exportContactsInList,
+  addContactToList,
   deleteList,
   listContactStatuses,
   createContactStatus,
@@ -544,6 +602,11 @@ module.exports = {
   duplicateTemplate,
   sendTemplateTest,
   deleteTemplate,
+  listAutomations,
+  createAutomation,
+  updateAutomation,
+  updateAutomationStatus,
+  deleteAutomation,
   listSequences,
   listSequenceEnrollments,
   createSequence,

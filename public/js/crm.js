@@ -3,6 +3,7 @@ const state = {
   contacts: [],
   lists: [],
   templates: [],
+  automations: [],
   sequences: [],
   folders: { template: [], sequence: [] },
   campaigns: [],
@@ -144,6 +145,24 @@ const sequenceConditionOperatorLabels = {
   after: 'è successiva a',
   is_set: 'è valorizzata',
   is_not_set: 'non è valorizzata',
+};
+
+const automationConditionFields = {
+  contactType: { label: 'Tipo contatto', operators: ['equals', 'not_equals', 'is_set', 'is_not_set'] },
+  contactStatusId: { label: 'Stato contatto', operators: ['equals', 'not_equals', 'is_set', 'is_not_set'] },
+  emailStatus: { label: 'Stato email', operators: ['equals', 'not_equals'] },
+  source: { label: 'Origine', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  firstName: { label: 'Nome', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  lastName: { label: 'Cognome', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  email: { label: 'Email', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  phone: { label: 'Telefono', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  tags: { label: 'Tag', operators: ['contains', 'not_contains', 'is_set', 'is_not_set'] },
+  webinarRegisteredAt: { label: 'Data iscrizione webinar', operators: ['equals', 'before', 'after', 'is_set', 'is_not_set'] },
+  utmSource: { label: 'UTM source', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  utmMedium: { label: 'UTM medium', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  utmCampaign: { label: 'UTM campaign', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  utmTerm: { label: 'UTM term', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
+  utmContent: { label: 'UTM content', operators: ['equals', 'not_equals', 'contains', 'is_set', 'is_not_set'] },
 };
 
 async function loadMe() {
@@ -312,6 +331,8 @@ function contactEventTitle(type) {
     contact_created: 'Contatto creato',
     contact_updated: 'Dati del contatto aggiornati',
     list_joined: 'Contatto aggiunto a una lista',
+    list_memberships_removed: 'Contatto rimosso da una lista',
+    automation_executed: 'Automazione eseguita',
     bulk_updated: 'Contatto aggiornato con modifica massiva',
     email_unsubscribed: 'Contatto disiscritto dalle email',
   }[type] || type.replaceAll('_', ' ');
@@ -665,6 +686,8 @@ function editContact(id) {
   $('contactTags').value = (contact.tags || []).join(', ');
   $('contactConsentAt').value = contact.consent_at ? localDateTimeValue(new Date(contact.consent_at)) : '';
   $('contactConsentSource').value = contact.consent_source || '';
+  const contactLists = new Set((contact.lists || []).map((list) => list.id));
+  [...$('contactListIds').options].forEach((option) => { option.selected = contactLists.has(option.value); });
   $('contactEditorTitle').textContent = 'Modifica contatto';
   $('contactEditor').hidden = false;
   $('contactFirstName').focus();
@@ -700,6 +723,7 @@ async function saveContact(event) {
     utmTerm: $('contactUtmTerm').value,
     utmContent: $('contactUtmContent').value,
     tags: $('contactTags').value,
+    listIds: [...$('contactListIds').selectedOptions].map((option) => option.value),
     consentAt: $('contactConsentAt').value ? new Date($('contactConsentAt').value).toISOString() : null,
     consentSource: $('contactConsentSource').value,
   };
@@ -723,7 +747,7 @@ async function loadLists() {
     const lastJoin = list.last_contact_joined_at
       ? `Ultimo ingresso ${formatRomeDateTime(list.last_contact_joined_at)} Roma`
       : 'Nessun ingresso registrato';
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${esc(lastJoin)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${esc(lastJoin)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-manual-list="${list.id}">Inserisci manualmente</button><button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista e aggiungi i contatti dalla rubrica o tramite CSV.</div>';
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
   document.querySelectorAll('[data-edit-list]').forEach((button) => button.addEventListener('click', () => editList(button.dataset.editList)));
@@ -732,6 +756,10 @@ async function loadLists() {
   document.querySelectorAll('[data-import-list]').forEach((button) => button.addEventListener('click', () => {
     changeTab('contacts');
     resetContactImport(button.dataset.importList);
+  }));
+  document.querySelectorAll('[data-manual-list]').forEach((button) => button.addEventListener('click', () => {
+    changeTab('contacts');
+    resetContactEditor(button.dataset.manualList);
   }));
   refreshSelects();
 }
@@ -1084,7 +1112,7 @@ async function uploadTemplateImage(file) {
   const form = new FormData();
   form.append('media', file);
   const { media } = await api('/media/upload/crm', { method: 'POST', body: form });
-  runEditorCommand('insertHTML', `<img src="${esc(media.url)}" alt="${esc(media.name)}" style="display:block;max-width:100%;height:auto;margin:18px auto">`);
+  runEditorCommand('insertHTML', `<img src="${esc(media.url)}" alt="${esc(media.name)}" width="640" style="display:block;width:100%;max-width:640px;height:auto;margin:18px auto">`);
   toast('Immagine inserita');
 }
 
@@ -1444,6 +1472,203 @@ function sequenceConditionSummary(conditions = []) {
   }).join(' AND ');
 }
 
+function automationConditionFieldOptions(selected = '') {
+  return Object.entries(automationConditionFields).map(([value, config]) => (
+    `<option value="${value}" ${value === selected ? 'selected' : ''}>${esc(config.label)}</option>`
+  )).join('');
+}
+
+function automationConditionOperatorOptions(field, selected = '') {
+  return automationConditionFields[field].operators.map((operator) => (
+    `<option value="${operator}" ${operator === selected ? 'selected' : ''}>${esc(sequenceConditionOperatorLabels[operator])}</option>`
+  )).join('');
+}
+
+function automationConditionValueControl(field, value = '') {
+  if (field === 'contactType') {
+    return `<select id="automationConditionValue"><option value="parent" ${value === 'parent' ? 'selected' : ''}>Genitore</option><option value="student" ${value === 'student' ? 'selected' : ''}>Studente</option></select>`;
+  }
+  if (field === 'contactStatusId') {
+    return `<select id="automationConditionValue">${state.contactStatuses.map((status) => `<option value="${status.id}" ${value === status.id ? 'selected' : ''}>${esc(status.name)}</option>`).join('')}</select>`;
+  }
+  if (field === 'emailStatus') {
+    const statuses = [['unknown', 'Email assente'], ['subscribed', 'Iscritto'], ['unsubscribed', 'Disiscritto'], ['bounced', 'Non recapitabile']];
+    return `<select id="automationConditionValue">${statuses.map(([status, label]) => `<option value="${status}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
+  }
+  const type = field === 'webinarRegisteredAt' ? 'date' : 'text';
+  return `<input id="automationConditionValue" type="${type}" value="${esc(value)}" />`;
+}
+
+function syncAutomationCondition(condition = {}) {
+  const field = automationConditionFields[$('automationConditionField').value]
+    ? $('automationConditionField').value
+    : 'contactType';
+  $('automationConditionField').value = field;
+  const operator = automationConditionFields[field].operators.includes(condition.operator)
+    ? condition.operator
+    : automationConditionFields[field].operators[0];
+  $('automationConditionOperator').innerHTML = automationConditionOperatorOptions(field, operator);
+  const noValue = operator === 'is_set' || operator === 'is_not_set';
+  $('automationConditionValueWrap').hidden = noValue;
+  $('automationConditionValueWrap').innerHTML = noValue
+    ? ''
+    : `<span>Valore</span>${automationConditionValueControl(field, condition.value || '')}`;
+}
+
+function syncAutomationFields() {
+  if (!$('automationTriggerType')) return;
+  const listTrigger = $('automationTriggerType').value === 'list_joined';
+  $('automationTriggerListWrap').hidden = !listTrigger;
+  $('automationConditionWrap').hidden = listTrigger;
+  $('automationTriggerList').required = listTrigger;
+  const addToList = $('automationAddToList').checked;
+  $('automationTargetListWrap').hidden = !addToList;
+  $('automationTargetList').required = addToList;
+  const notify = $('automationNotify').checked;
+  $('automationNotifyWrap').hidden = !notify;
+  $('automationNotifyEmail').required = notify;
+}
+
+function automationConditionSummary(condition = {}) {
+  if (!condition.field) return 'n/a';
+  const field = automationConditionFields[condition.field]?.label || condition.field;
+  const operator = sequenceConditionOperatorLabels[condition.operator] || condition.operator;
+  let value = condition.value;
+  if (condition.field === 'contactType') value = contactTypeLabel(value);
+  if (condition.field === 'contactStatusId') value = state.contactStatuses.find((status) => status.id === value)?.name || 'stato rimosso';
+  return `${field} ${operator}${value ? ` ${value}` : ''}`;
+}
+
+function automationActionSummary(actions = []) {
+  if (!actions.length) return 'Nessuna azione';
+  return actions.map((action) => {
+    if (action.type === 'add_to_list') return `Aggiungi a ${action.targetListName || 'lista rimossa'}`;
+    if (action.type === 'notify_email') return `Notifica ${action.toEmail}`;
+    return action.type;
+  }).join(' | ');
+}
+
+async function loadAutomations() {
+  const { automations } = await api('/api/crm/automations');
+  state.automations = automations;
+  $('automationsGrid').innerHTML = automations.length ? automations.map((automation) => {
+    const trigger = automation.trigger_type === 'list_joined'
+      ? `Ingresso lista ${automation.trigger_list_name || 'rimossa'}`
+      : automationConditionSummary(automation.trigger_condition || {});
+    const writeActions = can('crm:write')
+      ? `<button class="secondary" data-toggle-automation="${automation.id}" data-active="${automation.active}">${automation.active ? 'Disattiva' : 'Riattiva'}</button><button class="secondary" data-edit-automation="${automation.id}">Modifica</button><button class="danger" data-delete-automation="${automation.id}">Elimina</button>`
+      : '';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Automation Studio</span><h3>${esc(automation.name)}</h3><p>${esc(automation.description || 'Nessuna descrizione')}</p></div><span class="badge ${automation.active ? 'on' : 'off'}">${automation.active ? 'Attiva' : 'Disattivata'}</span></div><div class="sequence-trigger"><span>Trigger</span><strong>${esc(trigger)}</strong></div><p>${esc(automationActionSummary(automation.actions || []))}</p><div class="sequence-card-stats"><div><strong>${automation.actions.length}</strong><span>azioni</span></div><div><strong>${automation.notification_count}</strong><span>notifiche</span></div><div><strong>${automation.sent_notification_count}</strong><span>inviate</span></div></div><div class="crm-object-meta"><span>Aggiornata ${esc(formatRomeDateTime(automation.updated_at))}</span><div class="row-actions">${writeActions}</div></div></article>`;
+  }).join('') : '<div class="crm-empty-card">Non ci sono automazioni. Crea una regola per gestire liste e notifiche interne.</div>';
+  document.querySelectorAll('[data-edit-automation]').forEach((button) => button.addEventListener('click', () => editAutomation(button.dataset.editAutomation)));
+  document.querySelectorAll('[data-toggle-automation]').forEach((button) => button.addEventListener('click', () => toggleAutomation(button.dataset.toggleAutomation, button.dataset.active !== 'true')));
+  document.querySelectorAll('[data-delete-automation]').forEach((button) => button.addEventListener('click', () => removeAutomation(button.dataset.deleteAutomation)));
+}
+
+function automationPayload() {
+  const actions = [];
+  if ($('automationAddToList').checked) actions.push({
+    type: 'add_to_list',
+    targetListId: $('automationTargetList').value,
+  });
+  if ($('automationNotify').checked) actions.push({
+    type: 'notify_email',
+    toEmail: $('automationNotifyEmail').value,
+    subject: $('automationNotifySubject').value,
+    body: $('automationNotifyBody').value,
+  });
+  return {
+    name: $('automationName').value,
+    description: $('automationDescription').value,
+    active: $('automationActive').checked,
+    trigger: {
+      type: $('automationTriggerType').value,
+      listId: $('automationTriggerList').value,
+      condition: {
+        field: $('automationConditionField').value,
+        operator: $('automationConditionOperator').value,
+        value: $('automationConditionValue')?.value || null,
+      },
+    },
+    actions,
+  };
+}
+
+function resetAutomationEditor() {
+  $('automationEditor').reset();
+  $('automationId').value = '';
+  $('automationActive').checked = true;
+  $('automationConditionField').innerHTML = automationConditionFieldOptions('contactType');
+  syncAutomationCondition();
+  syncAutomationFields();
+  $('automationEditorTitle').textContent = 'Configura automazione';
+  $('saveAutomationBtn').textContent = 'Crea automazione';
+  openEditor('automationEditor');
+}
+
+function editAutomation(id) {
+  const automation = state.automations.find((item) => item.id === id);
+  if (!automation) return;
+  $('automationEditor').reset();
+  $('automationId').value = automation.id;
+  $('automationName').value = automation.name;
+  $('automationDescription').value = automation.description || '';
+  $('automationActive').checked = automation.active;
+  $('automationTriggerType').value = automation.trigger_type;
+  $('automationTriggerList').value = automation.trigger_list_id || '';
+  $('automationConditionField').innerHTML = automationConditionFieldOptions(automation.trigger_condition?.field || 'contactType');
+  syncAutomationCondition(automation.trigger_condition || {});
+  const addAction = (automation.actions || []).find((action) => action.type === 'add_to_list');
+  const notifyAction = (automation.actions || []).find((action) => action.type === 'notify_email');
+  $('automationAddToList').checked = Boolean(addAction);
+  $('automationTargetList').value = addAction?.targetListId || '';
+  $('automationNotify').checked = Boolean(notifyAction);
+  $('automationNotifyEmail').value = notifyAction?.toEmail || '';
+  $('automationNotifySubject').value = notifyAction?.subject || '';
+  $('automationNotifyBody').value = notifyAction?.body || '';
+  syncAutomationFields();
+  $('automationEditorTitle').textContent = 'Modifica automazione';
+  $('saveAutomationBtn').textContent = 'Salva modifiche';
+  openEditor('automationEditor');
+}
+
+async function saveAutomation(event) {
+  event.preventDefault();
+  const id = $('automationId').value;
+  try {
+    await api(id ? `/api/crm/automations/${id}` : '/api/crm/automations', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(automationPayload()),
+    });
+    $('automationEditor').hidden = true;
+    toast(id ? 'Automazione aggiornata' : 'Automazione creata');
+    await loadAutomations();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function toggleAutomation(id, active) {
+  try {
+    await api(`/api/crm/automations/${id}/status`, { method: 'PATCH', body: JSON.stringify({ active }) });
+    toast(active ? 'Automazione attivata' : 'Automazione disattivata');
+    await loadAutomations();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function removeAutomation(id) {
+  if (!confirm('Eliminare questa automazione?')) return;
+  try {
+    await api(`/api/crm/automations/${id}`, { method: 'DELETE' });
+    toast('Automazione eliminata');
+    await loadAutomations();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
 async function loadSequences() {
   const { sequences } = await api('/api/crm/sequences');
   state.sequences = sequences;
@@ -1642,21 +1867,33 @@ async function removeSequence(id) {
 }
 
 function refreshSelects() {
+  const listOptionHtml = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
   $('campaignList').innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
   $('campaignTemplate').innerHTML = templateOptions();
   const importList = $('contactImportList');
   const selectedList = importList.value;
-  importList.innerHTML = `<option value="">Nessuna lista</option>${state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('')}`;
+  importList.innerHTML = `<option value="">Nessuna lista</option>${listOptionHtml}`;
   if (state.lists.some((list) => list.id === selectedList)) importList.value = selectedList;
   const bulkList = $('bulkContactList');
   const selectedBulkList = bulkList.value;
-  bulkList.innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  bulkList.innerHTML = listOptionHtml;
   if (state.lists.some((list) => list.id === selectedBulkList)) bulkList.value = selectedBulkList;
   const triggerList = $('sequenceTriggerList');
   const selectedTriggerList = triggerList.value;
-  triggerList.innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
+  triggerList.innerHTML = listOptionHtml;
   if (state.lists.some((list) => list.id === selectedTriggerList)) triggerList.value = selectedTriggerList;
+  const contactLists = $('contactListIds');
+  const selectedContactLists = new Set([...contactLists.selectedOptions].map((option) => option.value));
+  contactLists.innerHTML = listOptionHtml;
+  [...contactLists.options].forEach((option) => { option.selected = selectedContactLists.has(option.value); });
+  ['automationTriggerList', 'automationTargetList'].forEach((id) => {
+    const select = $(id);
+    const selected = select.value;
+    select.innerHTML = listOptionHtml;
+    if (state.lists.some((list) => list.id === selected)) select.value = selected;
+  });
   syncSequenceTriggerFields();
+  syncAutomationFields();
 }
 
 function refreshContactStatusSelects() {
@@ -1825,13 +2062,14 @@ function openEditor(id) {
   $(id).querySelector('input:not([type="hidden"]), select, textarea')?.focus();
 }
 
-function resetContactEditor() {
+function resetContactEditor(listId = '') {
   if (!$('contactProfile').hidden) closeContactProfile();
   $('contactEditor').reset();
   $('contactId').value = '';
   $('contactSource').value = 'manual';
-  $('contactEmailStatus').value = 'unknown';
+  $('contactEmailStatus').value = 'subscribed';
   $('contactCrmStatus').value = '';
+  [...$('contactListIds').options].forEach((option) => { option.selected = option.value === listId; });
   $('contactEditorTitle').textContent = 'Nuovo contatto';
   openEditor('contactEditor');
 }
@@ -1879,6 +2117,7 @@ function changeTab(name) {
   });
   if (name === 'dashboard') loadEmailDashboard().catch((error) => toast(error.message, 'err'));
   if (name === 'emailLog') loadEmailLogs().catch((error) => toast(error.message, 'err'));
+  if (name === 'automations') loadAutomations().catch((error) => toast(error.message, 'err'));
 }
 
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
@@ -1896,6 +2135,7 @@ $('contactBulkEditor').addEventListener('submit', saveBulkContacts);
 $('contactImportEditor').addEventListener('submit', runContactImport);
 $('listEditor').addEventListener('submit', saveList);
 $('templateEditor').addEventListener('submit', saveTemplate);
+$('automationEditor').addEventListener('submit', saveAutomation);
 $('sequenceEditor').addEventListener('submit', saveSequence);
 $('campaignEditor').addEventListener('submit', saveCampaign);
 document.querySelectorAll('[data-folder-manager]').forEach((manager) => manager.addEventListener('submit', saveContentFolder));
@@ -1909,7 +2149,7 @@ document.querySelectorAll('[data-manage-folders]').forEach((button) => button.ad
 document.querySelectorAll('[data-folder-reset]').forEach((button) => button.addEventListener('click', () => resetFolderEditor(button.closest('[data-folder-manager]').dataset.folderManager)));
 $('templateFolderFilter').addEventListener('change', renderTemplates);
 $('sequenceFolderFilter').addEventListener('change', () => loadSequences().catch((error) => toast(error.message, 'err')));
-$('newContactBtn').addEventListener('click', resetContactEditor);
+$('newContactBtn').addEventListener('click', () => resetContactEditor());
 $('closeContactProfileBtn').addEventListener('click', closeContactProfile);
 $('editContactFromProfileBtn').addEventListener('click', () => {
   const id = $('editContactFromProfileBtn').dataset.contactId;
@@ -1951,11 +2191,20 @@ document.querySelectorAll('[data-import-field], #contactImportSource, #contactIm
 }));
 $('newListBtn').addEventListener('click', resetListEditor);
 $('newTemplateBtn').addEventListener('click', resetTemplateEditor);
+$('newAutomationBtn').addEventListener('click', resetAutomationEditor);
 $('newSequenceBtn').addEventListener('click', resetSequenceEditor);
 $('newCampaignBtn').addEventListener('click', resetCampaignEditor);
 $('addSequenceStep').addEventListener('click', () => addSequenceStep());
 $('addSequenceCondition').addEventListener('click', () => addSequenceCondition());
 $('sequenceTriggerType').addEventListener('change', syncSequenceTriggerFields);
+$('automationTriggerType').addEventListener('change', syncAutomationFields);
+$('automationConditionField').addEventListener('change', () => syncAutomationCondition());
+$('automationConditionOperator').addEventListener('change', () => syncAutomationCondition({
+  operator: $('automationConditionOperator').value,
+  value: $('automationConditionValue')?.value || '',
+}));
+$('automationAddToList').addEventListener('change', syncAutomationFields);
+$('automationNotify').addEventListener('change', syncAutomationFields);
 $('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
 $('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);
 $('campaignTiming').addEventListener('change', syncCampaignTiming);
@@ -2034,7 +2283,7 @@ document.querySelectorAll('[data-preview-size]').forEach((button) => button.addE
     await loadMe();
     await loadContactStatuses();
     await loadContentFolders();
-    await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadCampaigns()]);
+    await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadAutomations(), loadCampaigns()]);
     await loadSequences();
     $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));
     syncCampaignTiming();

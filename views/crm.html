@@ -29,6 +29,7 @@
           <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="automations">Automation Studio</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="campaigns">Campagne</button>
           <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
@@ -158,6 +159,7 @@
               <div class="form-field"><label for="contactWebinarRegisteredAt">Data iscrizione webinar</label><input id="contactWebinarRegisteredAt" type="date" /></div>
               <div class="form-field"><label for="contactConsentAt">Data consenso</label><input id="contactConsentAt" type="datetime-local" /></div>
               <div class="form-field"><label for="contactConsentSource">Origine consenso</label><input id="contactConsentSource" placeholder="form wordpress, evento" /></div>
+              <div class="form-field span-2"><label for="contactListIds">Liste</label><select id="contactListIds" multiple size="4"></select><small>Usa Cmd o Ctrl per selezionare più liste.</small></div>
               <div class="form-field span-2"><label for="contactTags">Tag separati da virgola</label><input id="contactTags" /></div>
               <div class="form-field"><label for="contactUtmSource">UTM source</label><input id="contactUtmSource" /></div>
               <div class="form-field"><label for="contactUtmMedium">UTM medium</label><input id="contactUtmMedium" /></div>
@@ -310,6 +312,42 @@
             <div class="form-actions"><button type="submit">Salva template</button></div>
           </form>
           <div class="crm-card-grid" id="templatesGrid"></div>
+        </section>
+
+        <section class="crm-panel" id="panel-automations" role="tabpanel" hidden>
+          <div class="crm-panel-header"><div><span class="eyebrow">Regole operative</span><h2>Automation Studio</h2></div><button id="newAutomationBtn" data-write>Nuova automazione</button></div>
+          <form class="card crm-editor" id="automationEditor" hidden>
+            <div class="section-heading compact"><div><h2 id="automationEditorTitle">Configura automazione</h2></div><button class="ghost" type="button" data-close="automationEditor">Chiudi</button></div>
+            <input id="automationId" type="hidden" />
+            <div class="grid-2">
+              <div class="form-field"><label for="automationName">Nome</label><input id="automationName" required /></div>
+              <div class="form-field"><label for="automationTriggerType">Trigger</label><select id="automationTriggerType"><option value="contact_saved">Contatto con campo specifico</option><option value="list_joined">Contatto entrato in una lista</option></select></div>
+              <div class="form-field span-2"><label for="automationDescription">Descrizione</label><input id="automationDescription" /></div>
+              <div class="form-field" id="automationTriggerListWrap" hidden><label for="automationTriggerList">Lista del trigger</label><select id="automationTriggerList"></select></div>
+              <section class="sequence-conditions span-2" id="automationConditionWrap">
+                <div class="section-heading compact"><div><h3>Condizione sul contatto</h3><span>La regola scatta quando il contatto entra per la prima volta in questa condizione.</span></div></div>
+                <div class="sequence-condition">
+                  <label><span>Campo</span><select id="automationConditionField"></select></label>
+                  <label><span>Operatore</span><select id="automationConditionOperator"></select></label>
+                  <label id="automationConditionValueWrap"></label>
+                </div>
+              </section>
+              <label class="check-field span-2"><input id="automationActive" type="checkbox" checked /> Automazione attiva</label>
+            </div>
+            <section class="automation-actions">
+              <div class="section-heading compact"><div><h3>Azioni</h3><span>Le azioni selezionate vengono eseguite in ordine.</span></div></div>
+              <label class="check-field"><input id="automationAddToList" type="checkbox" /> Aggiungi il contatto a una lista</label>
+              <div class="form-field" id="automationTargetListWrap" hidden><label for="automationTargetList">Lista di destinazione</label><select id="automationTargetList"></select></div>
+              <label class="check-field"><input id="automationNotify" type="checkbox" /> Invia email di notifica interna</label>
+              <div class="grid-2" id="automationNotifyWrap" hidden>
+                <div class="form-field"><label for="automationNotifyEmail">Email destinatario</label><input id="automationNotifyEmail" type="email" /></div>
+                <div class="form-field"><label for="automationNotifySubject">Oggetto</label><input id="automationNotifySubject" /></div>
+                <div class="form-field span-2"><label for="automationNotifyBody">Testo</label><textarea id="automationNotifyBody" rows="5" placeholder="Lascia vuoto per usare il riepilogo automatico del contatto"></textarea></div>
+              </div>
+            </section>
+            <div class="form-actions"><button type="submit" id="saveAutomationBtn">Crea automazione</button></div>
+          </form>
+          <div class="crm-card-grid" id="automationsGrid"></div>
         </section>
 
         <section class="crm-panel" id="panel-sequences" role="tabpanel" hidden>

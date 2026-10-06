@@ -538,6 +538,23 @@ async function sendTestEmail(to, template) {
   return { messageId: info.messageId };
 }
 
+async function sendAutomationNotification(notification) {
+  const settings = await getSettings();
+  const { errors } = validateSettings({}, settings);
+  if (errors.length) throw new Error(errors.join('. '));
+  const text = String(notification.body || '').trim();
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#171a23;white-space:pre-line;">${escapeHtml(text)}</div>`;
+  const info = await createTransport(settings).sendMail({
+    from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
+    replyTo: settings.replyTo || undefined,
+    to: notification.to_email,
+    subject: notification.subject,
+    text,
+    html,
+  });
+  return info.messageId;
+}
+
 async function processDueJobs({ limit = 25 } = {}) {
   if (workerRunning) return { processed: 0 };
   workerRunning = true;
@@ -546,6 +563,17 @@ async function processDueJobs({ limit = 25 } = {}) {
     await crmRepo.recoverStaleEmailJobs(emailClaimTimeoutMinutes);
     await crmRepo.processSequenceTriggers();
     while (!stopping && processed < limit) {
+      const notification = await crmRepo.claimDueAutomationNotification();
+      if (notification) {
+        try {
+          const messageId = await sendAutomationNotification(notification);
+          await crmRepo.markAutomationNotificationSent(notification, messageId);
+        } catch (error) {
+          await crmRepo.markAutomationNotificationFailed(notification, String(error.message || error).slice(0, 1000));
+        }
+        processed += 1;
+        continue;
+      }
       const job = await crmRepo.claimDueJob();
       if (!job) break;
       try {
@@ -612,6 +640,7 @@ module.exports = {
   confirmRecontact,
   inlineStoredMedia,
   storedTemplateAttachments,
+  sendAutomationNotification,
   processDueJobs,
   startWorker,
   stopWorker,

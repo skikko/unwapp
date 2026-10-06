@@ -101,6 +101,52 @@ function compileSequenceConditions(conditions = [], startIndex = 1) {
   return { clause: clauses.length ? clauses.join(' AND ') : 'TRUE', values };
 }
 
+function contactFieldValue(contact, field) {
+  const values = {
+    contactType: contact.contact_type,
+    contactStatusId: contact.contact_status_id,
+    emailStatus: contact.email_status,
+    source: contact.source,
+    firstName: contact.first_name,
+    lastName: contact.last_name,
+    email: contact.email,
+    phone: contact.phone,
+    tags: contact.tags || [],
+    webinarRegisteredAt: contact.webinar_registered_at,
+    utmSource: contact.utm_source,
+    utmMedium: contact.utm_medium,
+    utmCampaign: contact.utm_campaign,
+    utmTerm: contact.utm_term,
+    utmContent: contact.utm_content,
+  };
+  return values[field];
+}
+
+function hasAutomationValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function automationConditionMatches(contact, condition = {}) {
+  const value = contactFieldValue(contact, condition.field);
+  if (condition.operator === 'is_set') return hasAutomationValue(value);
+  if (condition.operator === 'is_not_set') return !hasAutomationValue(value);
+  if (condition.field === 'tags') {
+    const tags = Array.isArray(value) ? value : [];
+    return condition.operator === 'not_contains'
+      ? !tags.includes(condition.value)
+      : tags.includes(condition.value);
+  }
+  const actual = value === undefined || value === null ? '' : String(value);
+  const expected = String(condition.value ?? '');
+  if (condition.operator === 'not_equals') return actual !== expected;
+  if (condition.operator === 'contains') return actual.toLowerCase().includes(expected.toLowerCase());
+  if (condition.operator === 'not_contains') return !actual.toLowerCase().includes(expected.toLowerCase());
+  if (condition.operator === 'before') return actual && actual < expected;
+  if (condition.operator === 'after') return actual && actual > expected;
+  return actual === expected;
+}
+
 async function addContactEvent(client, contactId, eventType, eventData = {}, actor = null) {
   await client.query(
     `INSERT INTO crm_contact_events (contact_id,event_type,event_data,actor)
@@ -169,6 +215,7 @@ async function upsertContactWithClient(client, contact, { actor = null } = {}) {
       utmTerm: contact.utmTerm,
       utmContent: contact.utmContent,
     }, actor);
+    await runContactSavedAutomationsWithClient(client, result.rows[0].id, actor);
     return { contact: result.rows[0], created: false };
   }
   const result = await client.query(
@@ -199,6 +246,7 @@ async function upsertContactWithClient(client, contact, { actor = null } = {}) {
     utmTerm: contact.utmTerm,
     utmContent: contact.utmContent,
   }, actor);
+  await runContactSavedAutomationsWithClient(client, result.rows[0].id, actor);
   return { contact: result.rows[0], created: true };
 }
 
@@ -353,6 +401,7 @@ async function updateContact(id, contact, actor = null) {
         utmTerm: contact.utmTerm,
         utmContent: contact.utmContent,
       }, actor);
+      await runContactSavedAutomationsWithClient(client, id, actor);
     }
     await client.query('COMMIT');
     return rows[0] || null;
@@ -433,8 +482,63 @@ async function addContactToListWithClient(client, listId, contactId, source = 'a
   );
   if (membership.rowCount) {
     await addContactEvent(client, contactId, 'list_joined', { listId, source }, actor);
+    await runListJoinedAutomationsWithClient(client, listId, contactId, actor);
   }
   return membership.rowCount;
+}
+
+async function addContactToList(listId, contactId, source = 'manual', actor = null) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const list = await client.query('SELECT id FROM crm_lists WHERE id=$1 FOR UPDATE', [listId]);
+    if (!list.rows[0]) throw Object.assign(new Error('Target list not found'), { status: 404 });
+    const contact = await client.query('SELECT id FROM crm_contacts WHERE id=$1 FOR UPDATE', [contactId]);
+    if (!contact.rows[0]) throw Object.assign(new Error('Contact not found'), { status: 404 });
+    const added = await addContactToListWithClient(client, listId, contactId, source, actor);
+    await client.query('COMMIT');
+    return { added };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function setContactLists(contactId, listIds = [], actor = null) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const contact = await client.query('SELECT id FROM crm_contacts WHERE id=$1 FOR UPDATE', [contactId]);
+    if (!contact.rows[0]) throw Object.assign(new Error('Contact not found'), { status: 404 });
+    const targetIds = [...new Set(listIds)];
+    if (targetIds.length) {
+      const lists = await client.query('SELECT id FROM crm_lists WHERE id=ANY($1::uuid[])', [targetIds]);
+      if (lists.rowCount !== targetIds.length) throw Object.assign(new Error('One or more lists were not found'), { status: 404 });
+    }
+    const current = await client.query('SELECT list_id FROM crm_list_memberships WHERE contact_id=$1', [contactId]);
+    const currentIds = new Set(current.rows.map((row) => row.list_id));
+    const targetSet = new Set(targetIds);
+    for (const listId of targetIds) {
+      if (!currentIds.has(listId)) await addContactToListWithClient(client, listId, contactId, 'manual', actor);
+    }
+    const removeIds = [...currentIds].filter((listId) => !targetSet.has(listId));
+    if (removeIds.length) {
+      await client.query(
+        'DELETE FROM crm_list_memberships WHERE contact_id=$1 AND list_id=ANY($2::uuid[])',
+        [contactId, removeIds]
+      );
+      await addContactEvent(client, contactId, 'list_memberships_removed', { listIds: removeIds }, actor);
+    }
+    await client.query('COMMIT');
+    return { added: targetIds.filter((listId) => !currentIds.has(listId)).length, removed: removeIds.length };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function listContactsForList(list, { limit = 100, offset = 0 } = {}) {
@@ -532,10 +636,17 @@ async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = n
         const result = await client.query(
           `INSERT INTO crm_list_memberships (list_id,contact_id,source)
            SELECT $1,contact_id,'bulk' FROM unnest($2::uuid[]) AS contact_id
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT DO NOTHING RETURNING contact_id`,
           [changes.listId, contactIds]
         );
         membershipChanged = result.rowCount;
+        for (const row of result.rows) {
+          await addContactEvent(client, row.contact_id, 'list_joined', {
+            listId: changes.listId,
+            source: 'bulk',
+          }, actor);
+          await runListJoinedAutomationsWithClient(client, changes.listId, row.contact_id, actor);
+        }
       } else {
         const removed = await client.query(
           'DELETE FROM crm_list_memberships WHERE list_id=$1 AND contact_id=ANY($2::uuid[])',
@@ -549,6 +660,9 @@ async function bulkUpdateContacts({ ids = [], filters = null, changes, actor = n
        SELECT contact_id,'bulk_updated',$1::jsonb,$2 FROM unnest($3::uuid[]) AS contact_id`,
       [JSON.stringify(changes), actor, contactIds]
     );
+    for (const contactId of contactIds) {
+      await runContactSavedAutomationsWithClient(client, contactId, actor);
+    }
     await client.query('COMMIT');
     return { updated: contactIds.length, membershipChanged };
   } catch (error) {
@@ -575,15 +689,7 @@ async function importContacts(contacts, { listId = null, actor = null } = {}) {
       if (result.created) created += 1;
       else updated += 1;
       if (listId) {
-        const membership = await client.query(
-          `INSERT INTO crm_list_memberships (list_id,contact_id,source)
-           VALUES ($1,$2,'csv') ON CONFLICT DO NOTHING RETURNING contact_id`,
-          [listId, result.contact.id]
-        );
-        addedToList += membership.rowCount;
-        if (membership.rowCount) {
-          await addContactEvent(client, result.contact.id, 'list_joined', { listId, source: 'csv' }, actor);
-        }
+        addedToList += await addContactToListWithClient(client, listId, result.contact.id, 'csv', actor);
       }
     }
     await client.query('COMMIT');
@@ -1515,6 +1621,335 @@ async function recordEmailTestRecontact({ email, userAgent = null, ip = null, li
   }
 }
 
+function defaultAutomationNotificationBody(automation, contact) {
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Senza nome';
+  return [
+    `Automazione: ${automation.name}`,
+    `Contatto: ${name}`,
+    `Email: ${contact.email || 'n/a'}`,
+    `Telefono: ${contact.phone || 'n/a'}`,
+    `Origine: ${contact.source || 'n/a'}`,
+  ].join('\n');
+}
+
+async function queueAutomationNotificationWithClient(client, automation, action, contact) {
+  const body = String(action.body || '').trim() || defaultAutomationNotificationBody(automation, contact);
+  await client.query(
+    `INSERT INTO crm_automation_notifications
+     (automation_id,contact_id,to_email,subject,body)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [automation.id, contact.id, action.to_email, action.subject, body]
+  );
+}
+
+async function automationActions(client, automationId) {
+  const { rows } = await client.query(
+    `SELECT * FROM crm_automation_actions
+     WHERE automation_id=$1
+     ORDER BY position ASC`,
+    [automationId]
+  );
+  return rows;
+}
+
+async function runAutomationActionsWithClient(client, automation, contact, actor = null) {
+  const actions = await automationActions(client, automation.id);
+  let executed = 0;
+  for (const action of actions) {
+    if (action.action_type === 'add_to_list' && action.target_list_id) {
+      const added = await addContactToListWithClient(
+        client,
+        action.target_list_id,
+        contact.id,
+        'automation',
+        actor || 'automation'
+      );
+      executed += added;
+      continue;
+    }
+    if (action.action_type === 'notify_email' && action.to_email) {
+      await queueAutomationNotificationWithClient(client, automation, action, contact);
+      executed += 1;
+    }
+  }
+  if (executed) {
+    await addContactEvent(client, contact.id, 'automation_executed', {
+      automationId: automation.id,
+      automationName: automation.name,
+      triggerType: automation.trigger_type,
+      actions: actions.map((action) => action.action_type),
+    }, actor || 'automation');
+  }
+  return executed;
+}
+
+async function runContactSavedAutomationsWithClient(client, contactId, actor = null) {
+  const contactResult = await client.query(`SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE c.id=$1`, [contactId]);
+  const contact = contactResult.rows[0];
+  if (!contact) return 0;
+  const automations = await client.query(
+    `SELECT * FROM crm_automations
+     WHERE active=TRUE AND trigger_type='contact_saved'
+     ORDER BY created_at ASC`
+  );
+  let executed = 0;
+  for (const automation of automations.rows) {
+    const matches = automationConditionMatches(contact, automation.trigger_condition || {});
+    const state = await client.query(
+      `SELECT is_match FROM crm_automation_trigger_state
+       WHERE automation_id=$1 AND contact_id=$2`,
+      [automation.id, contact.id]
+    );
+    const matchedBefore = Boolean(state.rows[0]?.is_match);
+    if (matches && !matchedBefore) {
+      executed += await runAutomationActionsWithClient(client, automation, contact, actor);
+    }
+    await client.query(
+      `INSERT INTO crm_automation_trigger_state (automation_id,contact_id,is_match)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (automation_id,contact_id) DO UPDATE
+       SET is_match=$3,observed_at=now()`,
+      [automation.id, contact.id, matches]
+    );
+  }
+  return executed;
+}
+
+async function runListJoinedAutomationsWithClient(client, listId, contactId, actor = null) {
+  const contactResult = await client.query(`SELECT ${CONTACT_SELECT} FROM crm_contacts c WHERE c.id=$1`, [contactId]);
+  const contact = contactResult.rows[0];
+  if (!contact) return 0;
+  const automations = await client.query(
+    `SELECT * FROM crm_automations
+     WHERE active=TRUE AND trigger_type='list_joined' AND trigger_list_id=$1
+     ORDER BY created_at ASC`,
+    [listId]
+  );
+  let executed = 0;
+  for (const automation of automations.rows) {
+    executed += await runAutomationActionsWithClient(client, automation, contact, actor);
+  }
+  return executed;
+}
+
+async function seedAutomationTriggerState(client, automation) {
+  if (automation.trigger_type !== 'contact_saved') return;
+  const contacts = await client.query(`SELECT ${CONTACT_SELECT} FROM crm_contacts c`);
+  for (const contact of contacts.rows) {
+    await client.query(
+      `INSERT INTO crm_automation_trigger_state (automation_id,contact_id,is_match)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (automation_id,contact_id) DO UPDATE
+       SET is_match=$3,observed_at=now()`,
+      [automation.id, contact.id, automationConditionMatches(contact, automation.trigger_condition || {})]
+    );
+  }
+}
+
+async function writeAutomationActions(client, automationId, actions) {
+  await client.query('DELETE FROM crm_automation_actions WHERE automation_id=$1', [automationId]);
+  for (const [position, action] of actions.entries()) {
+    await client.query(
+      `INSERT INTO crm_automation_actions
+       (automation_id,position,action_type,target_list_id,to_email,subject,body)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [automationId, position, action.type, action.targetListId || null, action.toEmail || null,
+       action.subject || null, action.body || null]
+    );
+  }
+}
+
+async function listAutomations() {
+  const { rows } = await db.query(
+    `SELECT automation.*,
+            trigger_list.name AS trigger_list_name,
+            COALESCE(actions.actions, '[]'::jsonb) AS actions,
+            COALESCE(stats.notification_count,0)::int AS notification_count,
+            COALESCE(stats.sent_notification_count,0)::int AS sent_notification_count
+     FROM crm_automations automation
+     LEFT JOIN crm_lists trigger_list ON trigger_list.id=automation.trigger_list_id
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(jsonb_build_object(
+                'id', action.id,
+                'type', action.action_type,
+                'targetListId', action.target_list_id,
+                'targetListName', target_list.name,
+                'toEmail', action.to_email,
+                'subject', action.subject,
+                'body', action.body
+              ) ORDER BY action.position) AS actions
+       FROM crm_automation_actions action
+       LEFT JOIN crm_lists target_list ON target_list.id=action.target_list_id
+       WHERE action.automation_id=automation.id
+     ) actions ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT count(*)::int AS notification_count,
+              count(*) FILTER (WHERE status='sent')::int AS sent_notification_count
+       FROM crm_automation_notifications notification
+       WHERE notification.automation_id=automation.id
+     ) stats ON TRUE
+     ORDER BY automation.updated_at DESC`
+  );
+  return rows;
+}
+
+async function createAutomation(input) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    if (input.triggerListId) {
+      const list = await client.query('SELECT id FROM crm_lists WHERE id=$1', [input.triggerListId]);
+      if (!list.rows[0]) throw Object.assign(new Error('Trigger list not found'), { status: 404 });
+    }
+    for (const action of input.actions) {
+      if (action.targetListId) {
+        const list = await client.query('SELECT id FROM crm_lists WHERE id=$1', [action.targetListId]);
+        if (!list.rows[0]) throw Object.assign(new Error('Target list not found'), { status: 404 });
+      }
+    }
+    const automation = await client.query(
+      `INSERT INTO crm_automations
+       (name,description,active,trigger_type,trigger_list_id,trigger_condition,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [input.name, input.description || null, input.active, input.triggerType, input.triggerListId,
+       JSON.stringify(input.triggerCondition || {}), input.createdBy]
+    );
+    await writeAutomationActions(client, automation.rows[0].id, input.actions);
+    await seedAutomationTriggerState(client, automation.rows[0]);
+    await client.query('COMMIT');
+    return automation.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updateAutomation(id, input) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query('SELECT * FROM crm_automations WHERE id=$1 FOR UPDATE', [id]);
+    if (!current.rows[0]) {
+      await client.query('COMMIT');
+      return null;
+    }
+    if (input.triggerListId) {
+      const list = await client.query('SELECT id FROM crm_lists WHERE id=$1', [input.triggerListId]);
+      if (!list.rows[0]) throw Object.assign(new Error('Trigger list not found'), { status: 404 });
+    }
+    for (const action of input.actions) {
+      if (action.targetListId) {
+        const list = await client.query('SELECT id FROM crm_lists WHERE id=$1', [action.targetListId]);
+        if (!list.rows[0]) throw Object.assign(new Error('Target list not found'), { status: 404 });
+      }
+    }
+    const triggerChanged = current.rows[0].trigger_type !== input.triggerType
+      || current.rows[0].trigger_list_id !== input.triggerListId
+      || JSON.stringify(current.rows[0].trigger_condition || {}) !== JSON.stringify(input.triggerCondition || {});
+    const automation = await client.query(
+      `UPDATE crm_automations SET
+         name=$2,description=$3,active=$4,trigger_type=$5,trigger_list_id=$6,
+         trigger_condition=$7,updated_at=now()
+       WHERE id=$1 RETURNING *`,
+      [id, input.name, input.description || null, input.active, input.triggerType, input.triggerListId,
+       JSON.stringify(input.triggerCondition || {})]
+    );
+    await writeAutomationActions(client, id, input.actions);
+    if (triggerChanged) {
+      await client.query('DELETE FROM crm_automation_trigger_state WHERE automation_id=$1', [id]);
+      await seedAutomationTriggerState(client, automation.rows[0]);
+    }
+    await client.query('COMMIT');
+    return automation.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function setAutomationActive(id, active) {
+  const { rows } = await db.query(
+    'UPDATE crm_automations SET active=$2,updated_at=now() WHERE id=$1 RETURNING *',
+    [id, Boolean(active)]
+  );
+  return rows[0] || null;
+}
+
+async function deleteAutomation(id) {
+  const { rows } = await db.query('DELETE FROM crm_automations WHERE id=$1 RETURNING id', [id]);
+  return rows[0] || null;
+}
+
+async function claimDueAutomationNotification() {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT notification.*, contact.first_name, contact.last_name, contact.email, contact.phone,
+              contact.source, automation.name AS automation_name
+       FROM crm_automation_notifications notification
+       JOIN crm_contacts contact ON contact.id=notification.contact_id
+       JOIN crm_automations automation ON automation.id=notification.automation_id
+       WHERE notification.status='pending' AND notification.scheduled_at <= now()
+       ORDER BY notification.scheduled_at ASC
+       LIMIT 1 FOR UPDATE OF notification SKIP LOCKED`
+    );
+    const notification = result.rows[0];
+    if (!notification) {
+      await client.query('COMMIT');
+      return null;
+    }
+    const claim = await client.query(
+      `UPDATE crm_automation_notifications
+       SET status='sending',attempts=attempts+1,claimed_at=now(),claim_token=gen_random_uuid()
+       WHERE id=$1 RETURNING claim_token,claimed_at`,
+      [notification.id]
+    );
+    await client.query('COMMIT');
+    return {
+      ...notification,
+      status: 'sending',
+      attempts: notification.attempts + 1,
+      claim_token: claim.rows[0].claim_token,
+      claimed_at: claim.rows[0].claimed_at,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markAutomationNotificationSent(notification, messageId) {
+  const { rowCount } = await db.query(
+    `UPDATE crm_automation_notifications SET
+       status='sent',provider_message_id=$3,sent_at=now(),last_error=NULL,claimed_at=NULL,claim_token=NULL
+     WHERE id=$1 AND claim_token=$2 AND status='sending'`,
+    [notification.id, notification.claim_token, messageId || null]
+  );
+  if (rowCount !== 1) throw new Error('Automation notification claim lost before confirmation');
+}
+
+async function markAutomationNotificationFailed(notification, errorMessage) {
+  const finalFailure = notification.attempts >= 3;
+  await db.query(
+    `UPDATE crm_automation_notifications SET
+       status=$3,
+       scheduled_at=CASE WHEN $3='pending' THEN now() + (($4 * 5) * interval '1 minute') ELSE scheduled_at END,
+       last_error=$5,
+       claimed_at=NULL,
+       claim_token=NULL
+     WHERE id=$1 AND claim_token=$2 AND status='sending'`,
+    [notification.id, notification.claim_token, finalFailure ? 'failed' : 'pending',
+     notification.attempts, errorMessage]
+  );
+}
+
 async function claimDueJob() {
   const client = await db.getClient();
   try {
@@ -1760,6 +2195,8 @@ module.exports = {
   getListByNameWithClient,
   ensureListByNameWithClient,
   addContactToListWithClient,
+  addContactToList,
+  setContactLists,
   listContactsForList,
   exportContactsForList,
   unsubscribeContact,
@@ -1797,6 +2234,14 @@ module.exports = {
   emailDashboard,
   recordEmailEvent,
   recordEmailTestRecontact,
+  listAutomations,
+  createAutomation,
+  updateAutomation,
+  setAutomationActive,
+  deleteAutomation,
+  claimDueAutomationNotification,
+  markAutomationNotificationSent,
+  markAutomationNotificationFailed,
   claimDueJob,
   recoverStaleEmailJobs,
   markJobSent,
