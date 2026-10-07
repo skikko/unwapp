@@ -21,6 +21,38 @@ test('duplica un template mantenendo contenuto e allegati', async (t) => {
   assert.deepEqual(queryCall.values, ['template-1', 'admin']);
 });
 
+test('blocca il salvataggio di una versione obsoleta del template', async (t) => {
+  const originalQuery = db.query;
+  db.query = async (sql) => {
+    if (sql.includes('FROM crm_content_folders')) return { rows: [] };
+    if (sql.includes('SELECT 1 FROM crm_email_templates WHERE slug=')) return { rows: [] };
+    if (sql.includes('UPDATE crm_email_templates SET')) return { rows: [] };
+    if (sql.includes('SELECT version,updated_at,updated_by')) {
+      return { rows: [{ version: 4, updated_at: '2026-10-06T10:00:00.000Z', updated_by: 'editor@example.com' }] };
+    }
+    return { rows: [] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  await assert.rejects(() => crmRepo.updateTemplate('template-1', {
+    name: 'Newsletter',
+    slug: 'newsletter',
+    templateType: 'marketing',
+    editorMode: 'visual',
+    subject: 'Aggiornamento',
+    preheader: null,
+    htmlBody: '<p>Ciao</p>',
+    textBody: 'Ciao',
+    builderModel: null,
+    description: null,
+    tags: [],
+    attachments: [],
+    folderId: null,
+    updatedBy: 'admin',
+    version: 3,
+  }), (error) => error.status === 409 && error.message === 'Template version conflict');
+});
+
 test('duplica una sequenza disattivata senza copiare le iscrizioni', async (t) => {
   const originalGetClient = db.getClient;
   const calls = [];

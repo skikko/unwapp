@@ -3,6 +3,7 @@ const state = {
   contacts: [],
   lists: [],
   templates: [],
+  templateVariables: [],
   automations: [],
   sequences: [],
   folders: { template: [], sequence: [] },
@@ -27,6 +28,36 @@ let templateComponentTextNodes = [];
 let templateComponentLinks = [];
 let templateComponentImages = [];
 let templateImageReplacementTarget = null;
+let templateEditorMode = 'visual';
+let templateHistory = [];
+let templateHistoryIndex = -1;
+let templateHistoryTimer = null;
+let templateHistoryRestoring = false;
+let templateDirty = false;
+let templateVisualSnapshotBeforeHtml = '';
+let templateHtmlSnapshotBeforeEdit = '';
+let lastTemplateField = null;
+let draggedTemplateBlockType = null;
+const TEMPLATE_HISTORY_LIMIT = 100;
+const FALLBACK_TEMPLATE_VARIABLES = [
+  { key: 'first_name', label: 'Nome', group: 'Contatto', example: 'Mario', type: 'text' },
+  { key: 'last_name', label: 'Cognome', group: 'Contatto', example: 'Rossi', type: 'text' },
+  { key: 'full_name', label: 'Nome completo', group: 'Contatto', example: 'Mario Rossi', type: 'text' },
+  { key: 'email', label: 'Email', group: 'Contatto', example: 'mario.rossi@example.com', type: 'text' },
+  { key: 'phone', label: 'Telefono', group: 'Contatto', example: '+393331234567', type: 'text' },
+  { key: 'source', label: 'Sorgente', group: 'Contatto', example: 'newsletter', type: 'text' },
+  { key: 'recontact_url', label: 'URL ricontatto', group: 'Azioni', example: 'https://www.unitednetwork.it/grazie-ricontatto/', type: 'url' },
+];
+const DEFAULT_TEMPLATE_GLOBAL_STYLE = Object.freeze({
+  backgroundColor: '#f1f5f9',
+  contentBackgroundColor: '#ffffff',
+  contentWidth: 600,
+  fontFamily: 'Arial',
+  textColor: '#1a1a1a',
+  linkColor: '#85294f',
+  paddingX: 40,
+  paddingY: 28,
+});
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[character]));
@@ -53,7 +84,12 @@ async function api(path, options = {}) {
     ...options,
   });
   const payload = response.status === 204 ? {} : await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || payload.error || `Request failed with status ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(payload.detail || payload.error || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
   return payload;
 }
 
@@ -1010,37 +1046,23 @@ function renderTemplates() {
   document.querySelectorAll('[data-duplicate-template]').forEach((button) => button.addEventListener('click', () => duplicateTemplate(button.dataset.duplicateTemplate, button)));
   document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
   document.querySelectorAll('[data-delete-template]').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.deleteTemplate)));
+  if ($('builderTemplateList')) renderBuilderTemplateList();
 }
 
 async function loadTemplates() {
-  const { templates } = await api('/api/crm/templates');
+  const { templates, variables } = await api('/api/crm/templates');
   state.templates = templates;
+  state.templateVariables = Array.isArray(variables) && variables.length ? variables : FALLBACK_TEMPLATE_VARIABLES;
   renderTemplates();
   refreshSelects();
   renderSequenceSteps();
 }
 
 function sampleTemplate(value) {
-  const samples = {
-    first_name: 'Mario',
-    last_name: 'Rossi',
-    full_name: 'Mario Rossi',
-    email: 'mario.rossi@example.com',
-    phone: '+393331234567',
-    source: 'newsletter',
-    recontact_url: 'https://www.unitednetwork.it/grazie-ricontatto/',
-  };
+  const samples = Object.fromEntries((state.templateVariables.length
+    ? state.templateVariables
+    : FALLBACK_TEMPLATE_VARIABLES).map((variable) => [variable.key, variable.example]));
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_match, key) => esc(samples[key] || `{{${key}}}`));
-}
-
-function currentTemplateHtml() {
-  if (!$('templateVisual').hidden) {
-    const cleanEditor = $('templateVisual').cloneNode(true);
-    cleanEditor.querySelectorAll('.email-component-selected').forEach(removeTemplateSelectionClass);
-    cleanEditor.querySelectorAll('[class=""]').forEach((element) => element.removeAttribute('class'));
-    $('templateHtml').value = cleanEditor.innerHTML.trim();
-  }
-  return $('templateHtml').value.trim();
 }
 
 function removeTemplateSelectionClass(element) {
@@ -1049,25 +1071,409 @@ function removeTemplateSelectionClass(element) {
   if (!element.className) element.removeAttribute('class');
 }
 
-function updateTemplatePreview() {
-  const body = sampleTemplate(currentTemplateHtml()) || '<p style="color:#858b9b">Inizia a scrivere per vedere l’anteprima.</p>';
-  const preheader = sampleTemplate($('templatePreheader').value);
+function builderId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `block-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function templateComponentType(component) {
+  if (!component) return 'html';
+  const explicitType = component.dataset.builderType;
+  if (explicitType) return explicitType;
+  const links = component.matches('a') ? [component] : [...component.querySelectorAll('a')];
+  if (component.matches('h1, h2, h3')) return 'heading';
+  if (component.matches('img') || component.querySelector('img')) return 'image';
+  if (component.matches('hr') || component.querySelector('td[style*="border-top"]')) return 'divider';
+  if (component.matches('p, blockquote')) return links.length > 1 ? 'social' : 'text';
+  if (component.matches('table') && links.length === 1) return 'button';
+  if (component.matches('table') && component.querySelectorAll(':scope > tbody > tr > td').length > 1) return 'columns';
+  if (component.matches('div') && !component.textContent.replace(/\u00a0/g, '').trim()) return 'spacer';
+  return 'html';
+}
+
+function prepareTemplateBlocks() {
+  [...$('templateVisual').children].forEach((component) => {
+    component.dataset.builderId ||= builderId();
+    component.dataset.builderType ||= templateComponentType(component);
+    component.dataset.builderLabel = templateComponentLabel(component);
+    component.setAttribute('role', 'option');
+    component.setAttribute('tabindex', '0');
+    component.setAttribute('draggable', 'true');
+    component.setAttribute('aria-selected', String(component === selectedTemplateComponent));
+  });
+}
+
+function cleanTemplateElement(element) {
+  const clean = element.cloneNode(true);
+  clean.querySelectorAll('.email-component-selected').forEach(removeTemplateSelectionClass);
+  if (clean.classList?.contains('email-component-selected')) removeTemplateSelectionClass(clean);
+  [clean, ...clean.querySelectorAll('*')].forEach((node) => {
+    [...node.attributes].forEach((attribute) => {
+      if (attribute.name.startsWith('data-builder-')
+        || ['role', 'tabindex', 'draggable', 'aria-selected', 'contenteditable'].includes(attribute.name)) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+    if (!node.className) node.removeAttribute('class');
+  });
+  return clean;
+}
+
+function currentTemplateHtml() {
+  if (templateEditorMode === 'visual') {
+    $('templateHtml').value = renderTemplateDocument(serializeTemplateBuilderModel(), {
+      subject: $('templateSubject').value,
+      preheader: $('templatePreheader').value,
+    });
+  }
+  return $('templateHtml').value.trim();
+}
+
+function cleanTemplateHtmlString(value) {
+  const container = document.createElement('div');
+  container.innerHTML = value;
+  [...container.children].forEach((element) => element.replaceWith(cleanTemplateElement(element)));
+  return container.innerHTML.trim();
+}
+
+function currentTemplateGlobalStyle() {
+  return {
+    backgroundColor: $('templateBackgroundColor').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.backgroundColor,
+    contentBackgroundColor: $('templateContentBackgroundColor').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.contentBackgroundColor,
+    contentWidth: Number($('templateContentWidth').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.contentWidth),
+    fontFamily: $('templateFontFamily').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.fontFamily,
+    textColor: $('templateGlobalTextColor').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.textColor,
+    linkColor: $('templateGlobalLinkColor').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.linkColor,
+    paddingX: Number($('templatePaddingX').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.paddingX),
+    paddingY: Number($('templatePaddingY').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.paddingY),
+  };
+}
+
+function applyTemplateGlobalStyle(style = DEFAULT_TEMPLATE_GLOBAL_STYLE) {
+  const normalized = { ...DEFAULT_TEMPLATE_GLOBAL_STYLE, ...(style || {}) };
+  $('templateBackgroundColor').value = normalized.backgroundColor;
+  $('templateContentBackgroundColor').value = normalized.contentBackgroundColor;
+  $('templateGlobalTextColor').value = normalized.textColor;
+  $('templateGlobalLinkColor').value = normalized.linkColor;
+  $('templateFontFamily').value = normalized.fontFamily;
+  $('templateContentWidth').value = String(normalized.contentWidth);
+  $('templateContentWidthValue').textContent = `${normalized.contentWidth}px`;
+  $('templatePaddingX').value = String(normalized.paddingX);
+  $('templatePaddingY').value = String(normalized.paddingY);
+  $('templateEditorWell').style.backgroundColor = normalized.backgroundColor;
+  const zoom = Number($('templateZoom')?.value || 0.9);
+  $('templateEditorWell').style.setProperty('--email-preview-width', `${Math.round(normalized.contentWidth * zoom)}px`);
+  $('templateEditorSheet').style.width = `${normalized.contentWidth}px`;
+  $('templateVisual').style.cssText = `background:${normalized.contentBackgroundColor};color:${normalized.textColor};font-family:${normalized.fontFamily};padding:${normalized.paddingY}px ${normalized.paddingX}px`;
+}
+
+function templateBlockStyle(component) {
+  const numericValue = (value) => {
+    const parsed = Number.parseFloat(value || '0');
+    return Number.isFinite(parsed) ? Math.min(160, Math.max(0, Math.round(parsed))) : 0;
+  };
+  const align = ['left', 'center', 'right'].includes(component.style.textAlign)
+    ? component.style.textAlign
+    : null;
+  const backgroundColor = /^#[0-9a-f]{6}$/i.test(component.style.backgroundColor || '')
+    ? component.style.backgroundColor.toLowerCase()
+    : null;
+  return {
+    align,
+    paddingTop: numericValue(component.style.marginTop),
+    paddingBottom: numericValue(component.style.marginBottom),
+    backgroundColor,
+    hideOnMobile: component.classList.contains('email-hide-mobile'),
+  };
+}
+
+function serializeTemplateBuilderModel() {
+  prepareTemplateBlocks();
+  return {
+    schemaVersion: 2,
+    globalStyle: currentTemplateGlobalStyle(),
+    blocks: [...$('templateVisual').children].map((component) => ({
+      id: component.dataset.builderId,
+      type: templateComponentType(component),
+      style: templateBlockStyle(component),
+      html: cleanTemplateElement(component).outerHTML,
+    })),
+  };
+}
+
+function renderTemplateDocument(model, envelope = {}) {
+  const style = { ...DEFAULT_TEMPLATE_GLOBAL_STYLE, ...(model?.globalStyle || {}) };
+  const blocks = Array.isArray(model?.blocks) ? model.blocks : [];
+  const fontFamily = ['Georgia', 'Times New Roman'].includes(style.fontFamily)
+    ? `${style.fontFamily}, serif`
+    : `${style.fontFamily}, Helvetica, sans-serif`;
+  const rows = blocks.map((block, index) => {
+    const blockStyle = block.style || {};
+    const paddingTop = Number(blockStyle.paddingTop || 0) + (index === 0 ? Number(style.paddingY) : 0);
+    const paddingBottom = Number(blockStyle.paddingBottom || 0) + (index === blocks.length - 1 ? Number(style.paddingY) : 0);
+    const classes = ['email-block', `email-block-${block.type}`];
+    if (blockStyle.hideOnMobile) classes.push('email-hide-mobile');
+    const cellStyles = [
+      `padding:${paddingTop}px ${style.paddingX}px ${paddingBottom}px`,
+      `color:${style.textColor}`,
+      `font-family:${fontFamily}`,
+    ];
+    if (blockStyle.align) cellStyles.push(`text-align:${blockStyle.align}`);
+    if (blockStyle.backgroundColor) cellStyles.push(`background-color:${blockStyle.backgroundColor}`);
+    return `<tr><td class="${classes.join(' ')}" style="${cellStyles.join(';')}">${block.html}</td></tr>`;
+  }).join('');
+  const hiddenPreview = '&nbsp;&zwnj;'.repeat(24);
+  return `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="x-apple-disable-message-reformatting"><title>${esc(envelope.subject || '')}</title><style>@media only screen and (max-width:600px){.email-inner{width:100%!important;max-width:100%!important}.email-block{padding-left:20px!important;padding-right:20px!important}.email-hide-mobile{display:none!important;max-height:0!important;overflow:hidden!important}.email-block-columns table,.email-block-columns tbody,.email-block-columns tr,.email-block-columns td{display:block!important;width:100%!important;box-sizing:border-box!important}img{max-width:100%!important;height:auto!important}}</style></head><body style="margin:0;padding:0;background-color:${style.backgroundColor};color:${style.textColor};font-family:${fontFamily}"><div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${esc(envelope.preheader || '')}${hiddenPreview}</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:${style.backgroundColor}"><tbody><tr><td align="center"><!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${style.contentWidth}"><tr><td><![endif]--><table class="email-inner" role="presentation" cellpadding="0" cellspacing="0" border="0" width="${style.contentWidth}" style="width:${style.contentWidth}px;max-width:${style.contentWidth}px;background-color:${style.contentBackgroundColor};color:${style.textColor};font-family:${fontFamily}"><tbody>${rows}</tbody></table><!--[if mso]></td></tr></table><![endif]--></td></tr></tbody></table></body></html>`;
+}
+
+function legacyTemplateBlocks(html) {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  const root = container.firstElementChild;
+  if (container.children.length !== 1 || !root?.matches('table')) return html;
+  const rows = [...root.querySelectorAll(':scope > tbody > tr')];
+  if (rows.length < 2) return html;
+  const blocks = [];
+  rows.forEach((row) => {
+    const cell = row.querySelector(':scope > td');
+    if (!cell) return;
+    const typography = ['color', 'font-family', 'font-size', 'line-height', 'text-align'];
+    [...cell.children].forEach((child) => {
+      const block = child.cloneNode(true);
+      typography.forEach((property) => {
+        if (!block.style.getPropertyValue(property) && cell.style.getPropertyValue(property)) {
+          block.style.setProperty(property, cell.style.getPropertyValue(property));
+        }
+      });
+      blocks.push(block.outerHTML);
+    });
+  });
+  return blocks.length > 1 ? blocks.join('') : html;
+}
+
+function loadTemplateBuilderModel(template = {}) {
+  const model = template.builder_json;
+  const blockHtml = model?.blocks?.length
+    ? model.blocks.map((block) => block.html).join('')
+    : legacyTemplateBlocks(template.html_body || '');
+  $('templateVisual').innerHTML = blockHtml;
+  [...$('templateVisual').children].forEach((component, index) => {
+    const block = model?.blocks?.[index];
+    if (block?.id) component.dataset.builderId = block.id;
+    if (block?.type) component.dataset.builderType = block.type;
+    if (block?.style) {
+      component.style.textAlign = block.style.align || '';
+      component.style.marginTop = block.style.paddingTop ? `${block.style.paddingTop}px` : '';
+      component.style.marginBottom = block.style.paddingBottom ? `${block.style.paddingBottom}px` : '';
+      component.style.backgroundColor = block.style.backgroundColor || '';
+      component.classList.toggle('email-hide-mobile', block.style.hideOnMobile === true);
+    }
+  });
+  applyTemplateGlobalStyle(model?.globalStyle || DEFAULT_TEMPLATE_GLOBAL_STYLE);
+  prepareTemplateBlocks();
+}
+
+function templateHistorySnapshot() {
+  return JSON.stringify({
+    html: $('templateVisual').innerHTML,
+    htmlSource: $('templateHtml').value,
+    editorMode: templateEditorMode,
+    subject: $('templateSubject').value,
+    preheader: $('templatePreheader').value,
+    name: $('templateName').value,
+    folderId: $('templateFolder').value,
+    templateType: $('templateType').value,
+    description: $('templateDescription').value,
+    tags: $('templateTags').value,
+    globalStyle: currentTemplateGlobalStyle(),
+  });
+}
+
+function updateTemplateHistoryButtons() {
+  $('templateUndoBtn').disabled = templateHistoryIndex <= 0;
+  $('templateRedoBtn').disabled = templateHistoryIndex >= templateHistory.length - 1;
+}
+
+function recordTemplateHistory() {
+  if (templateHistoryRestoring) return;
+  const snapshot = templateHistorySnapshot();
+  if (templateHistory[templateHistoryIndex] === snapshot) return;
+  templateHistory = templateHistory.slice(0, templateHistoryIndex + 1);
+  templateHistory.push(snapshot);
+  if (templateHistory.length > TEMPLATE_HISTORY_LIMIT) templateHistory.shift();
+  templateHistoryIndex = templateHistory.length - 1;
+  updateTemplateHistoryButtons();
+}
+
+function scheduleTemplateHistory() {
+  clearTimeout(templateHistoryTimer);
+  templateHistoryTimer = setTimeout(recordTemplateHistory, 400);
+}
+
+function restoreTemplateHistory(index) {
+  if (index < 0 || index >= templateHistory.length) return;
+  templateHistoryRestoring = true;
+  const snapshot = JSON.parse(templateHistory[index]);
+  $('templateVisual').innerHTML = snapshot.html;
+  $('templateHtml').value = snapshot.htmlSource || cleanTemplateHtmlString(snapshot.html);
+  $('templateSubject').value = snapshot.subject;
+  $('templatePreheader').value = snapshot.preheader;
+  $('templateName').value = snapshot.name;
+  $('templateFolder').value = snapshot.folderId;
+  $('templateType').value = snapshot.templateType;
+  $('templateDescription').value = snapshot.description;
+  $('templateTags').value = snapshot.tags;
+  applyTemplateGlobalStyle(snapshot.globalStyle);
+  templateHistoryIndex = index;
+  clearTemplateComponentSelection();
+  prepareTemplateBlocks();
+  templateHistoryRestoring = false;
+  updateTemplatePreview({ markDirty: true, recordHistory: false });
+  updateTemplateHistoryButtons();
+}
+
+function undoTemplateChange() {
+  restoreTemplateHistory(templateHistoryIndex - 1);
+}
+
+function redoTemplateChange() {
+  restoreTemplateHistory(templateHistoryIndex + 1);
+}
+
+function templateValidationIssues() {
+  const issues = [];
+  const subject = $('templateSubject').value.trim();
+  const preheader = $('templatePreheader').value.trim();
+  const html = currentTemplateHtml();
+  const temporary = document.createElement('div');
+  temporary.innerHTML = html;
+  if (!subject) issues.push('L’oggetto è obbligatorio.');
+  if (subject.length > 60) issues.push('L’oggetto supera 60 caratteri.');
+  if (preheader.length > 90) issues.push('Il preheader supera 90 caratteri.');
+  temporary.querySelectorAll('img').forEach((image) => {
+    if (!image.getAttribute('alt')?.trim()) issues.push('Un’immagine non ha il testo alternativo.');
+  });
+  temporary.querySelectorAll('a').forEach((link) => {
+    const href = link.getAttribute('href') || '';
+    if (!href.trim()) issues.push('Un link non ha una destinazione.');
+    else if (!href.startsWith('{{') && !/^(https?:|mailto:|tel:)/i.test(href)) issues.push(`Link non valido: ${href}`);
+  });
+  const knownVariables = new Set((state.templateVariables.length
+    ? state.templateVariables
+    : FALLBACK_TEMPLATE_VARIABLES).map((variable) => variable.key));
+  [...html.matchAll(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g)].forEach((match) => {
+    if (!knownVariables.has(match[1])) issues.push(`Variabile sconosciuta: {{${match[1]}}}.`);
+  });
+  if (new Blob([html]).size > 100 * 1024) issues.push('L’HTML supera 100 KB.');
+  return [...new Set(issues)];
+}
+
+function renderTemplateValidation() {
+  const issues = templateValidationIssues();
+  $('templateWarningsBtn').textContent = issues.length ? `${issues.length} avvisi` : 'Nessun avviso';
+  $('templateWarningsBtn').classList.toggle('has-warnings', Boolean(issues.length));
+  $('templateWarningsPopover').innerHTML = issues.length
+    ? `<strong>Controlli da completare</strong><ul>${issues.map((issue) => `<li>${esc(issue)}</li>`).join('')}</ul>`
+    : '<strong>Controlli completati</strong><p>Non sono stati rilevati problemi.</p>';
+}
+
+function renderTemplateLayers() {
+  prepareTemplateBlocks();
+  const blocks = [...$('templateVisual').children];
+  $('builderLayerCount').textContent = String(blocks.length);
+  $('templateBlockCount').textContent = `${blocks.length} blocchi`;
+  $('templateLayerList').innerHTML = blocks.length ? blocks.map((component, index) => `
+    <button type="button" class="email-layer-row ${component === selectedTemplateComponent ? 'active' : ''}" data-builder-layer="${esc(component.dataset.builderId)}">
+      <span>${index + 1}</span><strong>${esc(templateComponentLabel(component))}</strong>
+    </button>`).join('') : '<p class="builder-empty">Nessun blocco.</p>';
+  document.querySelectorAll('[data-builder-layer]').forEach((button) => button.addEventListener('click', () => {
+    const component = [...$('templateVisual').children].find((item) => item.dataset.builderId === button.dataset.builderLayer);
+    if (!component) return;
+    selectTemplateComponent(component);
+    component.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }));
+}
+
+function renderBuilderTemplateList() {
+  const search = $('builderTemplateSearch').value.trim().toLowerCase();
+  const templates = state.templates.filter((template) => !search || template.name.toLowerCase().includes(search));
+  $('builderTemplateList').innerHTML = templates.length ? templates.map((template) => `
+    <button type="button" class="email-flyout-template" data-builder-template="${template.id}">
+      <span class="email-template-card-copy">
+        <strong>${esc(template.name)}</strong>
+        <small>${esc(template.folder_name || 'Senza cartella')} · ${template.template_type === 'transactional' ? 'Transazionale' : 'Marketing'}</small>
+      </span>
+      <span class="email-template-card-action" aria-hidden="true">Apri</span>
+    </button>`).join('') : '<p class="builder-empty">Nessun template trovato.</p>';
+  document.querySelectorAll('[data-builder-template]').forEach((button) => button.addEventListener('click', () => {
+    if (templateDirty && !confirm('Aprire un altro template e perdere le modifiche non salvate?')) return;
+    editTemplate(button.dataset.builderTemplate);
+  }));
+}
+
+function renderTemplateVariables() {
+  const search = $('builderVariableSearch').value.trim().toLowerCase();
+  const variables = (state.templateVariables.length ? state.templateVariables : FALLBACK_TEMPLATE_VARIABLES).filter((variable) => !search
+    || variable.label.toLowerCase().includes(search)
+    || variable.key.includes(search));
+  $('templateVariableList').innerHTML = variables.map((variable) => `
+    <button type="button" class="email-variable-row" data-builder-variable="{{${variable.key}}}">
+      <strong>${esc(variable.label)}</strong><code>{{${esc(variable.key)}}}</code><span>${esc(variable.group)}</span>
+    </button>`).join('');
+  document.querySelectorAll('[data-builder-variable]').forEach((button) => button.addEventListener('click', () => {
+    const token = button.dataset.builderVariable;
+    if (lastTemplateField && ['templateSubject', 'templatePreheader'].includes(lastTemplateField.id)) {
+      const start = lastTemplateField.selectionStart ?? lastTemplateField.value.length;
+      const end = lastTemplateField.selectionEnd ?? start;
+      lastTemplateField.setRangeText(token, start, end, 'end');
+      lastTemplateField.focus();
+      updateTemplatePreview();
+      return;
+    }
+    runEditorCommand('insertText', token);
+  }));
+}
+
+function updateTemplatePreview({ markDirty = true, recordHistory = true } = {}) {
+  const style = currentTemplateGlobalStyle();
+  const documentHtml = currentTemplateHtml();
   $('previewSubject').textContent = sampleTemplate($('templateSubject').value) || 'Oggetto email';
-  $('templatePreview').srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;padding:28px;background:#f3f4f6;color:#171a23;font-family:Arial,sans-serif}.email{max-width:640px;margin:0 auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 4px 18px rgba(23,26,35,.08)}img{max-width:100%;height:auto}a{color:#e64a26}.preheader{display:none!important}</style></head><body><span class="preheader">${preheader}</span><main class="email">${body}</main></body></html>`;
-  $('templateSaveState').textContent = 'Modifiche non salvate';
+  $('templatePreview').srcdoc = sampleTemplate(documentHtml) || '<p style="color:#858b9b">Inizia a scrivere per vedere l’anteprima.</p>';
+  $('templateSubjectCount').textContent = `${$('templateSubject').value.length}/60`;
+  $('templatePreheaderCount').textContent = `${$('templatePreheader').value.length}/90`;
+  $('templateWidthStatus').textContent = `${style.contentWidth}px`;
+  renderTemplateLayers();
+  renderTemplateValidation();
+  if (markDirty) {
+    templateDirty = true;
+    $('templateSaveState').textContent = 'Modifiche non salvate';
+    $('templateSaveState').classList.add('is-dirty');
+  }
+  if (recordHistory) scheduleTemplateHistory();
 }
 
 function setEditorMode(mode) {
-  const visual = mode === 'visual';
-  if (visual) $('templateVisual').innerHTML = $('templateHtml').value;
-  else currentTemplateHtml();
+  if (mode === templateEditorMode) return;
+  if (mode === 'html') {
+    templateVisualSnapshotBeforeHtml = $('templateVisual').innerHTML;
+    currentTemplateHtml();
+    templateHtmlSnapshotBeforeEdit = $('templateHtml').value.trim();
+  } else if ($('templateHtml').value.trim() !== templateHtmlSnapshotBeforeEdit
+    && !confirm('Le modifiche fatte in HTML verranno scartate tornando al builder visuale. Continuare?')) {
+    return;
+  } else {
+    $('templateVisual').innerHTML = templateVisualSnapshotBeforeHtml;
+    prepareTemplateBlocks();
+  }
+  templateEditorMode = mode;
   clearTemplateComponentSelection();
+  const visual = mode === 'visual';
   $('templateVisual').hidden = !visual;
   $('templateHtml').hidden = visual;
-  $('templateComponentInspector').hidden = !visual || !selectedTemplateComponent;
+  $('templateComponentInspector').hidden = !visual;
   $('emailToolbar').hidden = !visual;
-  $('emailBlockLibrary').hidden = !visual;
   document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === mode));
+  syncTemplateBuilderLayout();
   updateTemplatePreview();
 }
 
@@ -1080,6 +1486,11 @@ function templateComponentRoot(node) {
 
 function templateComponentLabel(component) {
   if (!component) return 'Componente';
+  const labels = {
+    heading: 'Titolo', title: 'Titolo', text: 'Testo', image: 'Immagine', button: 'Pulsante', logo: 'Logo',
+    divider: 'Separatore', spacer: 'Spaziatura', columns: 'Colonne', social: 'Social', html: 'HTML',
+  };
+  if (labels[component.dataset.builderType]) return labels[component.dataset.builderType];
   const links = component.matches('a') ? [component] : component.querySelectorAll('a');
   if (component.matches('img') || component.querySelector('img')) return 'Immagine';
   if (component.matches('hr')) return 'Separatore';
@@ -1188,30 +1599,65 @@ function syncTemplateComponentStyleFields() {
 
 function selectTemplateComponent(component) {
   removeTemplateSelectionClass(selectedTemplateComponent);
+  selectedTemplateComponent?.setAttribute('aria-selected', 'false');
   selectedTemplateComponent = component && $('templateVisual').contains(component) ? component : null;
   if (!selectedTemplateComponent) {
-    $('templateComponentInspector').hidden = true;
+    $('templateComponentActions').hidden = true;
+    $('templateInspectorGlobal').hidden = false;
+    $('templateComponentPosition').textContent = 'Stile globale';
+    $('templateComponentType').textContent = 'Template';
+    syncTemplateBuilderLayout();
+    renderTemplateLayers();
     return;
   }
+  if (window.matchMedia('(max-width: 1199px)').matches) {
+    $('templateBuilderFlyout').hidden = true;
+    document.querySelectorAll('[data-builder-panel]').forEach((button) => {
+      button.classList.remove('active');
+      button.setAttribute('aria-selected', 'false');
+    });
+  }
+  selectedTemplateComponent.setAttribute('aria-selected', 'true');
   selectedTemplateComponent.classList.add('email-component-selected');
+  const position = [...$('templateVisual').children].indexOf(selectedTemplateComponent) + 1;
+  $('templateComponentPosition').textContent = `Blocco ${position}`;
   $('templateComponentType').textContent = templateComponentLabel(selectedTemplateComponent);
-  $('templateComponentInspector').hidden = false;
+  $('templateComponentActions').hidden = false;
+  $('templateInspectorGlobal').hidden = true;
+  $('templateComponentHtml').value = cleanTemplateElement(selectedTemplateComponent).outerHTML;
+  $('templateComponentHideMobile').checked = selectedTemplateComponent.classList.contains('email-hide-mobile');
   renderTemplateComponentFields();
   syncTemplateComponentStyleFields();
+  syncTemplateBuilderLayout();
+  renderTemplateLayers();
 }
 
 function clearTemplateComponentSelection() {
   removeTemplateSelectionClass(selectedTemplateComponent);
+  selectedTemplateComponent?.setAttribute('aria-selected', 'false');
   selectedTemplateComponent = null;
   templateComponentTextNodes = [];
   templateComponentLinks = [];
   templateComponentImages = [];
-  $('templateComponentInspector').hidden = true;
+  if ($('templateComponentInspector')) {
+    $('templateComponentActions').hidden = true;
+    $('templateInspectorGlobal').hidden = false;
+    $('templateComponentPosition').textContent = 'Stile globale';
+    $('templateComponentType').textContent = 'Template';
+    $('templateComponentFields').innerHTML = '<div class="email-component-empty">Seleziona un blocco per modificarne i contenuti.</div>';
+    $('templateComponentHtml').value = '';
+  }
+  syncTemplateBuilderLayout();
+  renderTemplateLayers();
 }
 
 function updateSelectedTemplateComponent() {
+  if (selectedTemplateComponent) {
+    selectedTemplateComponent.dataset.builderType = templateComponentType(selectedTemplateComponent);
+    selectedTemplateComponent.dataset.builderLabel = templateComponentLabel(selectedTemplateComponent);
+    $('templateComponentHtml').value = cleanTemplateElement(selectedTemplateComponent).outerHTML;
+  }
   updateTemplatePreview();
-  $('templateSaveState').textContent = 'Modifiche non salvate';
 }
 
 function moveSelectedTemplateComponent(direction) {
@@ -1229,13 +1675,15 @@ function duplicateSelectedTemplateComponent() {
   if (!selectedTemplateComponent) return;
   const copy = selectedTemplateComponent.cloneNode(true);
   removeTemplateSelectionClass(copy);
+  copy.dataset.builderId = builderId();
+  copy.setAttribute('aria-selected', 'false');
   selectedTemplateComponent.after(copy);
   selectTemplateComponent(copy);
   updateSelectedTemplateComponent();
 }
 
 function deleteSelectedTemplateComponent() {
-  if (!selectedTemplateComponent || !confirm('Rimuovere questo componente dal template?')) return;
+  if (!selectedTemplateComponent) return;
   const nextSelection = selectedTemplateComponent.nextElementSibling || selectedTemplateComponent.previousElementSibling;
   selectedTemplateComponent.remove();
   selectTemplateComponent(nextSelection);
@@ -1349,6 +1797,7 @@ function runEditorCommand(command, value = null) {
   if (command === 'bold') wrapEditorSelection('strong');
   else if (command === 'italic') wrapEditorSelection('em');
   else if (command === 'underline') wrapEditorSelection('u');
+  else if (command === 'strikethrough') wrapEditorSelection('s');
   else if (command === 'createLink') wrapEditorSelection('a', { href: value, rel: 'noopener noreferrer' });
   else if (command === 'foreColor') wrapEditorSelection('span', { style: `color:${value}` });
   else if (command === 'insertText') insertEditorNode(document.createTextNode(value));
@@ -1394,8 +1843,18 @@ async function uploadTemplateImage(file, targetImage = null) {
   form.append('media', file);
   const { media } = await api('/media/upload/crm', { method: 'POST', body: form });
   if (targetImage && $('templateVisual').contains(targetImage)) {
-    targetImage.setAttribute('src', media.url);
-    targetImage.setAttribute('alt', media.name);
+    let image = targetImage;
+    if (!targetImage.matches('img')) {
+      image = document.createElement('img');
+      image.dataset.builderId = targetImage.dataset.builderId || builderId();
+      image.dataset.builderType = 'image';
+      image.width = 640;
+      image.style.cssText = 'display:block;width:100%;max-width:640px;height:auto;margin:18px auto';
+      targetImage.replaceWith(image);
+      selectTemplateComponent(image);
+    }
+    image.setAttribute('src', media.url);
+    image.setAttribute('alt', media.name);
     renderTemplateComponentFields();
     updateSelectedTemplateComponent();
     toast('Immagine sostituita');
@@ -1406,8 +1865,12 @@ async function uploadTemplateImage(file, targetImage = null) {
   image.alt = media.name;
   image.width = 640;
   image.style.cssText = 'display:block;width:100%;max-width:640px;height:auto;margin:18px auto';
-  insertEditorNode(image);
-  selectTemplateComponent(templateComponentRoot(image));
+  image.dataset.builderId = builderId();
+  image.dataset.builderType = 'image';
+  if (selectedTemplateComponent) selectedTemplateComponent.after(image);
+  else $('templateVisual').appendChild(image);
+  prepareTemplateBlocks();
+  selectTemplateComponent(image);
   updateSelectedTemplateComponent();
   toast('Immagine inserita');
 }
@@ -1458,68 +1921,53 @@ async function uploadTemplateAttachment(file) {
 
 function insertEmailBlock(type) {
   const blocks = {
-    header: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:#85294f"><tbody><tr><td style="padding:20px;text-align:center;color:#ffffff"><div style="font-family:Arial,sans-serif;font-size:34px;font-weight:bold;line-height:1">UN</div><div style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;line-height:1.2">UNITED NETWORK</div><div style="font-family:Arial,sans-serif;font-size:9px;line-height:1.4">Empower your talent</div></td></tr></tbody></table>',
     title: '<h2 style="margin:0 0 18px;color:#333333;font-family:Arial,sans-serif;font-size:22px;line-height:1.3;text-align:center">Titolo della sezione</h2>',
     text: '<p style="margin:0 0 16px;color:#333333;font-family:Arial,sans-serif;font-size:15px;line-height:1.6">Scrivi qui il contenuto della tua email.</p>',
     spacer: '<div style="height:24px;line-height:24px">&nbsp;</div>',
-    divider: '<hr style="margin:24px 0;border:0;border-top:1px solid #d6d6d6">',
+    divider: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;margin:24px 0"><tbody><tr><td style="border-top:1px solid #d6d6d6;font-size:1px;line-height:1px">&nbsp;</td></tr></tbody></table>',
+    button: '<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="https://www.unitednetwork.it/" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">Scopri di più</a></td></tr></tbody></table>',
+    logo: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:#85294f"><tbody><tr><td style="padding:20px;text-align:center;color:#ffffff"><div style="font-family:Arial,sans-serif;font-size:34px;font-weight:bold;line-height:1">UN</div><div style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;line-height:1.2">UNITED NETWORK</div><div style="font-family:Arial,sans-serif;font-size:9px;line-height:1.4">Empower your talent</div></td></tr></tbody></table>',
+    columns: '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;margin:16px 0"><tbody><tr><td width="50%" valign="top" style="padding:12px;background:#f5f5f2;font-family:Arial,sans-serif;font-size:14px;line-height:1.5">Prima colonna</td><td width="50%" valign="top" style="padding:12px;background:#ffffff;font-family:Arial,sans-serif;font-size:14px;line-height:1.5">Seconda colonna</td></tr></tbody></table>',
     social: '<p style="margin:0;text-align:center;font-family:Arial,sans-serif;font-size:12px;line-height:1.8"><a href="https://www.facebook.com/unitednetwork.eu" style="color:#85294f;text-decoration:underline">Facebook</a>&nbsp;&nbsp; <a href="https://www.instagram.com/unitednetworkeu" style="color:#85294f;text-decoration:underline">Instagram</a>&nbsp;&nbsp; <a href="https://www.linkedin.com/company/united-network-europa" style="color:#85294f;text-decoration:underline">LinkedIn</a>&nbsp;&nbsp; <a href="https://open.spotify.com/show/1aLlejLxalrKOWcPFmVWjI" style="color:#85294f;text-decoration:underline">Spotify</a></p>',
-    recontact: '<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="{{recontact_url}}" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">Ricontattami</a></td></tr></tbody></table>',
-    footer: '<div style="padding:24px 12px;text-align:center;color:#6b6b6b;font-family:Arial,sans-serif;font-size:11px;line-height:1.6"><strong style="color:#85294f;font-size:22px">UN</strong><br>United Network, Via Parigi 11, 00185 Roma, Italia<br><a href="https://www.unitednetwork.it/" style="color:#85294f;text-decoration:underline">unitednetwork.it</a><br><a href="mailto:info@unitednetwork.it?subject=Disiscrizione" style="color:#85294f;text-decoration:underline">Annulla l’iscrizione</a></div>',
+    html: '<div style="margin:16px 0;padding:16px;border:1px dashed #aeb4aa;color:#5c6359;font-family:Arial,sans-serif;font-size:14px">Aggiungi qui il tuo HTML.</div>',
   };
   if (type === 'image') {
     templateImageReplacementTarget = null;
     $('templateImageFile').click();
     return;
   }
-  if (type === 'button') {
-    const label = prompt('Testo del pulsante', 'Scopri di più');
-    if (!label) return;
-    const href = prompt('URL completo del pulsante', 'https://www.unitednetwork.it/');
-    if (!href) return;
-    try {
-      const url = new URL(href);
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported URL protocol');
-      blocks.button = `<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="${esc(url.toString())}" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">${esc(label)}</a></td></tr></tbody></table>`;
-    } catch {
-      toast('URL non valido', 'err');
-      return;
-    }
-  }
   if (!blocks[type]) return;
-  const context = editorRange();
-  if (!context) return;
   const template = document.createElement('template');
   template.innerHTML = blocks[type];
-  const lastInserted = template.content.lastChild;
-  let anchor = context.range.startContainer.nodeType === Node.ELEMENT_NODE
-    ? context.range.startContainer : context.range.startContainer.parentElement;
-  while (anchor && anchor.parentElement !== context.editor) anchor = anchor.parentElement;
-  if (anchor && anchor !== context.editor) anchor.after(template.content);
-  else context.range.insertNode(template.content);
-  if (lastInserted) {
-    const nextRange = document.createRange();
-    nextRange.setStartAfter(lastInserted);
-    nextRange.collapse(true);
-    context.selection.removeAllRanges();
-    context.selection.addRange(nextRange);
-  }
-  selectTemplateComponent(templateComponentRoot(lastInserted));
+  const inserted = template.content.firstElementChild;
+  inserted.dataset.builderId = builderId();
+  inserted.dataset.builderType = type === 'title' ? 'heading' : type;
+  if (selectedTemplateComponent) selectedTemplateComponent.after(inserted);
+  else $('templateVisual').appendChild(inserted);
+  prepareTemplateBlocks();
+  selectTemplateComponent(inserted);
   updateTemplatePreview();
-  rememberEditorRange();
 }
 
 function templatePayload() {
   const htmlBody = currentTemplateHtml();
-  const temporary = document.createElement('div');
-  temporary.innerHTML = htmlBody;
-  const textBody = $('templateText').value.trim() || temporary.innerText.trim();
+  const textBody = $('templateText').value.trim() || $('templateVisual').innerText.trim();
   return {
     name: $('templateName').value,
+    templateType: $('templateType').value,
+    editorMode: templateEditorMode,
     subject: $('templateSubject').value,
     preheader: $('templatePreheader').value,
     htmlBody,
     textBody,
+    builderModel: templateEditorMode === 'visual' ? serializeTemplateBuilderModel() : {
+      schemaVersion: 2,
+      globalStyle: currentTemplateGlobalStyle(),
+      blocks: [{ id: builderId(), type: 'html', html: htmlBody }],
+    },
+    description: $('templateDescription').value,
+    tags: $('templateTags').value,
+    version: Number($('templateVersion').value || 1),
     attachments: state.templateAttachments,
     folderId: $('templateFolder').value,
   };
@@ -1530,40 +1978,89 @@ function editTemplate(id) {
   if (!template) return;
   $('templateId').value = template.id;
   $('templateName').value = template.name;
+  $('templateVersion').value = String(template.version || 1);
+  $('templateType').value = template.template_type || 'marketing';
   $('templateSubject').value = template.subject;
   $('templatePreheader').value = template.preheader || '';
   $('templateFolder').value = template.folder_id || '';
   $('templateHtml').value = template.html_body;
-  $('templateVisual').innerHTML = template.html_body;
+  $('templateDescription').value = template.description || '';
+  $('templateTags').value = (template.tags || []).join(', ');
+  loadTemplateBuilderModel(template);
   $('templateText').value = template.text_body || '';
   state.templateAttachments = normalizeTemplateAttachments(template.attachments);
   renderTemplateAttachments();
   savedEditorRange = null;
   clearTemplateComponentSelection();
-  $('templateEditorTitle').textContent = 'Modifica template';
+  templateEditorMode = template.editor_mode === 'html' ? 'html' : 'visual';
+  $('templateZoom').value = '0.9';
+  $('templateEditorSheet').style.zoom = '0.9';
+  $('templateEditorWell').style.setProperty('--email-preview-width', `${Math.round(currentTemplateGlobalStyle().contentWidth * 0.9)}px`);
+  templateVisualSnapshotBeforeHtml = $('templateVisual').innerHTML;
+  templateHtmlSnapshotBeforeEdit = $('templateHtml').value.trim();
+  templateHistory = [];
+  templateHistoryIndex = -1;
+  templateDirty = false;
   $('templateEditor').hidden = false;
-  setEditorMode('visual');
+  document.body.classList.add('email-builder-open');
+  const visual = templateEditorMode === 'visual';
+  $('templateVisual').hidden = !visual;
+  $('templateHtml').hidden = visual;
+  $('emailToolbar').hidden = !visual;
+  $('templateComponentInspector').hidden = !visual;
+  document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === templateEditorMode));
+  updateTemplatePreview({ markDirty: false, recordHistory: false });
+  recordTemplateHistory();
+  $('templateSaveState').classList.remove('is-dirty', 'is-error');
   $('templateSaveState').textContent = `Salvato ${new Date(template.updated_at).toLocaleString('it-IT')}`;
-  $('templateName').focus();
+  syncTemplateBuilderLayout();
+  renderBuilderTemplateList();
 }
 
 async function saveTemplate(event) {
   event.preventDefault();
   const id = $('templateId').value;
+  const issues = templateValidationIssues();
+  if (issues.some((issue) => issue.includes('obbligatorio'))) {
+    renderTemplateValidation();
+    $('templateWarningsPopover').hidden = false;
+    return;
+  }
+  $('saveTemplateBtn').disabled = true;
+  $('templateSaveState').textContent = 'Salvataggio in corso';
   try {
-    await api(id ? `/api/crm/templates/${id}` : '/api/crm/templates', {
+    const { template } = await api(id ? `/api/crm/templates/${id}` : '/api/crm/templates', {
       method: id ? 'PUT' : 'POST',
       body: JSON.stringify(templatePayload()),
     });
-    $('templateEditor').hidden = true;
-    $('templateEditor').reset();
-    $('templateId').value = '';
-    state.templateAttachments = [];
-    renderTemplateAttachments();
+    $('templateId').value = template.id;
+    $('templateVersion').value = String(template.version || Number($('templateVersion').value) + 1);
+    templateDirty = false;
+    $('templateSaveState').classList.remove('is-dirty', 'is-error');
+    $('templateSaveState').textContent = `Salvato ${new Date(template.updated_at).toLocaleString('it-IT')}`;
     toast(id ? 'Template aggiornato' : 'Template creato');
     await Promise.all([loadContentFolders(), loadTemplates(), loadSummary()]);
   } catch (error) {
+    if (error.status === 409 && error.payload?.conflict) {
+      const current = error.payload.conflict;
+      const reload = confirm(`Il template è stato modificato da ${current.updated_by || 'un altro utente'}. Premere OK per caricare la versione più recente, oppure Annulla per mantenere questa bozza e salvarla come nuovo template.`);
+      if (reload) {
+        await loadTemplates();
+        editTemplate(id);
+      } else {
+        $('templateId').value = '';
+        $('templateVersion').value = '1';
+        $('templateName').value = `${$('templateName').value} - copia`;
+        $('templateSaveState').textContent = 'Bozza da salvare come nuovo template';
+        toast('La bozza è stata mantenuta. Salva di nuovo per creare una copia.', 'err');
+      }
+      return;
+    }
+    $('templateSaveState').classList.add('is-error');
+    $('templateSaveState').textContent = 'Errore di salvataggio';
     toast(error.message, 'err');
+  } finally {
+    $('saveTemplateBtn').disabled = false;
   }
 }
 
@@ -2394,17 +2891,146 @@ function resetContactEditor(listId = '') {
 function resetTemplateEditor() {
   $('templateEditor').reset();
   $('templateId').value = '';
+  $('templateVersion').value = '1';
+  $('templateType').value = 'marketing';
   state.templateAttachments = [];
   renderTemplateAttachments();
-  $('templateHtml').value = '<p>Ciao {{first_name}},</p><p>Scrivi qui il contenuto della tua email.</p><p>A presto.</p>';
-  $('templateVisual').innerHTML = $('templateHtml').value;
+  $('templateHtml').value = '';
+  $('templateDescription').value = '';
+  $('templateTags').value = '';
+  loadTemplateBuilderModel({
+    builder_json: {
+      schemaVersion: 2,
+      globalStyle: DEFAULT_TEMPLATE_GLOBAL_STYLE,
+      blocks: [
+        { id: builderId(), type: 'heading', html: '<h2 style="margin:0 0 18px;font-size:24px;line-height:1.3">Titolo email</h2>' },
+        { id: builderId(), type: 'text', html: '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Ciao {{first_name}}, scrivi qui il contenuto della tua email.</p>' },
+        { id: builderId(), type: 'button', html: '<table cellpadding="0" cellspacing="0" border="0" style="margin:24px auto"><tbody><tr><td style="background-color:#9b3047;border-radius:3px;text-align:center"><a href="https://www.unitednetwork.it/" style="display:inline-block;padding:14px 22px;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none">Scopri di più</a></td></tr></tbody></table>' },
+        { id: builderId(), type: 'divider', html: '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tbody><tr><td style="border-top:1px solid #d6d6d6;font-size:0;line-height:0">&nbsp;</td></tr></tbody></table>' },
+        { id: builderId(), type: 'text', html: '<p style="margin:20px 0 0;font-size:14px;line-height:1.6">A presto,<br><strong>Team United Network</strong></p>' },
+      ],
+    },
+  });
   savedEditorRange = null;
   clearTemplateComponentSelection();
-  $('templateEditorTitle').textContent = 'Nuovo template';
   $('templateFolder').value = $('templateFolderFilter').value === '__none__' ? '' : $('templateFolderFilter').value;
-  setEditorMode('visual');
+  templateEditorMode = 'visual';
+  $('templateZoom').value = '0.9';
+  $('templateEditorSheet').style.zoom = '0.9';
+  $('templateEditorWell').style.setProperty('--email-preview-width', `${Math.round(currentTemplateGlobalStyle().contentWidth * 0.9)}px`);
+  templateVisualSnapshotBeforeHtml = $('templateVisual').innerHTML;
+  templateHtmlSnapshotBeforeEdit = '';
+  templateHistory = [];
+  templateHistoryIndex = -1;
+  templateDirty = false;
+  $('templateVisual').hidden = false;
+  $('templateHtml').hidden = true;
+  $('emailToolbar').hidden = false;
+  $('templateComponentInspector').hidden = false;
+  document.querySelectorAll('[data-editor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.editorMode === 'visual'));
+  updateTemplatePreview({ markDirty: false, recordHistory: false });
+  recordTemplateHistory();
+  $('templateSaveState').classList.remove('is-dirty', 'is-error');
   $('templateSaveState').textContent = 'Nuova bozza';
-  openEditor('templateEditor');
+  syncTemplateBuilderLayout();
+  $('templateEditor').hidden = false;
+  document.body.classList.add('email-builder-open');
+  renderBuilderTemplateList();
+}
+
+function closeTemplateEditor({ force = false } = {}) {
+  if (!force && templateDirty && !confirm('Chiudere il builder e perdere le modifiche non salvate?')) return false;
+  $('templateEditor').hidden = true;
+  document.body.classList.remove('email-builder-open');
+  if ($('templatePreviewDialog').open) $('templatePreviewDialog').close();
+  $('templateDetailsPanel').hidden = true;
+  $('templateWarningsPopover').hidden = true;
+  templateDirty = false;
+  return true;
+}
+
+function openBuilderPanel(panel) {
+  const selectedButton = document.querySelector(`[data-builder-panel="${panel}"]`);
+  const isCurrent = selectedButton?.classList.contains('active') && !$('templateBuilderFlyout').hidden;
+  if (isCurrent) {
+    $('templateBuilderFlyout').hidden = true;
+    selectedButton.setAttribute('aria-selected', 'false');
+    selectedButton.classList.remove('active');
+    syncTemplateBuilderLayout();
+    return;
+  }
+  if (window.matchMedia('(max-width: 1199px)').matches && selectedTemplateComponent) {
+    clearTemplateComponentSelection();
+  }
+  $('templateBuilderFlyout').hidden = false;
+  document.querySelectorAll('[data-builder-panel]').forEach((button) => {
+    const active = button.dataset.builderPanel === panel;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-builder-flyout]').forEach((section) => {
+    section.hidden = section.dataset.builderFlyout !== panel;
+  });
+  if (panel === 'templates') renderBuilderTemplateList();
+  if (panel === 'layers') renderTemplateLayers();
+  if (panel === 'variables') renderTemplateVariables();
+  syncTemplateBuilderLayout();
+}
+
+function syncTemplateBuilderLayout() {
+  const builder = $('templateEditor');
+  if (!builder) return;
+  builder.classList.toggle('has-flyout', !$('templateBuilderFlyout').hidden);
+  builder.classList.toggle('has-inspector', Boolean(selectedTemplateComponent) && templateEditorMode === 'visual');
+}
+
+function insertEmailSection(type) {
+  const sections = {
+    banner: ['logo', 'image'],
+    cta: ['title', 'text', 'button'],
+    footer: ['divider', 'social', 'html'],
+  };
+  const blockTypes = sections[type] || [];
+  blockTypes.forEach((blockType) => {
+    if (blockType === 'image') {
+      const placeholder = document.createElement('div');
+      placeholder.dataset.builderId = builderId();
+      placeholder.dataset.builderType = 'image';
+      placeholder.style.cssText = 'min-height:180px;margin:16px 0;display:grid;place-items:center;border:1px dashed #aeb4aa;background:#f5f5f2;color:#5c6359;font-family:Arial,sans-serif;font-size:14px';
+      placeholder.textContent = 'Carica immagine dal pannello del blocco';
+      if (selectedTemplateComponent) selectedTemplateComponent.after(placeholder);
+      else $('templateVisual').appendChild(placeholder);
+      selectedTemplateComponent = placeholder;
+      return;
+    }
+    insertEmailBlock(blockType);
+  });
+  prepareTemplateBlocks();
+  updateTemplatePreview();
+}
+
+function applySelectedTemplateHtml() {
+  if (!selectedTemplateComponent) return;
+  const template = document.createElement('template');
+  template.innerHTML = $('templateComponentHtml').value;
+  template.content.querySelectorAll('script,iframe,object,embed,form,input,button').forEach((element) => element.remove());
+  template.content.querySelectorAll('*').forEach((element) => {
+    [...element.attributes].forEach((attribute) => {
+      if (attribute.name.startsWith('on')) element.removeAttribute(attribute.name);
+      if (['href', 'src'].includes(attribute.name) && /^\s*javascript:/i.test(attribute.value)) element.removeAttribute(attribute.name);
+    });
+  });
+  const replacement = template.content.firstElementChild;
+  if (!replacement) {
+    toast('Il blocco HTML non è valido', 'err');
+    return;
+  }
+  replacement.dataset.builderId = selectedTemplateComponent.dataset.builderId || builderId();
+  replacement.dataset.builderType = templateComponentType(replacement);
+  selectedTemplateComponent.replaceWith(replacement);
+  prepareTemplateBlocks();
+  selectTemplateComponent(replacement);
+  updateSelectedTemplateComponent();
 }
 
 function resetSequenceEditor() {
@@ -2440,7 +3066,10 @@ function changeTab(name) {
 }
 
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
-document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => { $(button.dataset.close).hidden = true; }));
+document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => {
+  if (button.dataset.close === 'templateEditor') closeTemplateEditor();
+  else $(button.dataset.close).hidden = true;
+}));
 let contactFilterTimer;
 let listContactSearchTimer;
 function scheduleContactFilter() {
@@ -2537,21 +3166,77 @@ $('campaignTemplate').addEventListener('change', loadCampaignPreview);
 $('refreshEmailDashboardBtn').addEventListener('click', () => loadEmailDashboard().catch((error) => toast(error.message, 'err')));
 $('refreshEmailLogsBtn').addEventListener('click', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('emailLogFilters').addEventListener('change', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
-$('templateVisual').addEventListener('input', updateTemplatePreview);
+$('templateVisual').addEventListener('input', () => updateTemplatePreview());
 $('templateVisual').addEventListener('click', (event) => selectTemplateComponent(templateComponentRoot(event.target)));
 $('templateVisual').addEventListener('mouseup', rememberEditorRange);
 $('templateVisual').addEventListener('keyup', rememberEditorRange);
-$('templateHtml').addEventListener('input', updateTemplatePreview);
-$('templateSubject').addEventListener('input', updateTemplatePreview);
-$('templatePreheader').addEventListener('input', updateTemplatePreview);
+$('templateHtml').addEventListener('input', () => updateTemplatePreview());
+[$('templateSubject'), $('templatePreheader')].forEach((input) => {
+  input.addEventListener('focus', () => { lastTemplateField = input; });
+  input.addEventListener('input', () => updateTemplatePreview());
+});
+$('templateName').addEventListener('input', () => updateTemplatePreview());
+$('templateFolder').addEventListener('change', () => updateTemplatePreview());
+$('templateType').addEventListener('change', () => updateTemplatePreview());
+$('templateDescription').addEventListener('input', () => updateTemplatePreview());
+$('templateTags').addEventListener('input', () => updateTemplatePreview());
 document.querySelectorAll('[data-editor-mode]').forEach((button) => button.addEventListener('click', () => setEditorMode(button.dataset.editorMode)));
 document.querySelectorAll('[data-editor-command]').forEach((button) => {
   button.addEventListener('mousedown', (event) => event.preventDefault());
   button.addEventListener('click', () => runEditorCommand(button.dataset.editorCommand));
 });
 document.querySelectorAll('[data-email-block]').forEach((button) => {
+  button.setAttribute('draggable', 'true');
   button.addEventListener('mousedown', (event) => event.preventDefault());
   button.addEventListener('click', () => insertEmailBlock(button.dataset.emailBlock));
+  button.addEventListener('dragstart', (event) => {
+    draggedTemplateBlockType = button.dataset.emailBlock;
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('text/x-email-block', draggedTemplateBlockType);
+  });
+  button.addEventListener('dragend', () => { draggedTemplateBlockType = null; });
+});
+document.querySelectorAll('[data-email-section]').forEach((button) => button.addEventListener('click', () => insertEmailSection(button.dataset.emailSection)));
+document.querySelectorAll('[data-builder-panel]').forEach((button) => button.addEventListener('click', () => openBuilderPanel(button.dataset.builderPanel)));
+$('builderTemplateSearch').addEventListener('input', renderBuilderTemplateList);
+$('builderVariableSearch').addEventListener('input', renderTemplateVariables);
+$('builderNewTemplateBtn').addEventListener('click', () => {
+  if (templateDirty && !confirm('Creare un nuovo template e perdere le modifiche non salvate?')) return;
+  resetTemplateEditor();
+});
+$('templateUndoBtn').addEventListener('click', undoTemplateChange);
+$('templateRedoBtn').addEventListener('click', redoTemplateChange);
+$('openTemplatePreviewBtn').addEventListener('click', () => {
+  updateTemplatePreview({ markDirty: false, recordHistory: false });
+  $('templatePreviewDialog').showModal();
+});
+$('closeTemplatePreviewBtn').addEventListener('click', () => $('templatePreviewDialog').close());
+$('toggleTemplateDetailsBtn').addEventListener('click', () => { $('templateDetailsPanel').hidden = !$('templateDetailsPanel').hidden; });
+$('closeTemplateDetailsBtn').addEventListener('click', () => { $('templateDetailsPanel').hidden = true; });
+$('templateWarningsBtn').addEventListener('click', () => { $('templateWarningsPopover').hidden = !$('templateWarningsPopover').hidden; });
+$('templateFocusBtn').addEventListener('click', () => {
+  $('templateEditor').classList.toggle('is-focus');
+  $('templateFocusBtn').textContent = $('templateEditor').classList.contains('is-focus') ? 'Esci da focus' : 'Focus';
+});
+$('templateZoom').addEventListener('change', () => {
+  $('templateEditorSheet').style.zoom = $('templateZoom').value;
+  const displayWidth = Number($('templateContentWidth').value || DEFAULT_TEMPLATE_GLOBAL_STYLE.contentWidth)
+    * Number($('templateZoom').value);
+  $('templateEditorWell').style.setProperty('--email-preview-width', `${Math.round(displayWidth)}px`);
+});
+$('templateGlobalStyle').addEventListener('input', () => {
+  applyTemplateGlobalStyle(currentTemplateGlobalStyle());
+  updateTemplatePreview();
+});
+document.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-inspector-tab]').forEach((item) => item.classList.toggle('active', item === button));
+  document.querySelectorAll('[data-inspector-panel]').forEach((panel) => { panel.hidden = panel.dataset.inspectorPanel !== button.dataset.inspectorTab; });
+}));
+$('applyTemplateComponentHtml').addEventListener('click', applySelectedTemplateHtml);
+$('templateComponentHideMobile').addEventListener('change', () => {
+  if (!selectedTemplateComponent) return;
+  selectedTemplateComponent.classList.toggle('email-hide-mobile', $('templateComponentHideMobile').checked);
+  updateSelectedTemplateComponent();
 });
 $('templateBlockFormat').addEventListener('change', () => {
   runEditorCommand('formatBlock', $('templateBlockFormat').value);
@@ -2574,7 +3259,9 @@ $('insertLinkBtn').addEventListener('click', () => {
   }
 });
 $('insertImageBtn').addEventListener('click', () => {
-  templateImageReplacementTarget = null;
+  templateImageReplacementTarget = selectedTemplateComponent?.dataset.builderType === 'image'
+    ? selectedTemplateComponent.querySelector('img') || selectedTemplateComponent
+    : null;
   $('templateImageFile').click();
 });
 $('addTemplateAttachmentBtn').addEventListener('click', () => $('templateAttachmentFile').click());
@@ -2604,6 +3291,7 @@ $('templateAttachmentFile').addEventListener('change', async () => {
 document.querySelectorAll('[data-preview-size]').forEach((button) => button.addEventListener('click', () => {
   const mobile = button.dataset.previewSize === 'mobile';
   $('emailPreviewWrap').classList.toggle('mobile', mobile);
+  $('templateEditorSheet').classList.toggle('mobile', mobile);
   document.querySelectorAll('[data-preview-size]').forEach((item) => item.classList.toggle('active', item === button));
 }));
 $('closeTemplateComponentInspector').addEventListener('click', clearTemplateComponentSelection);
@@ -2661,6 +3349,105 @@ $('templateComponentMarginBottom').addEventListener('input', () => applyTemplate
 $('templateComponentPaddingVertical').addEventListener('input', applyTemplateComponentPadding);
 $('templateComponentPaddingHorizontal').addEventListener('input', applyTemplateComponentPadding);
 $('templateComponentBorderRadius').addEventListener('input', () => applyTemplateComponentStyle('borderRadius', $('templateComponentBorderRadius').value ? `${$('templateComponentBorderRadius').value}px` : '', 'box'));
+
+let draggedTemplateComponent = null;
+$('templateVisual').addEventListener('dragstart', (event) => {
+  draggedTemplateComponent = templateComponentRoot(event.target);
+  if (draggedTemplateComponent) event.dataTransfer.effectAllowed = 'move';
+});
+$('templateVisual').addEventListener('dragover', (event) => {
+  if (draggedTemplateBlockType) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    return;
+  }
+  if (!draggedTemplateComponent) return;
+  event.preventDefault();
+  const target = templateComponentRoot(event.target);
+  if (!target || target === draggedTemplateComponent) return;
+  const bounds = target.getBoundingClientRect();
+  if (event.clientY < bounds.top + bounds.height / 2) target.before(draggedTemplateComponent);
+  else target.after(draggedTemplateComponent);
+});
+$('templateVisual').addEventListener('drop', (event) => {
+  if (draggedTemplateBlockType) {
+    event.preventDefault();
+    const blockType = draggedTemplateBlockType;
+    draggedTemplateBlockType = null;
+    if (blockType === 'image') {
+      const placeholder = document.createElement('div');
+      placeholder.dataset.builderId = builderId();
+      placeholder.dataset.builderType = 'image';
+      placeholder.style.cssText = 'min-height:180px;margin:16px 0;display:grid;place-items:center;border:1px dashed #aeb4aa;background:#f5f5f2;color:#5c6359;font-family:Arial,sans-serif;font-size:14px';
+      placeholder.textContent = 'Seleziona il blocco e carica un’immagine';
+      $('templateVisual').appendChild(placeholder);
+      prepareTemplateBlocks();
+      selectTemplateComponent(placeholder);
+      updateTemplatePreview();
+    } else {
+      insertEmailBlock(blockType);
+    }
+    return;
+  }
+  if (!draggedTemplateComponent) return;
+  event.preventDefault();
+  selectTemplateComponent(draggedTemplateComponent);
+  draggedTemplateComponent = null;
+  updateSelectedTemplateComponent();
+});
+$('templateVisual').addEventListener('dragend', () => {
+  draggedTemplateComponent = null;
+  draggedTemplateBlockType = null;
+});
+
+document.addEventListener('keydown', (event) => {
+  if ($('templateEditor').hidden) return;
+  const command = event.metaKey || event.ctrlKey;
+  const editable = event.target.matches('input,textarea,select,[contenteditable="true"]');
+  if (command && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    $('templateEditor').requestSubmit();
+  } else if (command && event.shiftKey && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    redoTemplateChange();
+  } else if (command && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    undoTemplateChange();
+  } else if (command && event.key.toLowerCase() === 'd' && selectedTemplateComponent) {
+    event.preventDefault();
+    duplicateSelectedTemplateComponent();
+  } else if (command && event.shiftKey && event.key.toLowerCase() === 'p') {
+    event.preventDefault();
+    $('openTemplatePreviewBtn').click();
+  } else if (command && event.key === '\\') {
+    event.preventDefault();
+    $('templateFocusBtn').click();
+  } else if (event.altKey && event.key === 'ArrowUp') {
+    event.preventDefault();
+    moveSelectedTemplateComponent('up');
+  } else if (event.altKey && event.key === 'ArrowDown') {
+    event.preventDefault();
+    moveSelectedTemplateComponent('down');
+  } else if (!editable && (event.key === 'Delete' || event.key === 'Backspace')) {
+    event.preventDefault();
+    deleteSelectedTemplateComponent();
+  } else if (!editable && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    $('templateFocusBtn').click();
+  } else if (event.key === 'Escape') {
+    if (selectedTemplateComponent) clearTemplateComponentSelection();
+    else {
+      $('templateBuilderFlyout').hidden = true;
+      syncTemplateBuilderLayout();
+    }
+  }
+});
+
+window.addEventListener('beforeunload', (event) => {
+  if ($('templateEditor').hidden || !templateDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 
 (async () => {
   try {

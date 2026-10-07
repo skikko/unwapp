@@ -2,6 +2,20 @@ const crmRepo = require('../repos/crmRepo');
 const sanitizeHtml = require('sanitize-html');
 
 const EMAIL_STATUSES = new Set(['unknown', 'subscribed', 'unsubscribed', 'bounced']);
+const TEMPLATE_TYPES = new Set(['marketing', 'transactional']);
+const TEMPLATE_EDITOR_MODES = new Set(['visual', 'html']);
+const TEMPLATE_BLOCK_TYPES = new Set([
+  'heading', 'text', 'image', 'button', 'logo', 'divider', 'spacer', 'columns', 'social', 'html',
+]);
+const TEMPLATE_VARIABLE_CATALOG = Object.freeze([
+  { key: 'first_name', group: 'Contatto', label: 'Nome', example: 'Mario', type: 'text' },
+  { key: 'last_name', group: 'Contatto', label: 'Cognome', example: 'Rossi', type: 'text' },
+  { key: 'full_name', group: 'Contatto', label: 'Nome completo', example: 'Mario Rossi', type: 'text' },
+  { key: 'email', group: 'Contatto', label: 'Email', example: 'mario.rossi@example.com', type: 'text' },
+  { key: 'phone', group: 'Contatto', label: 'Telefono', example: '+393331234567', type: 'text' },
+  { key: 'source', group: 'Contatto', label: 'Sorgente', example: 'newsletter', type: 'text' },
+  { key: 'recontact_url', group: 'Azioni', label: 'URL ricontatto', example: 'https://www.unitednetwork.it/grazie-ricontatto/', type: 'url' },
+]);
 const CONTACT_TYPES = new Map([
   ['genitore', 'parent'],
   ['parent', 'parent'],
@@ -198,12 +212,28 @@ async function saveContact(input, options) {
 }
 
 function validateTemplate(input = {}) {
+  const templateType = TEMPLATE_TYPES.has(input.templateType) ? input.templateType : 'marketing';
+  const editorMode = TEMPLATE_EDITOR_MODES.has(input.editorMode) ? input.editorMode : 'visual';
+  const inputVersion = Number(input.version);
+  const subject = String(input.subject || '').trim().replace(/[\r\n]+/g, ' ');
+  const preheader = String(input.preheader || '').trim();
+  const builderModel = normalizeTemplateBuilderModel(input.builderModel);
+  const htmlBody = editorMode === 'visual' && builderModel
+    ? renderTemplateBuilderHtml(builderModel, { subject, preheader })
+    : sanitizeEmailHtml(input.htmlBody);
   const template = {
     name: String(input.name || '').trim(),
-    subject: String(input.subject || '').trim().replace(/[\r\n]+/g, ' '),
-    preheader: String(input.preheader || '').trim(),
-    htmlBody: sanitizeEmailHtml(input.htmlBody),
+    slug: templateSlug(input.name),
+    templateType,
+    editorMode,
+    subject,
+    preheader,
+    htmlBody,
     textBody: String(input.textBody || '').trim(),
+    builderModel,
+    description: String(input.description || '').trim().slice(0, 1000),
+    tags: normalizeTags(input.tags),
+    version: Number.isFinite(inputVersion) ? Math.max(1, Math.floor(inputVersion)) : 1,
     attachments: normalizeTemplateAttachments(input.attachments),
     folderId: normalizeFolderId(input.folderId),
   };
@@ -211,6 +241,132 @@ function validateTemplate(input = {}) {
     throw Object.assign(new Error('Template name, subject and HTML body are required'), { status: 400 });
   }
   return template;
+}
+
+function templateSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100) || 'template';
+}
+
+function normalizeTemplateBuilderModel(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw Object.assign(new Error('Invalid template builder model'), { status: 400 });
+  }
+  const blocks = Array.isArray(value.blocks) ? value.blocks : [];
+  if (blocks.length > 200) {
+    throw Object.assign(new Error('Template builder supports at most 200 blocks'), { status: 400 });
+  }
+  const ids = new Set();
+  const normalizedBlocks = blocks.map((block) => {
+    const id = String(block?.id || '').trim();
+    const rawType = String(block?.type || '').trim();
+    const type = rawType === 'title' ? 'heading' : rawType;
+    if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id) || ids.has(id) || !TEMPLATE_BLOCK_TYPES.has(type)) {
+      throw Object.assign(new Error('Invalid template builder block'), { status: 400 });
+    }
+    ids.add(id);
+    return {
+      id,
+      type,
+      style: normalizeTemplateBlockStyle(block.style),
+      html: sanitizeEmailHtml(block.html),
+    };
+  });
+  const style = value.globalStyle && typeof value.globalStyle === 'object' && !Array.isArray(value.globalStyle)
+    ? value.globalStyle : {};
+  const model = {
+    schemaVersion: 2,
+    globalStyle: normalizeTemplateGlobalStyle(style),
+    blocks: normalizedBlocks,
+  };
+  if (JSON.stringify(model).length > 400_000) {
+    throw Object.assign(new Error('Template builder model is too large'), { status: 413 });
+  }
+  return model;
+}
+
+function normalizeTemplateBlockStyle(value = {}) {
+  const align = ['left', 'center', 'right'].includes(value?.align) ? value.align : null;
+  const number = (candidate) => {
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) ? Math.min(160, Math.max(0, Math.round(parsed))) : 0;
+  };
+  const backgroundColor = value?.backgroundColor === null
+    ? null
+    : /^#[0-9a-f]{6}$/i.test(String(value?.backgroundColor || ''))
+      ? String(value.backgroundColor).toLowerCase()
+      : null;
+  return {
+    align,
+    paddingTop: number(value?.paddingTop),
+    paddingBottom: number(value?.paddingBottom),
+    backgroundColor,
+    hideOnMobile: value?.hideOnMobile === true,
+  };
+}
+
+function normalizeTemplateGlobalStyle(value = {}) {
+  const color = (candidate, fallback) => /^#[0-9a-f]{6}$/i.test(String(candidate || ''))
+    ? String(candidate).toLowerCase() : fallback;
+  const number = (candidate, minimum, maximum, fallback) => {
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, Math.round(parsed))) : fallback;
+  };
+  const fonts = new Set(['Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Tahoma']);
+  return {
+    backgroundColor: color(value.backgroundColor, '#f1f5f9'),
+    contentBackgroundColor: color(value.contentBackgroundColor, '#ffffff'),
+    contentWidth: number(value.contentWidth, 480, 800, 600),
+    fontFamily: fonts.has(value.fontFamily) ? value.fontFamily : 'Arial',
+    textColor: color(value.textColor, '#1a1a1a'),
+    linkColor: color(value.linkColor, '#85294f'),
+    paddingX: number(value.paddingX, 0, 100, 40),
+    paddingY: number(value.paddingY, 0, 120, 28),
+  };
+}
+
+function escapeEmailMarkup(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+}
+
+function renderTemplateBuilderHtml(model, envelope = {}) {
+  const style = normalizeTemplateGlobalStyle(model?.globalStyle || {});
+  const blocks = Array.isArray(model?.blocks) ? model.blocks : [];
+  const fontFamily = ['Georgia', 'Times New Roman'].includes(style.fontFamily)
+    ? `${style.fontFamily}, serif`
+    : `${style.fontFamily}, Helvetica, sans-serif`;
+  const rows = blocks.map((block, index) => {
+    const blockStyle = normalizeTemplateBlockStyle(block.style);
+    const paddingTop = blockStyle.paddingTop + (index === 0 ? style.paddingY : 0);
+    const paddingBottom = blockStyle.paddingBottom + (index === blocks.length - 1 ? style.paddingY : 0);
+    const classes = ['email-block', `email-block-${block.type}`];
+    if (blockStyle.hideOnMobile) classes.push('email-hide-mobile');
+    const cellStyles = [
+      `padding:${paddingTop}px ${style.paddingX}px ${paddingBottom}px`,
+      `color:${style.textColor}`,
+      `font-family:${fontFamily}`,
+    ];
+    if (blockStyle.align) cellStyles.push(`text-align:${blockStyle.align}`);
+    if (blockStyle.backgroundColor) cellStyles.push(`background-color:${blockStyle.backgroundColor}`);
+    return `<tr><td class="${classes.join(' ')}" style="${cellStyles.join(';')}">${block.html}</td></tr>`;
+  }).join('');
+  const subject = escapeEmailMarkup(envelope.subject || '');
+  const preheader = escapeEmailMarkup(envelope.preheader || '');
+  const hiddenPreview = '&nbsp;&zwnj;'.repeat(24);
+  return `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="x-apple-disable-message-reformatting"><title>${subject}</title><style>@media only screen and (max-width:600px){.email-inner{width:100%!important;max-width:100%!important}.email-block{padding-left:20px!important;padding-right:20px!important}.email-hide-mobile{display:none!important;max-height:0!important;overflow:hidden!important}.email-block-columns table,.email-block-columns tbody,.email-block-columns tr,.email-block-columns td{display:block!important;width:100%!important;box-sizing:border-box!important}img{max-width:100%!important;height:auto!important}}</style></head><body style="margin:0;padding:0;background-color:${style.backgroundColor};color:${style.textColor};font-family:${fontFamily}"><div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${preheader}${hiddenPreview}</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background-color:${style.backgroundColor}"><tbody><tr><td align="center"><!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${style.contentWidth}"><tr><td><![endif]--><table class="email-inner" role="presentation" cellpadding="0" cellspacing="0" border="0" width="${style.contentWidth}" style="width:${style.contentWidth}px;max-width:${style.contentWidth}px;background-color:${style.contentBackgroundColor};color:${style.textColor};font-family:${fontFamily}"><tbody>${rows}</tbody></table><!--[if mso]></td></tr></table><![endif]--></td></tr></tbody></table></body></html>`;
+}
+
+function templateVariableCatalog() {
+  return TEMPLATE_VARIABLE_CATALOG.map((variable) => ({ ...variable }));
 }
 
 function normalizeTemplateAttachments(value) {
@@ -233,21 +389,27 @@ function normalizeTemplateAttachments(value) {
 }
 
 function sanitizeEmailHtml(value) {
-  return sanitizeHtml(String(value || ''), {
+  const sanitized = sanitizeHtml(String(value || ''), {
     allowedTags: [
-      'a', 'blockquote', 'br', 'div', 'em', 'h1', 'h2', 'h3', 'hr', 'img', 'li',
-      'ol', 'p', 'span', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul',
+      'a', 'blockquote', 'body', 'br', 'div', 'em', 'h1', 'h2', 'h3', 'head', 'hr', 'html', 'img', 'li',
+      'meta', 'ol', 'p', 's', 'span', 'strong', 'style', 'table', 'tbody', 'td', 'th', 'thead', 'title', 'tr', 'u', 'ul',
     ],
     allowedAttributes: {
       a: ['href', 'target', 'rel', 'title', 'style'],
+      html: ['lang'],
+      meta: ['charset', 'name', 'content'],
       img: ['src', 'alt', 'title', 'width', 'height', 'style'],
-      '*': ['style'],
-      table: ['cellpadding', 'cellspacing', 'border', 'width'],
-      td: ['colspan', 'rowspan', 'width'],
+      '*': ['style', 'class'],
+      table: ['cellpadding', 'cellspacing', 'border', 'width', 'role', 'bgcolor'],
+      td: ['align', 'bgcolor', 'colspan', 'rowspan', 'valign', 'width'],
       th: ['colspan', 'rowspan', 'width'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+    allowVulnerableTags: true,
     allowProtocolRelative: false,
+    allowedClasses: {
+      '*': ['email-hide-mobile'],
+    },
     allowedStyles: {
       '*': {
         color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(/i],
@@ -281,6 +443,14 @@ function sanitizeEmailHtml(value) {
       }),
     },
   }).trim();
+  const withoutUnsafeCss = sanitized.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (_match, attributes, css) => {
+    const safeCss = css
+      .replace(/@import[\s\S]*?;/gi, '')
+      .replace(/(?:expression|behavior|-moz-binding)\s*:[^;}]*[;}]/gi, '')
+      .replace(/url\([^)]*\)/gi, '');
+    return `<style${attributes}>${safeCss}</style>`;
+  });
+  return /^<html[\s>]/i.test(withoutUnsafeCss) ? `<!doctype html>${withoutUnsafeCss}` : withoutUnsafeCss;
 }
 
 function validateSequence(input = {}) {
@@ -463,6 +633,12 @@ module.exports = {
   normalizeContact,
   normalizeListIds,
   normalizeTemplateAttachments,
+  normalizeTemplateBuilderModel,
+  normalizeTemplateBlockStyle,
+  normalizeTemplateGlobalStyle,
+  renderTemplateBuilderHtml,
+  templateVariableCatalog,
+  templateSlug,
   saveContact,
   sanitizeEmailHtml,
   validateTemplate,

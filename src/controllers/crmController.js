@@ -346,7 +346,10 @@ async function deleteContentFolder(req, res) {
 }
 
 async function listTemplates(_req, res) {
-  res.json({ templates: await crmRepo.listTemplates() });
+  res.json({
+    templates: await crmRepo.listTemplates(),
+    variables: crmService.templateVariableCatalog(),
+  });
 }
 
 async function createTemplate(req, res) {
@@ -358,7 +361,10 @@ async function createTemplate(req, res) {
 }
 
 async function updateTemplate(req, res) {
-  const template = await crmRepo.updateTemplate(req.params.id, crmService.validateTemplate(req.body));
+  const template = await crmRepo.updateTemplate(req.params.id, {
+    ...crmService.validateTemplate(req.body),
+    updatedBy: req.user.username,
+  });
   if (!template) return res.status(404).json({ error: 'Template non trovato' });
   res.json({ template });
 }

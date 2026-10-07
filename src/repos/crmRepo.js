@@ -813,10 +813,14 @@ async function deleteContentFolder(id) {
 
 async function createTemplate(input) {
   await verifyContentFolder(input.folderId, 'template');
+  const slug = await uniqueTemplateSlug(input.slug);
   const { rows } = await db.query(
-    `INSERT INTO crm_email_templates (name,subject,preheader,html_body,text_body,attachments,folder_id,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
+    `INSERT INTO crm_email_templates
+       (name,slug,template_type,editor_mode,subject,preheader,html_body,text_body,builder_json,
+        description,tags,attachments,folder_id,created_by,updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING *`,
+    [input.name, slug, input.templateType, input.editorMode, input.subject, input.preheader || null,
+     input.htmlBody, input.textBody || null, input.builderModel, input.description || null, input.tags,
      JSON.stringify(input.attachments || []), input.folderId, input.createdBy]
   );
   return rows[0];
@@ -824,14 +828,40 @@ async function createTemplate(input) {
 
 async function updateTemplate(id, input) {
   await verifyContentFolder(input.folderId, 'template');
+  const slug = await uniqueTemplateSlug(input.slug, id);
   const { rows } = await db.query(
-    `UPDATE crm_email_templates SET name=$2,subject=$3,preheader=$4,html_body=$5,text_body=$6,
-       attachments=$7,folder_id=$8,updated_at=now()
-     WHERE id=$1 RETURNING *`,
-    [id, input.name, input.subject, input.preheader || null, input.htmlBody, input.textBody || null,
-     JSON.stringify(input.attachments || []), input.folderId]
+    `UPDATE crm_email_templates SET name=$2,slug=$3,template_type=$4,editor_mode=$5,subject=$6,
+       preheader=$7,html_body=$8,text_body=$9,builder_json=$10,description=$11,tags=$12,
+       attachments=$13,folder_id=$14,updated_by=$15,version=version+1,updated_at=now()
+     WHERE id=$1 AND version=$16 RETURNING *`,
+    [id, input.name, slug, input.templateType, input.editorMode, input.subject,
+     input.preheader || null, input.htmlBody, input.textBody || null, input.builderModel,
+     input.description || null, input.tags, JSON.stringify(input.attachments || []), input.folderId,
+     input.updatedBy, input.version]
   );
+  if (!rows[0]) {
+    const current = await db.query('SELECT version,updated_at,updated_by FROM crm_email_templates WHERE id=$1', [id]);
+    if (current.rows[0]) {
+      const error = Object.assign(new Error('Template version conflict'), { status: 409 });
+      error.detail = current.rows[0];
+      throw error;
+    }
+  }
   return rows[0] || null;
+}
+
+async function uniqueTemplateSlug(base, excludedId = null) {
+  let candidate = base || 'template';
+  let suffix = 2;
+  while (true) {
+    const { rows } = await db.query(
+      'SELECT 1 FROM crm_email_templates WHERE slug=$1 AND ($2::uuid IS NULL OR id<>$2) LIMIT 1',
+      [candidate, excludedId]
+    );
+    if (!rows[0]) return candidate;
+    candidate = `${base}-${suffix}`.slice(0, 120);
+    suffix += 1;
+  }
 }
 
 async function listTemplates() {
@@ -852,8 +882,10 @@ async function getTemplate(id) {
 async function duplicateTemplate(id, createdBy) {
   const { rows } = await db.query(
     `INSERT INTO crm_email_templates
-       (name,subject,preheader,html_body,text_body,attachments,folder_id,created_by)
-     SELECT name || ' - copia',subject,preheader,html_body,text_body,attachments,folder_id,$2
+       (name,slug,template_type,editor_mode,subject,preheader,html_body,text_body,builder_json,
+        description,tags,attachments,folder_id,created_by,updated_by)
+     SELECT name || ' - copia',slug || '-copia-' || left(gen_random_uuid()::text,8),template_type,
+       editor_mode,subject,preheader,html_body,text_body,builder_json,description,tags,attachments,folder_id,$2,$2
      FROM crm_email_templates WHERE id=$1
      RETURNING *`,
     [id, createdBy]

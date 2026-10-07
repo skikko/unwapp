@@ -228,133 +228,162 @@
             <div class="crm-folder-form"><div class="form-field"><label>Nome cartella</label><input data-folder-name required maxlength="100" /></div><div class="form-field"><label>Descrizione</label><input data-folder-description maxlength="240" /></div><button type="submit" data-folder-save>Salva cartella</button><button class="secondary" type="button" data-folder-reset>Nuova</button></div>
             <div class="crm-folder-list" data-folder-list></div>
           </form>
-          <form class="card crm-editor" id="templateEditor" hidden>
-            <div class="section-heading compact"><div><h2 id="templateEditorTitle">Nuovo template</h2></div><button class="ghost" type="button" data-close="templateEditor">Chiudi</button></div>
+          <form class="email-builder-app" id="templateEditor" hidden>
             <input id="templateId" type="hidden" />
-            <div class="grid-2">
-              <div class="form-field"><label for="templateName">Nome interno</label><input id="templateName" required /></div>
-              <div class="form-field"><label for="templateSubject">Oggetto</label><input id="templateSubject" required /></div>
-              <div class="form-field"><label for="templateFolder">Cartella</label><select id="templateFolder"><option value="">Senza cartella</option></select></div>
-              <div class="form-field span-2"><label for="templatePreheader">Preheader</label><input id="templatePreheader" /></div>
-            </div>
-            <div class="email-builder">
-              <section class="email-compose-pane">
-                <div class="email-builder-topline">
-                  <div class="email-mode-switch" role="group" aria-label="Modalità editor">
-                    <button class="secondary active" type="button" data-editor-mode="visual">Visuale</button>
-                    <button class="secondary" type="button" data-editor-mode="html">HTML</button>
+            <input id="templateVersion" type="hidden" value="1" />
+            <header class="email-builder-header">
+              <button class="ghost icon-button" type="button" data-close="templateEditor" aria-label="Torna ai template">Indietro</button>
+              <select id="templateFolder" aria-label="Cartella"><option value="">Senza cartella</option></select>
+              <span class="email-header-separator">/</span>
+              <input class="email-template-name" id="templateName" required maxlength="120" aria-label="Nome template" />
+              <select class="email-template-type" id="templateType" aria-label="Tipo template"><option value="marketing">Marketing</option><option value="transactional">Transazionale</option></select>
+              <span class="email-save-state" id="templateSaveState" aria-live="polite">Bozza non salvata</span>
+              <div class="email-header-spacer"></div>
+              <div class="email-mode-switch" role="group" aria-label="Modalità editor">
+                <button class="secondary active" type="button" data-editor-mode="visual">Visuale</button>
+                <button class="secondary" type="button" data-editor-mode="html">HTML</button>
+              </div>
+              <span class="email-header-divider"></span>
+              <button class="ghost icon-button" id="templateUndoBtn" type="button" aria-label="Annulla" title="Annulla (Cmd+Z)">Annulla</button>
+              <button class="ghost icon-button" id="templateRedoBtn" type="button" aria-label="Ripeti" title="Ripeti (Cmd+Shift+Z)">Ripeti</button>
+              <span class="email-header-divider"></span>
+              <button class="secondary" id="openTemplatePreviewBtn" type="button">Anteprima</button>
+              <button id="saveTemplateBtn" type="submit">Salva</button>
+              <button class="ghost icon-button" id="toggleTemplateDetailsBtn" type="button" aria-label="Dettagli template">Altro</button>
+            </header>
+
+            <div class="email-builder-layout">
+              <nav class="email-builder-rail" role="tablist" aria-label="Strumenti builder">
+                <button type="button" role="tab" data-builder-panel="templates">Template</button>
+                <button class="active" type="button" role="tab" data-builder-panel="insert">Inserisci</button>
+                <button type="button" role="tab" data-builder-panel="layers">Livelli</button>
+                <button type="button" role="tab" data-builder-panel="variables">Variabili</button>
+                <button type="button" role="tab" data-builder-panel="style">Stile</button>
+              </nav>
+
+              <aside class="email-builder-flyout" id="templateBuilderFlyout" role="region" aria-label="Pannello builder">
+                <section data-builder-flyout="templates" hidden>
+                  <div class="email-flyout-head"><h2>Template</h2><button class="secondary" type="button" id="builderNewTemplateBtn">Nuovo</button></div>
+                  <input id="builderTemplateSearch" type="search" placeholder="Cerca nome o slug" />
+                  <div class="email-flyout-list" id="builderTemplateList"></div>
+                </section>
+                <section data-builder-flyout="insert">
+                  <div class="email-flyout-head"><h2>Inserisci</h2><kbd>/</kbd></div>
+                  <span class="email-flyout-label">Blocchi</span>
+                  <div class="email-block-library" id="emailBlockLibrary" role="toolbar" aria-label="Blocchi email">
+                    <button type="button" data-email-block="title">Titolo</button>
+                    <button type="button" data-email-block="text">Testo</button>
+                    <button type="button" data-email-block="image">Immagine</button>
+                    <button type="button" data-email-block="button">Pulsante</button>
+                    <button type="button" data-email-block="logo">Logo</button>
+                    <button type="button" data-email-block="divider">Separatore</button>
+                    <button type="button" data-email-block="spacer">Spazio</button>
+                    <button type="button" data-email-block="columns">Colonne</button>
+                    <button type="button" data-email-block="social">Social</button>
+                    <button type="button" data-email-block="html">HTML</button>
                   </div>
-                  <span id="templateSaveState">Bozza non salvata</span>
-                </div>
-                <div class="email-toolbar" id="emailToolbar" role="toolbar" aria-label="Formattazione email">
-                  <select id="templateBlockFormat" aria-label="Formato testo">
-                    <option value="p">Paragrafo</option>
-                    <option value="h1">Titolo 1</option>
-                    <option value="h2">Titolo 2</option>
-                    <option value="h3">Titolo 3</option>
-                    <option value="blockquote">Citazione</option>
-                  </select>
-                  <button class="secondary" type="button" data-editor-command="bold"><strong>Grassetto</strong></button>
-                  <button class="secondary" type="button" data-editor-command="italic"><em>Corsivo</em></button>
-                  <button class="secondary" type="button" data-editor-command="underline"><u>Sottolineato</u></button>
-                  <button class="secondary" type="button" data-editor-command="insertUnorderedList">Elenco</button>
-                  <button class="secondary" type="button" data-editor-command="insertOrderedList">Numeri</button>
-                  <button class="secondary" type="button" data-editor-command="justifyLeft">Sinistra</button>
-                  <button class="secondary" type="button" data-editor-command="justifyCenter">Centro</button>
-                  <button class="secondary" type="button" data-editor-command="justifyRight">Destra</button>
-                  <button class="secondary" type="button" id="insertLinkBtn">Link</button>
-                  <button class="secondary" type="button" id="insertImageBtn">Immagine</button>
-                  <input id="templateImageFile" type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
-                  <button class="secondary" type="button" id="addTemplateAttachmentBtn">Allegato</button>
-                  <input id="templateAttachmentFile" type="file" hidden />
-                  <button class="secondary" type="button" data-editor-command="insertHorizontalRule">Separatore</button>
-                  <label class="email-color-control">Colore <input id="templateTextColor" type="color" value="#171a23" aria-label="Colore testo" /></label>
-                  <select id="templateToken" aria-label="Inserisci variabile">
-                    <option value="">Inserisci variabile</option>
-                    <option value="{{first_name}}">Nome</option>
-                    <option value="{{last_name}}">Cognome</option>
-                    <option value="{{full_name}}">Nome completo</option>
-                    <option value="{{email}}">Email</option>
-                    <option value="{{phone}}">Telefono</option>
-                    <option value="{{source}}">Origine</option>
-                    <option value="{{recontact_url}}">URL Ricontattami</option>
-                  </select>
-                  <button class="secondary" type="button" data-editor-command="removeFormat">Rimuovi formato</button>
-                </div>
-                <div class="email-block-library" id="emailBlockLibrary" role="toolbar" aria-label="Blocchi email">
-                  <span>Blocchi</span>
-                  <button class="secondary" type="button" data-email-block="header">Header</button>
-                  <button class="secondary" type="button" data-email-block="title">Titolo</button>
-                  <button class="secondary" type="button" data-email-block="text">Testo</button>
-                  <button class="secondary" type="button" data-email-block="image">Immagine</button>
-                  <button class="secondary" type="button" data-email-block="button">Pulsante</button>
-                  <button class="secondary" type="button" data-email-block="recontact">Ricontattami</button>
-                  <button class="secondary" type="button" data-email-block="spacer">Spaziatura</button>
-                  <button class="secondary" type="button" data-email-block="divider">Separatore</button>
-                  <button class="secondary" type="button" data-email-block="social">Social</button>
-                  <button class="secondary" type="button" data-email-block="footer">Footer</button>
-                </div>
-                <div class="email-editor-workspace">
-                  <div class="email-editor-stage">
-                    <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenuto email"></div>
-                    <textarea class="email-html-source" id="templateHtml" rows="18" aria-label="Codice HTML del template" hidden></textarea>
+                  <span class="email-flyout-label">Sezioni pronte</span>
+                  <button class="email-ready-section" type="button" data-email-section="banner"><strong>Banner in testa</strong><small>Logo e immagine hero</small></button>
+                  <button class="email-ready-section" type="button" data-email-section="cta"><strong>CTA principale</strong><small>Titolo, testo e pulsante</small></button>
+                  <button class="email-ready-section" type="button" data-email-section="footer"><strong>Footer legale</strong><small>Brand, indirizzo e link</small></button>
+                  <p class="email-flyout-note">Trascina sul canvas o clicca per aggiungere sotto il blocco selezionato.</p>
+                </section>
+                <section data-builder-flyout="layers" hidden>
+                  <div class="email-flyout-head"><h2>Livelli</h2><span id="builderLayerCount">0</span></div>
+                  <div class="email-layer-list" id="templateLayerList" role="listbox" aria-label="Livelli template"></div>
+                </section>
+                <section data-builder-flyout="variables" hidden>
+                  <div class="email-flyout-head"><h2>Variabili</h2><kbd>{{</kbd></div>
+                  <input id="builderVariableSearch" type="search" placeholder="Cerca variabile" />
+                  <div class="email-variable-list" id="templateVariableList"></div>
+                </section>
+                <section data-builder-flyout="style" hidden>
+                  <div class="email-flyout-head"><h2>Stile email</h2></div>
+                  <div class="email-global-style" id="templateGlobalStyle">
+                    <label><span>Sfondo</span><input id="templateBackgroundColor" type="color" value="#f1f5f9" /></label>
+                    <label><span>Contenuto</span><input id="templateContentBackgroundColor" type="color" value="#ffffff" /></label>
+                    <label><span>Testo</span><input id="templateGlobalTextColor" type="color" value="#1a1a1a" /></label>
+                    <label><span>Link e CTA</span><input id="templateGlobalLinkColor" type="color" value="#85294f" /></label>
+                    <label class="span-2"><span>Carattere</span><select id="templateFontFamily"><option>Arial</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option><option>Verdana</option><option>Trebuchet MS</option><option>Tahoma</option></select></label>
+                    <label class="span-2"><span>Larghezza <output id="templateContentWidthValue">600px</output></span><input id="templateContentWidth" type="range" min="480" max="800" step="10" value="600" /></label>
+                    <label><span>Spazio orizzontale</span><input id="templatePaddingX" type="number" min="0" max="100" value="40" /></label>
+                    <label><span>Spazio verticale</span><input id="templatePaddingY" type="number" min="0" max="120" value="28" /></label>
                   </div>
-                  <aside class="email-component-inspector" id="templateComponentInspector" aria-label="Editor componente" hidden>
-                    <div class="email-component-inspector-head">
-                      <div><span>Componente selezionato</span><strong id="templateComponentType">Componente</strong></div>
-                      <button class="ghost" type="button" id="closeTemplateComponentInspector">Chiudi</button>
+                </section>
+              </aside>
+
+              <main class="email-builder-center">
+                <div class="email-editor-well" id="templateEditorWell">
+                  <section class="email-envelope" aria-label="Busta email">
+                    <div class="email-envelope-avatar">UN</div>
+                    <div class="email-envelope-fields">
+                      <span>United Network</span>
+                      <input id="templateSubject" required maxlength="180" placeholder="Oggetto dell'email" aria-label="Oggetto" />
+                      <input id="templatePreheader" maxlength="240" placeholder="Testo di anteprima mostrato dopo l'oggetto" aria-label="Preheader" />
                     </div>
-                    <div class="email-component-actions" role="group" aria-label="Azioni componente">
-                      <button class="secondary" type="button" id="moveTemplateComponentUp">Su</button>
-                      <button class="secondary" type="button" id="moveTemplateComponentDown">Giù</button>
-                      <button class="secondary" type="button" id="duplicateTemplateComponent">Duplica</button>
-                      <button class="danger" type="button" id="deleteTemplateComponent">Rimuovi</button>
-                    </div>
-                    <section class="email-component-section">
-                      <h3>Contenuti</h3>
-                      <div class="email-component-fields" id="templateComponentFields"></div>
-                    </section>
-                    <section class="email-component-section">
-                      <h3>Stile</h3>
-                      <div class="email-component-style-grid">
-                        <label><span>Colore testo</span><input id="templateComponentTextColor" type="color" value="#333333" /></label>
-                        <label><span>Sfondo</span><input id="templateComponentBackground" type="color" value="#ffffff" /></label>
-                        <label class="span-2 email-component-check"><input id="templateComponentTransparentBackground" type="checkbox" /><span>Sfondo trasparente</span></label>
-                        <label><span>Dimensione testo</span><input id="templateComponentFontSize" type="number" min="8" max="72" placeholder="Auto" /></label>
-                        <label><span>Interlinea</span><input id="templateComponentLineHeight" type="number" min="0.8" max="3" step="0.1" placeholder="Auto" /></label>
-                        <label class="span-2"><span>Allineamento</span><select id="templateComponentAlignment"><option value="">Ereditato</option><option value="left">Sinistra</option><option value="center">Centro</option><option value="right">Destra</option><option value="justify">Giustificato</option></select></label>
-                        <label><span>Spazio sopra</span><input id="templateComponentMarginTop" type="number" min="0" max="160" placeholder="0" /></label>
-                        <label><span>Spazio sotto</span><input id="templateComponentMarginBottom" type="number" min="0" max="160" placeholder="0" /></label>
-                        <label><span>Padding verticale</span><input id="templateComponentPaddingVertical" type="number" min="0" max="160" placeholder="0" /></label>
-                        <label><span>Padding orizzontale</span><input id="templateComponentPaddingHorizontal" type="number" min="0" max="160" placeholder="0" /></label>
-                        <label><span>Arrotondamento</span><input id="templateComponentBorderRadius" type="number" min="0" max="100" placeholder="0" /></label>
-                      </div>
-                    </section>
-                  </aside>
+                    <div class="email-envelope-counts"><span id="templateSubjectCount">0/60</span><span id="templatePreheaderCount">0/90</span></div>
+                  </section>
+
+                  <div class="email-toolbar" id="emailToolbar" role="toolbar" aria-label="Formattazione email">
+                    <select id="templateBlockFormat" aria-label="Formato testo"><option value="p">Paragrafo</option><option value="h2">Titolo 2</option><option value="h3">Titolo 3</option><option value="blockquote">Citazione</option></select>
+                    <button type="button" data-editor-command="bold"><strong>G</strong></button>
+                    <button type="button" data-editor-command="italic"><em>C</em></button>
+                    <button type="button" data-editor-command="underline"><u>S</u></button>
+                    <button type="button" data-editor-command="strikethrough"><s>B</s></button>
+                    <button type="button" data-editor-command="insertUnorderedList">Elenco</button>
+                    <button type="button" data-editor-command="insertOrderedList">Numeri</button>
+                    <button type="button" data-editor-command="justifyLeft">Sinistra</button>
+                    <button type="button" data-editor-command="justifyCenter">Centro</button>
+                    <button type="button" data-editor-command="justifyRight">Destra</button>
+                    <button type="button" id="insertLinkBtn">Link</button>
+                    <label class="email-color-control">Colore <input id="templateTextColor" type="color" value="#1a1a1a" aria-label="Colore testo" /></label>
+                    <select id="templateToken" aria-label="Inserisci variabile"><option value="">Variabile</option><option value="{{first_name}}">Nome</option><option value="{{last_name}}">Cognome</option><option value="{{full_name}}">Nome completo</option><option value="{{email}}">Email</option><option value="{{phone}}">Telefono</option><option value="{{source}}">Origine</option><option value="{{recontact_url}}">URL Ricontattami</option></select>
+                    <button type="button" data-editor-command="removeFormat">Pulisci</button>
+                  </div>
+
+                  <div class="email-editor-sheet" id="templateEditorSheet">
+                    <div class="email-editor-canvas" id="templateVisual" contenteditable="true" role="listbox" aria-label="Contenuto email"></div>
+                    <textarea class="email-html-source" id="templateHtml" rows="24" aria-label="Codice HTML del template" hidden></textarea>
+                  </div>
                 </div>
-                <div class="template-token-note">Puoi inserire immagini fino a 5 MB e allegati fino a 16 MB. Le variabili vengono sostituite per ogni contatto.</div>
+                <footer class="email-builder-statusbar">
+                  <span id="templateBlockCount">0 blocchi</span><i></i><span id="templateWidthStatus">600px</span><i></i><span><kbd>/</kbd> inserisci</span><span><kbd>Esc</kbd> deseleziona</span>
+                  <button class="ghost" id="templateWarningsBtn" type="button">0 avvisi</button>
+                  <div class="email-status-spacer"></div>
+                  <div class="email-preview-size" role="group" aria-label="Dimensione canvas"><button class="secondary active" type="button" data-preview-size="desktop">Desktop</button><button class="secondary" type="button" data-preview-size="mobile">Mobile</button></div>
+                  <select id="templateZoom" aria-label="Zoom"><option value="0.8">80%</option><option value="0.9" selected>90%</option><option value="1">100%</option><option value="1.1">110%</option></select>
+                  <button class="ghost" id="templateFocusBtn" type="button">Focus</button>
+                </footer>
+              </main>
+
+              <aside class="email-component-inspector" id="templateComponentInspector" aria-label="Editor componente">
+                <div class="email-component-inspector-head"><div><span id="templateComponentPosition">Nessun blocco selezionato</span><strong id="templateComponentType">Email</strong></div><button class="ghost" type="button" id="closeTemplateComponentInspector" aria-label="Deseleziona">Chiudi</button></div>
+                <div class="email-component-actions" id="templateComponentActions" role="toolbar" aria-label="Azioni componente" hidden><button type="button" id="moveTemplateComponentUp">Su</button><button type="button" id="moveTemplateComponentDown">Giù</button><button type="button" id="duplicateTemplateComponent">Duplica</button><button class="danger" type="button" id="deleteTemplateComponent">Rimuovi</button></div>
+                <div class="email-inspector-tabs" role="tablist"><button class="active" type="button" data-inspector-tab="content">Contenuto</button><button type="button" data-inspector-tab="style">Stile</button><button type="button" data-inspector-tab="advanced">Avanzate</button></div>
+                <section class="email-component-section" data-inspector-panel="content"><h3>Contenuti</h3><div class="email-component-fields" id="templateComponentFields"></div></section>
+                <section class="email-component-section" data-inspector-panel="style" hidden><h3>Stile del blocco</h3><div class="email-component-style-grid">
+                  <label><span>Colore testo</span><input id="templateComponentTextColor" type="color" value="#333333" /></label><label><span>Sfondo</span><input id="templateComponentBackground" type="color" value="#ffffff" /></label>
+                  <label class="span-2 email-component-check"><input id="templateComponentTransparentBackground" type="checkbox" /><span>Sfondo trasparente</span></label>
+                  <label><span>Dimensione testo</span><input id="templateComponentFontSize" type="number" min="8" max="72" placeholder="Auto" /></label><label><span>Interlinea</span><input id="templateComponentLineHeight" type="number" min="0.8" max="3" step="0.1" placeholder="Auto" /></label>
+                  <label class="span-2"><span>Allineamento</span><select id="templateComponentAlignment"><option value="">Ereditato</option><option value="left">Sinistra</option><option value="center">Centro</option><option value="right">Destra</option><option value="justify">Giustificato</option></select></label>
+                  <label><span>Spazio sopra</span><input id="templateComponentMarginTop" type="number" min="0" max="160" placeholder="0" /></label><label><span>Spazio sotto</span><input id="templateComponentMarginBottom" type="number" min="0" max="160" placeholder="0" /></label>
+                  <label><span>Padding verticale</span><input id="templateComponentPaddingVertical" type="number" min="0" max="160" placeholder="0" /></label><label><span>Padding orizzontale</span><input id="templateComponentPaddingHorizontal" type="number" min="0" max="160" placeholder="0" /></label>
+                  <label><span>Arrotondamento</span><input id="templateComponentBorderRadius" type="number" min="0" max="100" placeholder="0" /></label><label class="email-component-check"><input id="templateComponentHideMobile" type="checkbox" /><span>Nascondi su mobile</span></label>
+                </div></section>
+                <section class="email-component-section" data-inspector-panel="advanced" hidden><h3>HTML del blocco</h3><textarea id="templateComponentHtml" rows="14" aria-label="HTML del blocco"></textarea><button class="secondary" id="applyTemplateComponentHtml" type="button">Applica HTML</button></section>
+                <section class="email-inspector-global" id="templateInspectorGlobal"><h3>Stile globale</h3><p>Seleziona un blocco per modificarne contenuto e stile oppure usa il pannello Stile.</p></section>
+                <div class="template-token-note">Immagini fino a 5 MB. Allegati fino a 16 MB.</div>
+                <button class="secondary" type="button" id="insertImageBtn">Carica immagine</button><input id="templateImageFile" type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+                <button class="secondary" type="button" id="addTemplateAttachmentBtn">Aggiungi allegato</button><input id="templateAttachmentFile" type="file" hidden />
                 <div class="template-attachments" id="templateAttachments"></div>
-                <details class="email-fallback">
-                  <summary>Versione solo testo</summary>
-                  <div class="form-field"><label for="templateText">Corpo testo alternativo</label><textarea id="templateText" rows="7" placeholder="Generato automaticamente se lasciato vuoto"></textarea></div>
-                </details>
-              </section>
-              <aside class="email-preview-pane">
-                <div class="email-preview-header">
-                  <div><span class="eyebrow">Anteprima live</span><strong id="previewSubject">Oggetto email</strong></div>
-                  <div class="email-preview-size" role="group" aria-label="Dimensione anteprima">
-                    <button class="secondary active" type="button" data-preview-size="desktop">Desktop</button>
-                    <button class="secondary" type="button" data-preview-size="mobile">Mobile</button>
-                  </div>
-                </div>
-                <div class="email-preview-frame-wrap" id="emailPreviewWrap"><iframe id="templatePreview" title="Anteprima email" sandbox></iframe></div>
-                <div class="email-test-row">
-                  <div class="form-field"><label for="templateTestEmail">Email di test</label><input id="templateTestEmail" type="email" placeholder="nome@example.com" /></div>
-                  <button class="secondary" type="button" id="sendTemplateTestBtn">Invia test</button>
-                </div>
+                <details class="email-fallback"><summary>Versione solo testo</summary><div class="form-field"><label for="templateText">Corpo testo alternativo</label><textarea id="templateText" rows="7" placeholder="Generato automaticamente se lasciato vuoto"></textarea></div></details>
               </aside>
             </div>
-            <div class="form-actions"><button type="submit">Salva template</button></div>
+
+            <aside class="email-template-details" id="templateDetailsPanel" hidden><div class="email-flyout-head"><h2>Dettagli template</h2><button class="ghost" type="button" id="closeTemplateDetailsBtn">Chiudi</button></div><label><span>Descrizione</span><textarea id="templateDescription" rows="4"></textarea></label><label><span>Tag</span><input id="templateTags" placeholder="newsletter, webinar" /></label></aside>
+            <dialog class="email-preview-dialog" id="templatePreviewDialog"><div class="email-preview-header"><div><span class="eyebrow">Anteprima</span><strong id="previewSubject">Oggetto email</strong></div><button class="ghost" type="button" id="closeTemplatePreviewBtn">Chiudi</button></div><div class="email-preview-frame-wrap" id="emailPreviewWrap"><iframe id="templatePreview" title="Anteprima email" sandbox></iframe></div><div class="email-test-row"><div class="form-field"><label for="templateTestEmail">Email di test</label><input id="templateTestEmail" type="email" placeholder="nome@example.com" /></div><button class="secondary" type="button" id="sendTemplateTestBtn">Invia test</button></div></dialog>
+            <div class="email-warning-popover" id="templateWarningsPopover" hidden></div>
+            <div class="email-builder-mobile-blocker">Apri il builder da uno schermo più grande. Da questo dispositivo è disponibile solo l'anteprima.</div>
           </form>
           <div class="crm-card-grid" id="templatesGrid"></div>
         </section>

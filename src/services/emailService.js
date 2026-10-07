@@ -298,7 +298,15 @@ function appendComplianceFooter(html, contact, baseUrl) {
     ? `<a href="${escapeHtml(url)}" style="color:#5b6270;text-decoration:underline;">Disiscriviti</a>`
     : 'Disiscriviti';
   const footer = `<div style="max-width:640px;margin:28px auto 0;padding-top:16px;border-top:1px solid #d6d6d6;color:#5b6270;font-family:Arial, sans-serif;font-size:12px;line-height:1.5;">${escapeHtml(EMAIL_FOOTER)}<br>${unsubscribeLink}</div>`;
-  return `${String(html || '')}${footer}`;
+  const responsiveStyles = '<style>@media only screen and (max-width:640px){.email-hide-mobile{display:none!important;max-height:0!important;overflow:hidden!important}}</style>';
+  let content = String(html || '');
+  if (/<\/head>/i.test(content)) {
+    content = content.replace(/<\/head>/i, `${responsiveStyles}</head>`);
+  } else {
+    content = `${responsiveStyles}${content}`;
+  }
+  if (/<\/body>/i.test(content)) return content.replace(/<\/body>/i, `${footer}</body>`);
+  return `${content}${footer}`;
 }
 
 function appendComplianceFooterText(text, contact, baseUrl) {

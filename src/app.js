@@ -120,7 +120,9 @@ app.use((error, req, res, _next) => {
     databaseMessage = 'La risorsa è ancora utilizzata e non può essere eliminata';
   }
   if (req.originalUrl.startsWith('/api/')) {
-    return res.status(error.status || databaseStatus || 500).json({ error: databaseMessage || error.message });
+    const payload = { error: databaseMessage || error.message };
+    if (error.status === 409 && error.detail) payload.conflict = error.detail;
+    return res.status(error.status || databaseStatus || 500).json(payload);
   }
   return res.status(error.status || 500).send('Internal server error');
 });

@@ -129,6 +129,14 @@ test('aggiunge footer e link unsubscribe firmato alle email CRM', () => {
     assert.match(html, /P\.IVA: 13513131006/);
     assert.match(html, /max-width:640px/);
     assert.match(html, /\/unsubscribe\?cid=123e4567-e89b-42d3-a456-426614174000&amp;email=mario%40example\.com&amp;sig=/);
+    const documentHtml = emailService.appendComplianceFooter(
+      '<!doctype html><html><head><title>Test</title></head><body><p>Ciao</p></body></html>',
+      contact,
+      'https://crm.example.com'
+    );
+    assert.match(documentHtml, /<style>@media[^]*<\/head>/);
+    assert.match(documentHtml, /P\.IVA: 13513131006[^]*<\/body><\/html>$/);
+    assert.doesNotMatch(documentHtml, /<\/html>[^]+P\.IVA/);
     const text = emailService.appendComplianceFooterText('Ciao', contact, 'https://crm.example.com');
     assert.match(text, /Disiscriviti: https:\/\/crm\.example\.com\/unsubscribe/);
   } finally {
@@ -204,6 +212,100 @@ test('sanitizza il codice HTML del template email', () => {
     type: 'application/pdf',
     size: 1234,
   }]);
+});
+
+test('normalizza il modello a blocchi del template email', () => {
+  const template = crmService.validateTemplate({
+    name: 'Newsletter Webinar',
+    templateType: 'marketing',
+    editorMode: 'visual',
+    subject: 'Aggiornamento webinar',
+    htmlBody: '<h2>Webinar</h2><p>Ciao {{first_name}}</p>',
+    builderModel: {
+      schemaVersion: 1,
+      globalStyle: {
+        backgroundColor: '#F1F5F9',
+        contentWidth: 720,
+        fontFamily: 'Georgia',
+      },
+      blocks: [
+        { id: 'block-title-1', type: 'heading', html: '<h2 data-builder-id="editor" onclick="alert(1)">Webinar</h2>' },
+        { id: 'block-text-1', type: 'text', html: '<p class="email-hide-mobile">Ciao {{first_name}}</p>' },
+      ],
+    },
+    description: 'Template per webinar',
+    tags: 'Webinar, Newsletter, webinar',
+  });
+
+  assert.equal(template.slug, 'newsletter-webinar');
+  assert.equal(template.builderModel.schemaVersion, 2);
+  assert.equal(template.builderModel.globalStyle.backgroundColor, '#f1f5f9');
+  assert.equal(template.builderModel.globalStyle.contentWidth, 720);
+  assert.equal(template.builderModel.globalStyle.fontFamily, 'Georgia');
+  assert.equal(template.builderModel.blocks[0].html.includes('data-builder-id'), false);
+  assert.equal(template.builderModel.blocks[0].html.includes('onclick'), false);
+  assert.match(template.builderModel.blocks[1].html, /class="email-hide-mobile"/);
+  assert.deepEqual(template.tags, ['webinar', 'newsletter']);
+});
+
+test('genera un documento email deterministico dal modello visuale', () => {
+  const model = crmService.normalizeTemplateBuilderModel({
+    schemaVersion: 2,
+    globalStyle: { contentWidth: 620, paddingX: 32 },
+    blocks: [{
+      id: 'heading-main',
+      type: 'heading',
+      style: { align: 'center', paddingTop: 8, hideOnMobile: true },
+      html: '<h1 onclick="alert(1)">Ciao {{first_name}}</h1><script>alert(1)</script>',
+    }],
+  });
+  const first = crmService.renderTemplateBuilderHtml(model, { subject: 'Oggetto', preheader: 'Anteprima' });
+  const second = crmService.renderTemplateBuilderHtml(model, { subject: 'Oggetto', preheader: 'Anteprima' });
+
+  assert.equal(first, second);
+  assert.match(first, /^<!doctype html><html lang="it">/);
+  assert.match(first, /<meta name="x-apple-disable-message-reformatting">/);
+  assert.match(first, /role="presentation"/);
+  assert.match(first, /class="email-block email-block-heading email-hide-mobile"/);
+  assert.match(first, /width="620"/);
+  assert.match(first, /Anteprima&nbsp;&zwnj;/);
+  assert.doesNotMatch(first, /script|onclick|data-builder-/i);
+});
+
+test('deriva l’HTML visuale dal modello e pubblica il catalogo variabili', () => {
+  const template = crmService.validateTemplate({
+    name: 'Template visuale',
+    subject: 'Ciao',
+    htmlBody: '<script>alert(1)</script>',
+    builderModel: {
+      blocks: [{ id: 'text-main', type: 'text', html: '<p>Testo</p>' }],
+    },
+  });
+
+  assert.match(template.htmlBody, /^<!doctype html>/);
+  assert.match(template.htmlBody, /<p>Testo<\/p>/);
+  assert.doesNotMatch(template.htmlBody, /alert/);
+  assert.deepEqual(crmService.templateVariableCatalog().find((variable) => variable.key === 'first_name'), {
+    key: 'first_name', group: 'Contatto', label: 'Nome', example: 'Mario', type: 'text',
+  });
+});
+
+test('sanitizza un documento HTML avanzato mantenendo la struttura email', () => {
+  const html = crmService.sanitizeEmailHtml('<!doctype html><html lang="it"><head><meta charset="utf-8"><style>@import url(https://bad.example/x.css);.ok{color:#123456}a{behavior:url(x)}</style><script>alert(1)</script></head><body onload="alert(2)"><p class="ok">Ciao</p></body></html>');
+
+  assert.match(html, /^<!doctype html><html lang="it"><head>/);
+  assert.match(html, /\.ok\{color:#123456\}/);
+  assert.doesNotMatch(html, /bad\.example|behavior|script|onload/i);
+  assert.match(html, /<body><p>Ciao<\/p><\/body><\/html>$/);
+});
+
+test('rifiuta identificatori duplicati nel modello a blocchi', () => {
+  assert.throws(() => crmService.normalizeTemplateBuilderModel({
+    blocks: [
+      { id: 'same-block', type: 'text', html: '<p>Uno</p>' },
+      { id: 'same-block', type: 'text', html: '<p>Due</p>' },
+    ],
+  }), /Invalid template builder block/);
 });
 
 test('mantiene il token firmato della CTA Ricontattami nel template', () => {

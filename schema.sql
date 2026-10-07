@@ -342,16 +342,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_content_folders_kind_name
 CREATE TABLE IF NOT EXISTS crm_email_templates (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name               TEXT NOT NULL,
+  slug               TEXT NOT NULL,
+  template_type      TEXT NOT NULL DEFAULT 'marketing'
+                     CHECK (template_type IN ('marketing','transactional')),
+  editor_mode        TEXT NOT NULL DEFAULT 'visual'
+                     CHECK (editor_mode IN ('visual','html')),
   subject            TEXT NOT NULL,
   preheader          TEXT,
   html_body          TEXT NOT NULL,
   text_body          TEXT,
+  builder_json       JSONB,
+  description        TEXT,
+  tags               TEXT[] NOT NULL DEFAULT '{}',
+  version            INT NOT NULL DEFAULT 1 CHECK (version > 0),
   attachments        JSONB NOT NULL DEFAULT '[]'::jsonb,
   folder_id          UUID REFERENCES crm_content_folders(id) ON DELETE SET NULL,
   created_by         TEXT NOT NULL,
+  updated_by         TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_email_templates_slug
+  ON crm_email_templates (slug);
 
 CREATE TABLE IF NOT EXISTS crm_sequences (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
