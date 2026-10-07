@@ -17,4 +17,4 @@ COPY migrations ./migrations
 COPY schema.sql ./schema.sql
 COPY package.json ./
 EXPOSE 8080
-CMD ["npm", "start"]
+CMD ["node", "src/app.js"]
