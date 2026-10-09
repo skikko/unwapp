@@ -4,6 +4,7 @@ const settingsRepo = require('../repos/settingsRepo');
 const secretService = require('./secretService');
 const crmRepo = require('../repos/crmRepo');
 const mediaService = require('./mediaService');
+const crmService = require('./crmService');
 
 const SMTP_KEYS = [
   'smtp_provider',
@@ -172,16 +173,17 @@ function recontactToken(jobId) {
   return `${payload}.${signEmailTracking(normalizedJobId, 'recontact')}`;
 }
 
-function recontactTestToken(email) {
+function recontactTestToken(email, context = null) {
   const normalizedEmail = normalizeEmailForToken(email);
   if (!normalizedEmail) throw new Error('Test recipient email is required');
-  const payload = encodeTrackingUrl(JSON.stringify({ email: normalizedEmail }));
-  return `${payload}.${signEmailTracking(normalizedEmail, 'recontact_test')}`;
+  const payload = encodeTrackingUrl(JSON.stringify({ email: normalizedEmail, ...(context ? { context } : {}) }));
+  const identity = context ? `${normalizedEmail}:${context}` : normalizedEmail;
+  return `${payload}.${signEmailTracking(identity, 'recontact_test')}`;
 }
 
 function verifyRecontactTokenPayload(token) {
   const [payloadToken, signature, extra] = String(token || '').trim().split('.');
-  if (!payloadToken || !signature || extra !== undefined) {
+  if (!payloadToken || !/^[a-f0-9]{64}$/.test(signature || '') || extra !== undefined) {
     throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
   }
   let payload;
@@ -199,10 +201,12 @@ function verifyRecontactTokenPayload(token) {
   }
   const email = normalizeEmailForToken(payload?.email);
   if (email) {
-    if (!verifyEmailTracking({ jobId: email, eventType: 'recontact_test', sig: signature })) {
+    const context = payload.context || null;
+    const identity = context ? `${email}:${context}` : email;
+    if (!verifyEmailTracking({ jobId: identity, eventType: 'recontact_test', sig: signature })) {
       throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
     }
-    return { type: 'email', email };
+    return { type: 'email', email, context };
   }
   throw Object.assign(new Error('Invalid recontact token'), { status: 400 });
 }
@@ -219,7 +223,7 @@ function recontactThankYouUrl(jobId = null, options = {}) {
   const url = new URL(RECONTACT_THANK_YOU_URL);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid recontact thank you URL');
   if (jobId) url.searchParams.set('token', recontactToken(jobId));
-  else if (options.email) url.searchParams.set('token', recontactTestToken(options.email));
+  else if (options.email) url.searchParams.set('token', recontactTestToken(options.email, options.context));
   return url.toString();
 }
 
@@ -412,12 +416,19 @@ async function requestRecontact(input = {}) {
 
 async function confirmRecontact(input = {}) {
   const payload = verifyRecontactTokenPayload(input.token);
+  const profile = await getRecontactProfile(input);
+  const phone = crmService.normalizePhone(input.phone);
+  if (profile.isLastCall && !profile.contact.phone && !phone) {
+    return { success: false, requiresPhone: true, contact: profile.contact };
+  }
   if (payload.type === 'email') {
     const event = await crmRepo.recordEmailTestRecontact({
       email: payload.email,
       userAgent: input.userAgent,
       ip: input.ip,
       listName: RECONTACT_LIST_NAME,
+      phone,
+      tags: profile.isLastCall ? ['lastcall'] : [],
     });
     return { success: true, membershipAdded: event.membershipAdded };
   }
@@ -428,9 +439,30 @@ async function confirmRecontact(input = {}) {
     userAgent: input.userAgent,
     ip: input.ip,
     listName: RECONTACT_LIST_NAME,
+    phone,
+    tags: profile.isLastCall ? ['lastcall'] : [],
   });
   if (!event) throw Object.assign(new Error('Email job not found'), { status: 404 });
   return { success: true, membershipAdded: event.membershipAdded };
+}
+
+async function getRecontactProfile(input = {}) {
+  const payload = verifyRecontactTokenPayload(input.token);
+  const contact = await crmRepo.getRecontactContact(payload);
+  if (!contact && payload.type === 'job') {
+    throw Object.assign(new Error('Email job not found'), { status: 404 });
+  }
+  const isLastCall = payload.context === 'lastcall' || (contact?.template_tags || []).includes('lastcall');
+  return {
+    contact: {
+      firstName: contact?.first_name || '',
+      lastName: contact?.last_name || '',
+      email: contact?.email || payload.email || '',
+      phone: contact?.phone || '',
+    },
+    requiresPhone: !contact?.phone,
+    isLastCall,
+  };
 }
 
 async function unsubscribeContact({ cid, email, sig } = {}) {
@@ -530,7 +562,10 @@ async function sendTestEmail(to, template) {
     source: 'email-test',
     custom_fields: { city: 'Roma' },
   };
-  const variables = { recontact_url: recontactThankYouUrl(null, { email: to }) };
+  const variables = { recontact_url: recontactThankYouUrl(null, {
+    email: to,
+    context: (template.tags || []).includes('lastcall') ? 'lastcall' : null,
+  }) };
   const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true, variables }), contact, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact, { variables }), contact, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(template.attachments);
@@ -646,6 +681,7 @@ module.exports = {
   trackEmailClick,
   requestRecontact,
   confirmRecontact,
+  getRecontactProfile,
   inlineStoredMedia,
   storedTemplateAttachments,
   sendAutomationNotification,

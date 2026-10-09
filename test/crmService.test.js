@@ -95,6 +95,8 @@ test('il bottone Ricontattami registra la richiesta e iscrive alla lista', async
   const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
   process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
   const originalRecordEmailEvent = crmRepo.recordEmailEvent;
+  const originalGetRecontactContact = crmRepo.getRecontactContact;
+  crmRepo.getRecontactContact = async () => ({ email: 'mario@example.com', phone: '+393331234567' });
   let recorded;
   crmRepo.recordEmailEvent = async (input) => {
     recorded = input;
@@ -102,6 +104,7 @@ test('il bottone Ricontattami registra la richiesta e iscrive alla lista', async
   };
   t.after(() => {
     crmRepo.recordEmailEvent = originalRecordEmailEvent;
+    crmRepo.getRecontactContact = originalGetRecontactContact;
     if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
     else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
   });

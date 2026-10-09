@@ -27,12 +27,27 @@ function publicCors(req, res, next) {
 }
 
 router.options('/recontact-request', publicCors);
+router.options('/recontact-profile', publicCors);
 router.options('/recontact-contact', publicCors);
+
+router.post('/recontact-profile', publicCors, async (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await emailService.getRecontactProfile({ token: req.body?.token });
+    res.json(result);
+  } catch (error) {
+    if (error.status && error.status < 500) {
+      return res.status(error.status).json({ error: 'Richiesta non valida' });
+    }
+    next(error);
+  }
+});
 
 router.post('/recontact-request', publicCors, async (req, res, next) => {
   try {
     const result = await emailService.confirmRecontact({
       token: req.body?.token || req.query.token,
+      phone: req.body?.phone,
       userAgent: req.get('user-agent') || null,
       ip: req.ip || null,
     });

@@ -7,6 +7,8 @@ test('la mail di test genera un link Ricontattami con token email valido', async
   const previousTrackingSecret = process.env.CRM_TRACKING_SECRET;
   process.env.CRM_TRACKING_SECRET = 'r'.repeat(32);
   const originalRecordEmailTestRecontact = crmRepo.recordEmailTestRecontact;
+  const originalGetRecontactContact = crmRepo.getRecontactContact;
+  crmRepo.getRecontactContact = async () => null;
   let recorded;
   crmRepo.recordEmailTestRecontact = async (input) => {
     recorded = input;
@@ -14,6 +16,7 @@ test('la mail di test genera un link Ricontattami con token email valido', async
   };
   t.after(() => {
     crmRepo.recordEmailTestRecontact = originalRecordEmailTestRecontact;
+    crmRepo.getRecontactContact = originalGetRecontactContact;
     if (previousTrackingSecret === undefined) delete process.env.CRM_TRACKING_SECRET;
     else process.env.CRM_TRACKING_SECRET = previousTrackingSecret;
   });

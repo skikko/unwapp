@@ -1639,7 +1639,26 @@ async function emailDashboard(period = 'all') {
   };
 }
 
-async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null, ip = null, listName = null }) {
+async function getRecontactContact({ jobId, email }) {
+  if (jobId) {
+    const { rows } = await db.query(
+      `SELECT c.first_name,c.last_name,c.email,c.phone,t.tags AS template_tags
+       FROM crm_email_jobs j
+       JOIN crm_contacts c ON c.id=j.contact_id
+       LEFT JOIN crm_email_templates t ON t.id=j.template_id
+       WHERE j.id=$1`,
+      [jobId]
+    );
+    return rows[0] || null;
+  }
+  const { rows } = await db.query(
+    'SELECT first_name,last_name,email,phone FROM crm_contacts WHERE email_normalized=$1',
+    [email]
+  );
+  return rows[0] || null;
+}
+
+async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null, ip = null, listName = null, phone = null, tags = [] }) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -1674,6 +1693,15 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
     }
     let membershipAdded = false;
     if (listName) {
+      if (phone || tags.length) {
+        await client.query(
+          `UPDATE crm_contacts SET phone=COALESCE($2,phone),
+             phone_normalized=COALESCE($2,phone_normalized),
+             tags=ARRAY(SELECT DISTINCT unnest(tags || $3::text[])),updated_at=now()
+           WHERE id=$1`,
+          [job.rows[0].contact_id, phone, tags]
+        );
+      }
       const list = await ensureListByNameWithClient(client, listName, 'email_recontact');
       membershipAdded = Boolean(await addContactToListWithClient(
         client,
@@ -1688,6 +1716,7 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
         listName,
         membershipAdded,
         url,
+        tags,
       }, 'email_recontact');
     }
     await client.query('COMMIT');
@@ -1700,7 +1729,7 @@ async function recordEmailEvent({ jobId, eventType, url = null, userAgent = null
   }
 }
 
-async function recordEmailTestRecontact({ email, userAgent = null, ip = null, listName }) {
+async function recordEmailTestRecontact({ email, userAgent = null, ip = null, listName, phone = null, tags = [] }) {
   const emailNormalized = String(email || '').trim().toLowerCase();
   if (!emailNormalized) throw Object.assign(new Error('Email is required'), { status: 400 });
   const client = await db.getClient();
@@ -1711,11 +1740,11 @@ async function recordEmailTestRecontact({ email, userAgent = null, ip = null, li
       lastName: null,
       email: emailNormalized,
       emailNormalized,
-      phone: null,
-      phoneNormalized: null,
+      phone,
+      phoneNormalized: phone,
       source: 'email-test',
       emailStatus: null,
-      tags: [],
+      tags,
       customFields: {},
       consentAt: null,
       consentSource: null,
@@ -2370,6 +2399,7 @@ module.exports = {
   dashboardPeriodStart,
   emailDashboard,
   recordEmailEvent,
+  getRecontactContact,
   recordEmailTestRecontact,
   listAutomations,
   createAutomation,
