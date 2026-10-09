@@ -508,7 +508,7 @@ test('una lista include soltanto i contatti aggiunti esplicitamente', () => {
   assert.deepEqual(result.values, ['123e4567-e89b-12d3-a456-426614174000']);
 });
 
-test('ordina le liste per ultimo ingresso contatto', async (t) => {
+test('ordina prima le liste preferite e poi per ultimo ingresso contatto', async (t) => {
   const db = require('../src/config/db');
   const originalQuery = db.query;
   let captured;
@@ -521,7 +521,32 @@ test('ordina le liste per ultimo ingresso contatto', async (t) => {
   await crmRepo.listLists();
 
   assert.match(captured, /max\(lm\.created_at\) AS last_contact_joined_at/);
-  assert.match(captured, /ORDER BY max\(lm\.created_at\) DESC NULLS LAST,l\.updated_at DESC/);
+  assert.match(captured, /ORDER BY l\.is_favorite DESC,max\(lm\.created_at\) DESC NULLS LAST,l\.updated_at DESC/);
+});
+
+test('calcola il periodo della dashboard su 7 o 30 giorni', () => {
+  const now = new Date('2026-10-09T12:00:00.000Z');
+
+  assert.equal(crmRepo.dashboardPeriodStart('week', now), '2026-10-02T12:00:00.000Z');
+  assert.equal(crmRepo.dashboardPeriodStart('month', now), '2026-09-09T12:00:00.000Z');
+  assert.equal(crmRepo.dashboardPeriodStart('all', now), null);
+});
+
+test('salva lo stato preferito della lista', async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  let captured;
+  t.after(() => { db.query = originalQuery; });
+  db.query = async (text, values) => {
+    captured = { text, values };
+    return { rows: [{ id: 'list-1', is_favorite: true }] };
+  };
+
+  const list = await crmRepo.setListFavorite('list-1', true);
+
+  assert.equal(list.is_favorite, true);
+  assert.match(captured.text, /SET is_favorite=\$2/);
+  assert.deepEqual(captured.values, ['list-1', true]);
 });
 
 test('ordina i contatti di una lista per ingresso in lista', async (t) => {

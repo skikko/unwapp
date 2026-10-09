@@ -491,8 +491,34 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 }
 .crm-summary span { color: var(--muted); font-size: 13px; }
 .crm-summary strong { font-size: 30px; line-height: 1; letter-spacing: -.04em; }
-.email-dashboard-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.email-dashboard-summary small { margin-top: 8px; color: var(--muted); font-size: 11px; }
+.email-dashboard-summary { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.email-dashboard-summary article { min-height: 148px; grid-column: span 2; padding: 22px; }
+.email-dashboard-summary article:nth-child(1), .email-dashboard-summary article:nth-child(3) { grid-column: span 3; }
+.email-dashboard-summary article:first-child { border-color: var(--ink); background: var(--ink); color: white; }
+.email-dashboard-summary article:first-child span, .email-dashboard-summary article:first-child small { color: #c7cbd4; }
+.email-dashboard-summary strong { font-size: clamp(36px, 4vw, 52px); }
+.email-dashboard-summary small { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.crm-dashboard-header p { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.crm-period-filter { padding: 3px; display: inline-flex; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.crm-period-filter button { min-height: 34px; padding: 6px 13px; border: 0; background: transparent; color: var(--muted); box-shadow: none; }
+.crm-period-filter button:hover:not(:disabled) { border: 0; background: white; color: var(--ink); box-shadow: var(--shadow-sm); transform: none; }
+.crm-period-filter button.active { background: var(--ink); color: white; }
+.crm-favorites-panel { margin-bottom: 24px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: white; box-shadow: var(--shadow-sm); }
+.crm-favorites-panel .section-heading { margin-bottom: 16px; }
+.crm-favorites-panel .section-heading > div { align-items: flex-start; flex-direction: column; gap: 4px; }
+.crm-favorites-panel .section-heading > span { color: var(--muted); font-size: 12px; }
+.crm-favorite-list-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.crm-favorite-list-grid > .crm-empty-card { grid-column: 1 / -1; padding: 32px 20px; }
+.crm-favorite-list-card { min-width: 0; padding: 17px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); }
+.crm-favorite-list-card > div { min-width: 0; }
+.crm-favorite-list-card > div span { color: var(--accent-text); font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.crm-favorite-list-card h3 { margin: 4px 0 0; overflow: hidden; font-size: 17px; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.crm-favorite-list-card > strong { grid-row: span 2; align-self: start; color: var(--ink); font-size: 36px; line-height: 1; letter-spacing: -.05em; }
+.crm-favorite-list-card > small { color: var(--muted); font-size: 11px; }
+.crm-favorite-list-card > p { min-height: 38px; grid-column: 1 / -1; margin: 8px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.crm-favorite-list-card footer { grid-column: 1 / -1; padding-top: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.crm-favorite-list-card footer span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crm-favorite-list-card footer button { min-height: 30px; padding: 5px 9px; font-size: 10px; }
 .crm-panel[hidden] { display: none; }
 .crm-panel-header { min-height: 84px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .crm-panel-header h2 { margin: 5px 0 0; font-size: 32px; letter-spacing: -.04em; }
@@ -561,6 +587,7 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .crm-dashboard-grid .section-heading { margin: 0; padding: 14px; border-bottom: 1px solid var(--line); background: white; }
 .crm-dashboard-grid table { min-width: 620px; }
 .crm-object-card { padding: 20px; background: white; border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.crm-object-card.is-favorite { border-color: rgba(230,74,38,.34); box-shadow: 0 0 0 1px rgba(230,74,38,.08), var(--shadow-sm); }
 .crm-object-card.wide { grid-column: 1 / -1; }
 .crm-object-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .crm-object-labels { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
@@ -763,7 +790,7 @@ body.email-builder-open { overflow: hidden; }
 .email-global-style input, .email-global-style select { min-height: 34px; font-size: 12px; }
 .email-global-style input[type="color"] { padding: 4px; }
 .email-builder-center { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0,1fr) 36px; background: var(--builder-well); overflow: hidden; }
-.email-editor-well { min-width: 0; overflow: auto; padding: 24px clamp(18px, 3vw, 40px) 56px; display: grid; align-content: start; justify-items: center; gap: 14px; }
+.email-editor-well { min-width: 0; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 24px clamp(18px, 3vw, 40px) 56px; display: grid; align-content: start; justify-items: center; gap: 14px; }
 .email-envelope { width: min(100%, var(--email-preview-width, 540px)); min-height: 82px; padding: 9px 14px; display: grid; grid-template-columns: 34px minmax(0,1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--builder-line); border-radius: 12px; background: var(--builder-surface); box-shadow: 0 1px 3px rgba(23,26,33,.04); }
 .email-envelope-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--builder-brand); color: #301108; font-weight: 800; }
 .email-envelope-fields { min-width: 0; display: grid; gap: 2px; }
@@ -778,7 +805,7 @@ body.email-builder-open { overflow: hidden; }
 .email-toolbar button:hover, .email-toolbar select:hover { background: rgba(255,255,255,.1); color: var(--builder-on-nav); }
 .email-toolbar select option { color: var(--builder-ink); }
 .email-toolbar .email-color-control input { width: 20px; min-height: 20px; height: 20px; padding: 1px; }
-.email-editor-sheet { width: min(100%, var(--email-sheet-width, 600px)); min-height: 520px; overflow: hidden; border: 1px solid var(--builder-line); border-radius: 12px; background: var(--email-content-bg, #ffffff); box-shadow: 0 8px 28px rgba(23,26,33,.08); transition: width .18s ease-out, zoom .18s ease-out; }
+.email-editor-sheet { width: min(100%, var(--email-sheet-width, 600px)); height: max-content; min-height: 520px; overflow: hidden; border: 1px solid var(--builder-line); border-radius: 12px; background: var(--email-content-bg, #ffffff); box-shadow: 0 8px 28px rgba(23,26,33,.08); transition: width .18s ease-out, zoom .18s ease-out; }
 .email-editor-sheet.mobile { width: min(100%, 375px); }
 .email-editor-canvas, .email-html-source { min-height: 520px; padding: var(--email-padding-y, 28px) var(--email-padding-x, 40px); border: 0; background: transparent; color: var(--email-text-color, #1a1a1a); font-family: var(--email-font-family, Arial), Arial, sans-serif; font-size: 16px; line-height: 1.5; }
 .email-editor-canvas { display: grid; align-content: start; gap: 0; outline: 0; }
@@ -962,6 +989,9 @@ body.email-builder-open { overflow: hidden; }
   .crm-tabs { display: flex; overflow-x: auto; margin: 0; }
   .crm-tab { width: auto; flex: 0 0 auto; }
   .crm-filterbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .email-dashboard-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .email-dashboard-summary article, .email-dashboard-summary article:nth-child(1), .email-dashboard-summary article:nth-child(3) { grid-column: auto; }
+  .crm-favorite-list-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .contact-profile-layout { grid-template-columns: 1fr; }
   .contact-import-grid { grid-template-columns: 1fr; }
   .contact-mapping-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1020,7 +1050,11 @@ body.email-builder-open { overflow: hidden; }
   .row-actions { justify-content: flex-start; }
   .crm-shell { width: min(100% - 20px, 1460px); padding-top: 12px; }
   .crm-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .email-dashboard-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .email-dashboard-summary { grid-template-columns: 1fr; }
+  .crm-favorite-list-grid { grid-template-columns: 1fr; }
+  .crm-dashboard-header .crm-panel-actions { align-items: stretch; }
+  .crm-period-filter { width: 100%; }
+  .crm-period-filter button { flex: 1; }
   .crm-summary article { min-height: 88px; padding: 14px; }
   .crm-panel-header { align-items: flex-start; flex-direction: column; }
   .crm-panel-actions { width: 100%; justify-content: flex-start; }

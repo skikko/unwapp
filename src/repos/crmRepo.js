@@ -420,18 +420,27 @@ async function deleteContact(id) {
 
 async function createList(input) {
   const { rows } = await db.query(
-    `INSERT INTO crm_lists (name,description,filter_json,created_by)
-     VALUES ($1,$2,$3,$4) RETURNING *`,
-    [input.name, input.description || null, {}, input.createdBy]
+    `INSERT INTO crm_lists (name,description,filter_json,is_favorite,created_by)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [input.name, input.description || null, {}, input.isFavorite === true, input.createdBy]
   );
   return rows[0];
 }
 
 async function updateList(id, input) {
   const { rows } = await db.query(
-    `UPDATE crm_lists SET name=$2,description=$3,filter_json=$4,updated_at=now()
+    `UPDATE crm_lists SET name=$2,description=$3,filter_json=$4,is_favorite=$5,updated_at=now()
      WHERE id=$1 RETURNING *`,
-    [id, input.name, input.description || null, {}]
+    [id, input.name, input.description || null, {}, input.isFavorite === true]
+  );
+  return rows[0] || null;
+}
+
+async function setListFavorite(id, isFavorite) {
+  const { rows } = await db.query(
+    `UPDATE crm_lists SET is_favorite=$2,updated_at=now()
+     WHERE id=$1 RETURNING *`,
+    [id, isFavorite]
   );
   return rows[0] || null;
 }
@@ -443,7 +452,7 @@ async function listLists() {
      FROM crm_lists l
      LEFT JOIN crm_list_memberships lm ON lm.list_id=l.id
      GROUP BY l.id
-     ORDER BY max(lm.created_at) DESC NULLS LAST,l.updated_at DESC`
+     ORDER BY l.is_favorite DESC,max(lm.created_at) DESC NULLS LAST,l.updated_at DESC`
   );
   return rows;
 }
@@ -1488,8 +1497,15 @@ async function listEmailJobs(filters = {}, { limit = 100, offset = 0 } = {}) {
   return { jobs: items.rows, total: count.rows[0].count };
 }
 
-async function emailDashboard() {
-  const [summaryResult, listResult, tagResult, typeResult, sourceResult, eventResult] = await Promise.all([
+function dashboardPeriodStart(period, now = new Date()) {
+  const days = period === 'week' ? 7 : period === 'month' ? 30 : null;
+  return days ? new Date(now.getTime() - (days * 24 * 60 * 60 * 1000)).toISOString() : null;
+}
+
+async function emailDashboard(period = 'all') {
+  const periodStart = dashboardPeriodStart(period);
+  const values = [periodStart];
+  const [summaryResult, favoriteListResult, listResult, tagResult, typeResult, sourceResult, eventResult] = await Promise.all([
     db.query(
       `SELECT
          count(*)::int AS total_jobs,
@@ -1501,12 +1517,33 @@ async function emailDashboard() {
          count(*) FILTER (WHERE open_count > 0)::int AS opened_jobs,
          COALESCE(sum(open_count),0)::int AS total_opens,
          count(*) FILTER (WHERE click_count > 0)::int AS clicked_jobs,
-         COALESCE(sum(click_count),0)::int AS total_clicks
-       FROM crm_email_jobs`
+         COALESCE(sum(click_count),0)::int AS total_clicks,
+         (SELECT count(*)::int FROM crm_contacts c
+          WHERE $1::timestamptz IS NULL OR c.created_at >= $1) AS contacts,
+         (SELECT count(*)::int FROM crm_lists WHERE is_favorite=TRUE) AS favorite_lists
+       FROM crm_email_jobs
+       WHERE $1::timestamptz IS NULL OR created_at >= $1`,
+      values
+    ),
+    db.query(
+      `SELECT l.id,l.name,l.description,
+              count(lm.contact_id)::int AS total_contacts,
+              count(lm.contact_id) FILTER (
+                WHERE $1::timestamptz IS NULL OR lm.created_at >= $1
+              )::int AS period_contacts,
+              max(lm.created_at) AS last_contact_joined_at
+       FROM crm_lists l
+       LEFT JOIN crm_list_memberships lm ON lm.list_id=l.id
+       WHERE l.is_favorite=TRUE
+       GROUP BY l.id,l.name,l.description
+       ORDER BY period_contacts DESC,l.name ASC`,
+      values
     ),
     db.query(
       `SELECT l.id,l.name,
-              count(DISTINCT lm.contact_id)::int AS contacts,
+              count(DISTINCT lm.contact_id) FILTER (
+                WHERE $1::timestamptz IS NULL OR lm.created_at >= $1
+              )::int AS contacts,
               count(j.id)::int AS email_jobs,
               count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
               count(j.id) FILTER (WHERE j.status='pending')::int AS pending_jobs,
@@ -1515,44 +1552,67 @@ async function emailDashboard() {
        FROM crm_lists l
        LEFT JOIN crm_list_memberships lm ON lm.list_id=l.id
        LEFT JOIN crm_email_jobs j ON j.contact_id=lm.contact_id
+         AND ($1::timestamptz IS NULL OR j.created_at >= $1)
        GROUP BY l.id,l.name
-       ORDER BY contacts DESC,l.name ASC LIMIT 25`
+       ORDER BY contacts DESC,l.name ASC LIMIT 25`,
+      values
     ),
     db.query(
       `SELECT tag,
-              count(DISTINCT c.id)::int AS contacts,
+              count(DISTINCT c.id) FILTER (
+                WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+              )::int AS contacts,
               count(j.id)::int AS email_jobs,
               count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
               count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
        FROM crm_contacts c
        CROSS JOIN LATERAL unnest(c.tags) AS tag
        LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+         AND ($1::timestamptz IS NULL OR j.created_at >= $1)
        GROUP BY tag
-       ORDER BY contacts DESC,tag ASC LIMIT 25`
+       HAVING count(DISTINCT c.id) FILTER (
+         WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+       ) > 0 OR count(j.id) > 0
+       ORDER BY contacts DESC,tag ASC LIMIT 25`,
+      values
     ),
     db.query(
       `SELECT COALESCE(c.contact_type,'n/a') AS contact_type,
-              count(DISTINCT c.id)::int AS contacts,
+              count(DISTINCT c.id) FILTER (
+                WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+              )::int AS contacts,
               count(j.id)::int AS email_jobs,
               count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
               count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
               count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
        FROM crm_contacts c
        LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+         AND ($1::timestamptz IS NULL OR j.created_at >= $1)
        GROUP BY COALESCE(c.contact_type,'n/a')
-       ORDER BY contacts DESC`
+       HAVING count(DISTINCT c.id) FILTER (
+         WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+       ) > 0 OR count(j.id) > 0
+       ORDER BY contacts DESC`,
+      values
     ),
     db.query(
       `SELECT COALESCE(NULLIF(c.source,''),'n/a') AS source,
-              count(DISTINCT c.id)::int AS contacts,
+              count(DISTINCT c.id) FILTER (
+                WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+              )::int AS contacts,
               count(j.id)::int AS email_jobs,
               count(j.id) FILTER (WHERE j.status='sent')::int AS sent_jobs,
               count(j.id) FILTER (WHERE j.open_count > 0)::int AS opened_jobs,
               count(j.id) FILTER (WHERE j.click_count > 0)::int AS clicked_jobs
        FROM crm_contacts c
        LEFT JOIN crm_email_jobs j ON j.contact_id=c.id
+         AND ($1::timestamptz IS NULL OR j.created_at >= $1)
        GROUP BY COALESCE(NULLIF(c.source,''),'n/a')
-       ORDER BY contacts DESC,source ASC LIMIT 25`
+       HAVING count(DISTINCT c.id) FILTER (
+         WHERE $1::timestamptz IS NULL OR c.created_at >= $1
+       ) > 0 OR count(j.id) > 0
+       ORDER BY contacts DESC,source ASC LIMIT 25`,
+      values
     ),
     db.query(
       `SELECT ev.id,ev.event_type,ev.url,ev.created_at,
@@ -1561,11 +1621,16 @@ async function emailDashboard() {
        JOIN crm_email_jobs j ON j.id=ev.job_id
        JOIN crm_contacts c ON c.id=j.contact_id
        JOIN crm_email_templates t ON t.id=j.template_id
-       ORDER BY ev.created_at DESC LIMIT 25`
+       WHERE $1::timestamptz IS NULL OR ev.created_at >= $1
+       ORDER BY ev.created_at DESC LIMIT 25`,
+      values
     ),
   ]);
   return {
+    period,
+    periodStart,
     summary: summaryResult.rows[0],
+    favoriteLists: favoriteListResult.rows,
     byList: listResult.rows,
     byTag: tagResult.rows,
     byContactType: typeResult.rows,
@@ -2260,6 +2325,7 @@ module.exports = {
   deleteContact,
   createList,
   updateList,
+  setListFavorite,
   listLists,
   getList,
   getListByNameWithClient,
@@ -2301,6 +2367,7 @@ module.exports = {
   listCampaigns,
   listCampaignJobs,
   listEmailJobs,
+  dashboardPeriodStart,
   emailDashboard,
   recordEmailEvent,
   recordEmailTestRecontact,

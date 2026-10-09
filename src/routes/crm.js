@@ -28,6 +28,7 @@ router.delete('/contacts/:id', write, handle(controller.deleteContact));
 router.get('/lists', read, handle(controller.listLists));
 router.post('/lists', write, handle(controller.createList));
 router.put('/lists/:id', write, handle(controller.updateList));
+router.patch('/lists/:id/favorite', write, handle(controller.updateListFavorite));
 router.get('/lists/:id/contacts', read, handle(controller.listContactsInList));
 router.get('/lists/:id/export', read, handle(controller.exportContactsInList));
 router.post('/lists/:id/contacts', write, handle(controller.addContactToList));

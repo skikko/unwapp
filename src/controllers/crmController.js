@@ -17,8 +17,9 @@ async function getSummary(_req, res) {
   res.json({ summary: await crmRepo.summary() });
 }
 
-async function getEmailDashboard(_req, res) {
-  res.json({ dashboard: await crmRepo.emailDashboard() });
+async function getEmailDashboard(req, res) {
+  const period = ['week', 'month', 'all'].includes(req.query.period) ? req.query.period : 'week';
+  res.json({ dashboard: await crmRepo.emailDashboard(period) });
 }
 
 async function listEmailLogs(req, res) {
@@ -155,6 +156,7 @@ async function createList(req, res) {
   const list = await crmRepo.createList({
     name,
     description: String(req.body.description || '').trim(),
+    isFavorite: req.body.isFavorite === true,
     createdBy: req.user.username,
   });
   res.status(201).json({ list });
@@ -166,7 +168,17 @@ async function updateList(req, res) {
   const list = await crmRepo.updateList(req.params.id, {
     name,
     description: String(req.body.description || '').trim(),
+    isFavorite: req.body.isFavorite === true,
   });
+  if (!list) return res.status(404).json({ error: 'Lista non trovata' });
+  res.json({ list });
+}
+
+async function updateListFavorite(req, res) {
+  if (typeof req.body.isFavorite !== 'boolean') {
+    return res.status(400).json({ error: 'Lo stato preferito deve essere true o false' });
+  }
+  const list = await crmRepo.setListFavorite(req.params.id, req.body.isFavorite);
   if (!list) return res.status(404).json({ error: 'Lista non trovata' });
   res.json({ list });
 }
@@ -595,6 +607,7 @@ module.exports = {
   listLists,
   createList,
   updateList,
+  updateListFavorite,
   listContactsInList,
   exportContactsInList,
   addContactToList,

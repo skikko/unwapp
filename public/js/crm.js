@@ -9,6 +9,7 @@ const state = {
   folders: { template: [], sequence: [] },
   campaigns: [],
   emailDashboard: null,
+  dashboardPeriod: 'week',
   emailLogs: [],
   contactStatuses: [],
   contactImport: null,
@@ -247,18 +248,44 @@ function dashboardTable(headers, rows, emptyMessage) {
   return `<div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${esc(header)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
+function dashboardPeriodCopy(period) {
+  if (period === 'month') return { label: 'Dati degli ultimi 30 giorni', listLabel: 'Ingressi negli ultimi 30 giorni' };
+  if (period === 'all') return { label: 'Dati complessivi', listLabel: 'Contatti presenti nelle liste' };
+  return { label: 'Dati degli ultimi 7 giorni', listLabel: 'Ingressi negli ultimi 7 giorni' };
+}
+
+function renderDashboardFavoriteLists(lists, period) {
+  const periodCopy = dashboardPeriodCopy(period);
+  $('dashboardFavoriteListsPeriod').textContent = periodCopy.listLabel;
+  $('dashboardFavoriteLists').innerHTML = lists.length ? lists.map((list) => {
+    const countLabel = period === 'all' ? 'contatti' : 'nuovi ingressi';
+    const lastJoin = list.last_contact_joined_at
+      ? `Ultimo ingresso ${formatRomeDateTime(list.last_contact_joined_at)} Roma`
+      : 'Nessun ingresso registrato';
+    return `<article class="crm-favorite-list-card"><div><span>Lista preferita</span><h3>${esc(list.name)}</h3></div><strong>${numberValue(list.period_contacts)}</strong><small>${esc(countLabel)}</small><p>${esc(list.description || 'Lista senza descrizione.')}</p><footer><span>${numberValue(list.total_contacts)} totali</span><span>${esc(lastJoin)}</span><button class="secondary" type="button" data-dashboard-list="${list.id}">Apri lista</button></footer></article>`;
+  }).join('') : '<div class="crm-empty-card">Nessuna lista preferita. Puoi aggiungerla dalla sezione Liste.</div>';
+  document.querySelectorAll('[data-dashboard-list]').forEach((button) => button.addEventListener('click', () => {
+    changeTab('lists');
+    const card = document.querySelector(`[data-list-card="${button.dataset.dashboardList}"]`);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+}
+
 async function loadEmailDashboard() {
-  const { dashboard } = await api('/api/crm/email-dashboard');
+  const { dashboard } = await api(`/api/crm/email-dashboard?period=${state.dashboardPeriod}`);
   state.emailDashboard = dashboard;
+  const periodCopy = dashboardPeriodCopy(dashboard.period);
+  $('dashboardPeriodLabel').textContent = periodCopy.label;
   const summary = dashboard.summary || {};
   const sent = numberValue(summary.sent_jobs);
   $('emailDashboardSummary').innerHTML = [
-    dashboardMetric('Email totali', numberValue(summary.total_jobs), `${numberValue(summary.pending_jobs)} in attesa`),
-    dashboardMetric('Inviate', sent, `${numberValue(summary.failed_jobs)} fallite`),
-    dashboardMetric('Aperte', numberValue(summary.opened_jobs), `${percentage(summary.opened_jobs, sent)} sugli invii`),
-    dashboardMetric('Click', numberValue(summary.clicked_jobs), `${percentage(summary.clicked_jobs, sent)} sugli invii`),
-    dashboardMetric('Eventi', numberValue(summary.total_opens) + numberValue(summary.total_clicks), `${numberValue(summary.total_opens)} aperture, ${numberValue(summary.total_clicks)} click`),
+    dashboardMetric(dashboard.period === 'all' ? 'Contatti' : 'Nuovi contatti', numberValue(summary.contacts), periodCopy.label),
+    dashboardMetric('Liste preferite', numberValue(summary.favorite_lists), 'Accesso rapido alle liste principali'),
+    dashboardMetric('Email inviate', sent, `${numberValue(summary.pending_jobs)} in attesa, ${numberValue(summary.failed_jobs)} fallite`),
+    dashboardMetric('Tasso di apertura', percentage(summary.opened_jobs, sent), `${numberValue(summary.opened_jobs)} email aperte`),
+    dashboardMetric('Tasso di click', percentage(summary.clicked_jobs, sent), `${numberValue(summary.clicked_jobs)} email con click`),
   ].join('');
+  renderDashboardFavoriteLists(dashboard.favoriteLists || [], dashboard.period);
   $('emailDashboardLists').innerHTML = dashboardTable(['Lista', 'Contatti', 'Email', 'Aperte', 'Click'], (dashboard.byList || []).map((row) => (
     `<tr><td>${esc(row.name)}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
   )), 'Nessun dato per lista.');
@@ -790,8 +817,9 @@ async function loadLists() {
     const lastJoin = list.last_contact_joined_at
       ? `Ultimo ingresso ${formatRomeDateTime(list.last_contact_joined_at)} Roma`
       : 'Nessun ingresso registrato';
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">Lista manuale</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${esc(lastJoin)}</span><div class="row-actions"><button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-manual-list="${list.id}">Inserisci manualmente</button><button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
+    return `<article class="crm-object-card wide${list.is_favorite ? ' is-favorite' : ''}" data-list-card="${list.id}"><div class="crm-object-top"><div><span class="crm-object-kicker">${list.is_favorite ? 'Lista preferita' : 'Lista manuale'}</span><h3>${esc(list.name)}</h3></div><strong class="crm-object-count">${list.contact_count}</strong></div><p>${esc(list.description || 'Aggiungi contatti dalla rubrica o importali da CSV.')}</p><div class="crm-object-meta"><span>${esc(lastJoin)}</span><div class="row-actions">${can('crm:write') ? `<button class="secondary list-favorite-toggle" type="button" data-favorite-list="${list.id}" data-favorite="${list.is_favorite ? 'true' : 'false'}" aria-pressed="${list.is_favorite ? 'true' : 'false'}">${list.is_favorite ? 'Rimuovi dai preferiti' : 'Segna come preferita'}</button>` : ''}<button class="secondary" data-view-list="${list.id}">Vedi contatti</button><button class="secondary" data-export-list="${list.id}">Esporta CSV</button>${can('crm:write') ? `<button class="secondary" data-manual-list="${list.id}">Inserisci manualmente</button><button class="secondary" data-edit-list="${list.id}">Modifica</button><button class="secondary" data-import-list="${list.id}">Importa CSV</button><button class="danger" data-delete-list="${list.id}">Elimina</button>` : ''}</div></div><div class="list-contacts" id="listContacts-${list.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono liste. Crea una lista e aggiungi i contatti dalla rubrica o tramite CSV.</div>';
+  document.querySelectorAll('[data-favorite-list]').forEach((button) => button.addEventListener('click', () => toggleListFavorite(button.dataset.favoriteList, button.dataset.favorite !== 'true')));
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => removeList(button.dataset.deleteList)));
   document.querySelectorAll('[data-edit-list]').forEach((button) => button.addEventListener('click', () => editList(button.dataset.editList)));
   document.querySelectorAll('[data-view-list]').forEach((button) => button.addEventListener('click', () => loadListContacts(button.dataset.viewList)));
@@ -804,6 +832,20 @@ async function loadLists() {
     openListContactPicker(button.dataset.manualList);
   }));
   refreshSelects();
+}
+
+async function toggleListFavorite(id, isFavorite) {
+  try {
+    await api(`/api/crm/lists/${id}/favorite`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isFavorite }),
+    });
+    toast(isFavorite ? 'Lista aggiunta ai preferiti' : 'Lista rimossa dai preferiti');
+    await loadLists();
+    if (!$('panel-dashboard').hidden) await loadEmailDashboard();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
 }
 
 function renderListContactCandidates(contacts, total) {
@@ -901,6 +943,7 @@ async function saveList(event) {
       body: JSON.stringify({
         name: $('listName').value,
         description: $('listDescription').value,
+        isFavorite: $('listFavorite').checked,
       }),
     });
     $('listEditor').hidden = true;
@@ -916,6 +959,7 @@ async function saveList(event) {
 function resetListEditor() {
   $('listEditor').reset();
   $('listId').value = '';
+  $('listFavorite').checked = false;
   $('listEditorTitle').textContent = 'Nuova lista';
   $('saveListBtn').textContent = 'Crea lista';
   openEditor('listEditor');
@@ -928,6 +972,7 @@ function editList(id) {
   $('listId').value = list.id;
   $('listName').value = list.name;
   $('listDescription').value = list.description || '';
+  $('listFavorite').checked = list.is_favorite === true;
   $('listEditorTitle').textContent = 'Modifica lista';
   $('saveListBtn').textContent = 'Salva modifiche';
   openEditor('listEditor');
@@ -3050,6 +3095,7 @@ function resetSequenceEditor() {
 
 function changeTab(name) {
   if (name !== 'contacts' && !$('contactProfile').hidden) closeContactProfile();
+  $('crmGlobalSummary').hidden = name === 'dashboard';
   document.querySelectorAll('.crm-tab').forEach((tab) => {
     const active = tab.dataset.tab === name;
     tab.classList.toggle('active', active);
@@ -3164,6 +3210,15 @@ $('campaignTiming').addEventListener('change', syncCampaignTiming);
 $('campaignList').addEventListener('change', loadCampaignPreview);
 $('campaignTemplate').addEventListener('change', loadCampaignPreview);
 $('refreshEmailDashboardBtn').addEventListener('click', () => loadEmailDashboard().catch((error) => toast(error.message, 'err')));
+document.querySelectorAll('[data-dashboard-period]').forEach((button) => button.addEventListener('click', () => {
+  state.dashboardPeriod = button.dataset.dashboardPeriod;
+  document.querySelectorAll('[data-dashboard-period]').forEach((periodButton) => {
+    const active = periodButton === button;
+    periodButton.classList.toggle('active', active);
+    periodButton.setAttribute('aria-pressed', String(active));
+  });
+  loadEmailDashboard().catch((error) => toast(error.message, 'err'));
+}));
 $('refreshEmailLogsBtn').addEventListener('click', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('emailLogFilters').addEventListener('change', () => loadEmailLogs().catch((error) => toast(error.message, 'err')));
 $('templateVisual').addEventListener('input', () => updateTemplatePreview());

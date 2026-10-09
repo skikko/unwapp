@@ -289,10 +289,13 @@ CREATE TABLE IF NOT EXISTS crm_lists (
   name               TEXT NOT NULL,
   description        TEXT,
   filter_json        JSONB NOT NULL DEFAULT '{}',
+  is_favorite        BOOLEAN NOT NULL DEFAULT FALSE,
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_crm_lists_favorite_updated
+  ON crm_lists (is_favorite DESC, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS crm_list_memberships (
   list_id            UUID NOT NULL REFERENCES crm_lists(id) ON DELETE CASCADE,

@@ -38,7 +38,7 @@
       </aside>
 
       <div class="crm-workspace">
-        <section class="crm-summary" aria-label="Riepilogo CRM">
+        <section class="crm-summary" id="crmGlobalSummary" aria-label="Riepilogo CRM">
           <article><span>Contatti</span><strong id="summaryContacts">0</strong></article>
           <article><span>Liste</span><strong id="summaryLists">0</strong></article>
           <article><span>Template</span><strong id="summaryTemplates">0</strong></article>
@@ -46,8 +46,12 @@
         </section>
 
         <section class="crm-panel" id="panel-dashboard" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><span class="eyebrow">Performance email</span><h2>Dashboard</h2></div><button class="secondary" type="button" id="refreshEmailDashboardBtn">Aggiorna</button></div>
+          <div class="crm-panel-header crm-dashboard-header"><div><span class="eyebrow">Andamento CRM</span><h2>Dashboard</h2><p id="dashboardPeriodLabel">Dati degli ultimi 7 giorni</p></div><div class="crm-panel-actions"><div class="crm-period-filter" role="group" aria-label="Periodo dashboard"><button class="active" type="button" data-dashboard-period="week" aria-pressed="true">Settimana</button><button type="button" data-dashboard-period="month" aria-pressed="false">Mese</button><button type="button" data-dashboard-period="all" aria-pressed="false">Sempre</button></div><button class="secondary" type="button" id="refreshEmailDashboardBtn">Aggiorna</button></div></div>
           <section class="crm-summary email-dashboard-summary" id="emailDashboardSummary" aria-label="Riepilogo email"></section>
+          <section class="crm-favorites-panel" aria-labelledby="dashboardFavoriteListsTitle">
+            <div class="section-heading compact"><div><span class="eyebrow">Accesso rapido</span><h2 id="dashboardFavoriteListsTitle">Liste preferite</h2></div><span id="dashboardFavoriteListsPeriod">Ingressi negli ultimi 7 giorni</span></div>
+            <div class="crm-favorite-list-grid" id="dashboardFavoriteLists"></div>
+          </section>
           <div class="crm-dashboard-grid">
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per lista</h3></div></div><div id="emailDashboardLists"></div></section>
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per tag</h3></div></div><div id="emailDashboardTags"></div></section>
@@ -207,6 +211,7 @@
             <div class="grid-2">
               <div class="form-field"><label for="listName">Nome</label><input id="listName" required /></div>
               <div class="form-field"><label for="listDescription">Descrizione</label><input id="listDescription" /></div>
+              <label class="check-field span-2"><input id="listFavorite" type="checkbox" /><span>Mostra tra le liste preferite</span></label>
             </div>
             <div class="form-actions"><button type="submit" id="saveListBtn">Crea lista</button></div>
           </form>
