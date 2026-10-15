@@ -1341,11 +1341,19 @@ function loadTemplateBuilderModel(template = {}) {
     if (block?.id) component.dataset.builderId = block.id;
     if (block?.type) component.dataset.builderType = block.type;
     if (block?.style) {
-      component.style.textAlign = block.style.align || '';
-      component.style.marginTop = block.style.paddingTop ? `${block.style.paddingTop}px` : '';
-      component.style.marginBottom = block.style.paddingBottom ? `${block.style.paddingBottom}px` : '';
-      component.style.backgroundColor = block.style.backgroundColor || '';
-      component.classList.toggle('email-hide-mobile', block.style.hideOnMobile === true);
+      if (block.style.align && !component.style.textAlign) {
+        component.style.textAlign = block.style.align;
+      }
+      if (block.style.paddingTop && !component.style.marginTop) {
+        component.style.marginTop = `${block.style.paddingTop}px`;
+      }
+      if (block.style.paddingBottom && !component.style.marginBottom) {
+        component.style.marginBottom = `${block.style.paddingBottom}px`;
+      }
+      if (block.style.backgroundColor && !component.style.backgroundColor) {
+        component.style.backgroundColor = block.style.backgroundColor;
+      }
+      if (block.style.hideOnMobile === true) component.classList.add('email-hide-mobile');
     }
   });
   applyTemplateGlobalStyle(model?.globalStyle || DEFAULT_TEMPLATE_GLOBAL_STYLE);
