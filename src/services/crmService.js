@@ -334,13 +334,23 @@ function normalizeTemplateBuilderModel(value) {
     throw Object.assign(new Error('Template builder supports at most 200 blocks'), { status: 400 });
   }
   const ids = new Set();
-  const normalizedBlocks = blocks.map((block) => {
-    const id = String(block?.id || '').trim();
-    const rawType = String(block?.type || '').trim();
-    const type = TEMPLATE_BLOCK_TYPE_ALIASES.get(rawType) || rawType;
-    if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id) || ids.has(id) || !TEMPLATE_BLOCK_TYPES.has(type)) {
-      throw Object.assign(new Error('Invalid template builder block'), { status: 400 });
+  const normalizedBlocks = blocks.map((block, index) => {
+    if (!block || typeof block !== 'object' || Array.isArray(block)) {
+      throw Object.assign(new Error(`Invalid template builder block at position ${index + 1}`), { status: 400 });
     }
+    let id = String(block.id || '').trim();
+    if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id) || ids.has(id)) {
+      const baseId = `legacy-block-${index + 1}`;
+      id = baseId;
+      let suffix = 2;
+      while (ids.has(id)) {
+        id = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+    }
+    const rawType = String(block.type || '').trim().toLowerCase();
+    const aliasedType = TEMPLATE_BLOCK_TYPE_ALIASES.get(rawType) || rawType;
+    const type = TEMPLATE_BLOCK_TYPES.has(aliasedType) ? aliasedType : 'html';
     ids.add(id);
     return {
       id,

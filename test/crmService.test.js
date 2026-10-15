@@ -302,13 +302,18 @@ test('sanitizza un documento HTML avanzato mantenendo la struttura email', () =>
   assert.match(html, /<body><p>Ciao<\/p><\/body><\/html>$/);
 });
 
-test('rifiuta identificatori duplicati nel modello a blocchi', () => {
-  assert.throws(() => crmService.normalizeTemplateBuilderModel({
+test('ripara identificatori mancanti, non validi o duplicati nel modello a blocchi', () => {
+  const model = crmService.normalizeTemplateBuilderModel({
     blocks: [
       { id: 'same-block', type: 'text', html: '<p>Uno</p>' },
       { id: 'same-block', type: 'text', html: '<p>Due</p>' },
+      { id: 'x', type: 'text', html: '<p>Tre</p>' },
+      { type: 'text', html: '<p>Quattro</p>' },
     ],
-  }), /Invalid template builder block/);
+  });
+  assert.deepEqual(model.blocks.map((block) => block.id), [
+    'same-block', 'legacy-block-2', 'legacy-block-3', 'legacy-block-4',
+  ]);
 });
 
 test('normalizza i tipi di blocco legacy del builder', () => {
@@ -324,6 +329,15 @@ test('normalizza i tipi di blocco legacy del builder', () => {
   assert.deepEqual(model.blocks.map((block) => block.type), [
     'heading', 'text', 'button', 'divider', 'spacer',
   ]);
+});
+
+test('mantiene il contenuto dei blocchi con tipo legacy sconosciuto', () => {
+  const model = crmService.normalizeTemplateBuilderModel({
+    blocks: [{ id: 'legacy-custom', type: 'RichText', html: '<p>Contenuto storico</p>' }],
+  });
+
+  assert.equal(model.blocks[0].type, 'html');
+  assert.equal(model.blocks[0].html, '<p>Contenuto storico</p>');
 });
 
 test('mantiene il token firmato della CTA Ricontattami nel template', () => {
