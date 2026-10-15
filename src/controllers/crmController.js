@@ -526,7 +526,27 @@ async function createCampaign(req, res) {
   if (!name || !req.body.listId || !req.body.templateId) {
     return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
   }
-  const scheduledAt = req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date();
+  if (req.body.scheduledLocal && req.body.timeZone !== 'Europe/Rome') {
+    return res.status(400).json({ error: 'Il fuso orario della campagna deve essere Europe/Rome' });
+  }
+  let scheduledAt;
+  try {
+    if (req.body.scheduledLocal) {
+      scheduledAt = crmService.parseRomeLocalDateTime(req.body.scheduledLocal);
+    } else if (req.body.scheduledAt) {
+      scheduledAt = new Date(req.body.scheduledAt);
+    } else {
+      scheduledAt = new Date();
+    }
+  } catch (error) {
+    let detail = 'Data di invio non valida';
+    if (error.message.startsWith('Nonexistent')) {
+      detail = 'L’orario selezionato non esiste per il cambio dell’ora legale a Roma';
+    } else if (error.message.startsWith('Ambiguous')) {
+      detail = 'L’orario selezionato è ambiguo per il cambio dell’ora legale a Roma. Scegli un altro orario.';
+    }
+    return res.status(400).json({ error: detail });
+  }
   if (Number.isNaN(scheduledAt.getTime())) return res.status(400).json({ error: 'Data di invio non valida' });
   if (scheduledAt.getTime() < Date.now() - 300_000) {
     return res.status(400).json({ error: 'La data programmata non può essere nel passato' });
@@ -538,14 +558,16 @@ async function createCampaign(req, res) {
     scheduledAt: scheduledAt.toISOString(),
     createdBy: req.user.username,
   });
-  if (!campaign) return res.status(404).json({ error: 'Lista o template non trovato' });
+  if (!campaign) return res.status(404).json({ error: 'Lista o template pubblicato non trovato' });
   res.status(201).json({ campaign });
 }
 
 async function previewCampaign(req, res) {
   const list = await crmRepo.getList(req.query.listId);
   const template = await crmRepo.getTemplate(req.query.templateId);
-  if (!list || !template) return res.status(404).json({ error: 'Lista o template non trovato' });
+  if (!list || !template || template.status !== 'published') {
+    return res.status(404).json({ error: 'Lista o template pubblicato non trovato' });
+  }
   res.json({
     list: { id: list.id, name: list.name },
     template,

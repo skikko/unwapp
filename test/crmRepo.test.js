@@ -39,6 +39,7 @@ test('blocca il salvataggio di una versione obsoleta del template', async (t) =>
     slug: 'newsletter',
     templateType: 'marketing',
     editorMode: 'visual',
+    status: 'published',
     subject: 'Aggiornamento',
     preheader: null,
     htmlBody: '<p>Ciao</p>',

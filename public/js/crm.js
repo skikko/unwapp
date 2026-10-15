@@ -40,6 +40,16 @@ let templateHtmlSnapshotBeforeEdit = '';
 let lastTemplateField = null;
 let draggedTemplateBlockType = null;
 const TEMPLATE_HISTORY_LIMIT = 100;
+const TEMPLATE_BLOCK_TYPES = new Set([
+  'heading', 'text', 'image', 'button', 'logo', 'divider', 'spacer', 'columns', 'social', 'html',
+]);
+const TEMPLATE_BLOCK_TYPE_ALIASES = Object.freeze({
+  title: 'heading',
+  paragraph: 'text',
+  cta: 'button',
+  separator: 'divider',
+  space: 'spacer',
+});
 const FALLBACK_TEMPLATE_VARIABLES = [
   { key: 'first_name', label: 'Nome', group: 'Contatto', example: 'Mario', type: 'text' },
   { key: 'last_name', label: 'Cognome', group: 'Contatto', example: 'Rossi', type: 'text' },
@@ -97,6 +107,23 @@ async function api(path, options = {}) {
 function localDateTimeValue(date = new Date()) {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+const romeInputFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Rome',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+function romeDateTimeInputValue(date = new Date()) {
+  const parts = Object.fromEntries(romeInputFormatter.formatToParts(date)
+    .filter((part) => part.type !== 'literal')
+    .map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 const romeDateTimeFormatter = new Intl.DateTimeFormat('it-IT', {
@@ -1086,7 +1113,8 @@ function renderTemplates() {
     || (filter === '__none__' ? !template.folder_id : template.folder_id === filter));
   $('templatesGrid').innerHTML = templates.length ? templates.map((template) => {
     const attachmentsCount = (template.attachments || []).length;
-    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><div class="crm-object-labels"><span class="badge">${esc(template.folder_name || 'Senza cartella')}</span><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div></div><p><strong>${esc(template.subject)}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(new Date(template.updated_at).toLocaleDateString('it-IT'))}</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-duplicate-template="${template.id}">Duplica</button><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
+    const status = template.status === 'draft' ? 'Bozza' : 'Pubblicato';
+    return `<article class="crm-object-card"><div class="crm-object-top"><div><span class="crm-object-kicker">Template email</span><h3>${esc(template.name)}</h3></div><div class="crm-object-labels"><span class="badge ${template.status === 'draft' ? 'warn' : 'on'}">${status}</span><span class="badge">${esc(template.folder_name || 'Senza cartella')}</span><span class="badge">${attachmentsCount ? `${attachmentsCount} allegati` : 'HTML'}</span></div></div><p><strong>${esc(template.subject || 'Oggetto non impostato')}</strong><small class="template-preheader-copy">${esc(template.preheader || 'Nessun preheader')}</small></p><div class="crm-object-meta"><span>Aggiornato ${esc(formatRomeDateTime(template.updated_at))} Roma</span>${can('crm:write') ? `<div class="row-actions"><button class="secondary" data-duplicate-template="${template.id}">Duplica</button><button class="secondary" data-edit-template="${template.id}">Apri builder</button><button class="danger" data-delete-template="${template.id}">Elimina</button></div>` : ''}</div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono template nella cartella selezionata.</div>';
   document.querySelectorAll('[data-duplicate-template]').forEach((button) => button.addEventListener('click', () => duplicateTemplate(button.dataset.duplicateTemplate, button)));
   document.querySelectorAll('[data-edit-template]').forEach((button) => button.addEventListener('click', () => editTemplate(button.dataset.editTemplate)));
@@ -1123,8 +1151,9 @@ function builderId() {
 
 function templateComponentType(component) {
   if (!component) return 'html';
-  const explicitType = component.dataset.builderType;
-  if (explicitType) return explicitType;
+  const explicitType = TEMPLATE_BLOCK_TYPE_ALIASES[component.dataset.builderType]
+    || component.dataset.builderType;
+  if (TEMPLATE_BLOCK_TYPES.has(explicitType)) return explicitType;
   const links = component.matches('a') ? [component] : [...component.querySelectorAll('a')];
   if (component.matches('h1, h2, h3')) return 'heading';
   if (component.matches('img') || component.querySelector('img')) return 'image';
@@ -1137,9 +1166,14 @@ function templateComponentType(component) {
 }
 
 function prepareTemplateBlocks() {
+  const ids = new Set();
   [...$('templateVisual').children].forEach((component) => {
-    component.dataset.builderId ||= builderId();
-    component.dataset.builderType ||= templateComponentType(component);
+    let id = String(component.dataset.builderId || '');
+    if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id) || ids.has(id)) id = builderId();
+    while (ids.has(id)) id = builderId();
+    ids.add(id);
+    component.dataset.builderId = id;
+    component.dataset.builderType = templateComponentType(component);
     component.dataset.builderLabel = templateComponentLabel(component);
     component.setAttribute('role', 'option');
     component.setAttribute('tabindex', '0');
@@ -1446,7 +1480,7 @@ function renderBuilderTemplateList() {
     <button type="button" class="email-flyout-template" data-builder-template="${template.id}">
       <span class="email-template-card-copy">
         <strong>${esc(template.name)}</strong>
-        <small>${esc(template.folder_name || 'Senza cartella')} · ${template.template_type === 'transactional' ? 'Transazionale' : 'Marketing'}</small>
+        <small>${template.status === 'draft' ? 'Bozza' : 'Pubblicato'} · ${esc(template.folder_name || 'Senza cartella')} · ${template.template_type === 'transactional' ? 'Transazionale' : 'Marketing'}</small>
       </span>
       <span class="email-template-card-action" aria-hidden="true">Apri</span>
     </button>`).join('') : '<p class="builder-empty">Nessun template trovato.</p>';
@@ -1994,13 +2028,14 @@ function insertEmailBlock(type) {
   updateTemplatePreview();
 }
 
-function templatePayload() {
+function templatePayload(status = $('templateStatus').value || 'draft') {
   const htmlBody = currentTemplateHtml();
   const textBody = $('templateText').value.trim() || $('templateVisual').innerText.trim();
   return {
     name: $('templateName').value,
     templateType: $('templateType').value,
     editorMode: templateEditorMode,
+    status,
     subject: $('templateSubject').value,
     preheader: $('templatePreheader').value,
     htmlBody,
@@ -2024,6 +2059,7 @@ function editTemplate(id) {
   $('templateId').value = template.id;
   $('templateName').value = template.name;
   $('templateVersion').value = String(template.version || 1);
+  $('templateStatus').value = template.status || 'published';
   $('templateType').value = template.template_type || 'marketing';
   $('templateSubject').value = template.subject;
   $('templatePreheader').value = template.preheader || '';
@@ -2057,33 +2093,40 @@ function editTemplate(id) {
   updateTemplatePreview({ markDirty: false, recordHistory: false });
   recordTemplateHistory();
   $('templateSaveState').classList.remove('is-dirty', 'is-error');
-  $('templateSaveState').textContent = `Salvato ${new Date(template.updated_at).toLocaleString('it-IT')}`;
+  $('templateSaveState').textContent = `${template.status === 'draft' ? 'Bozza salvata' : 'Pubblicato'} ${formatRomeDateTime(template.updated_at)} Roma`;
   syncTemplateBuilderLayout();
   renderBuilderTemplateList();
 }
 
 async function saveTemplate(event) {
   event.preventDefault();
+  await persistTemplate('published');
+}
+
+async function persistTemplate(status) {
   const id = $('templateId').value;
   const issues = templateValidationIssues();
-  if (issues.some((issue) => issue.includes('obbligatorio'))) {
+  if (status === 'published' && issues.some((issue) => issue.includes('obbligatorio'))) {
     renderTemplateValidation();
     $('templateWarningsPopover').hidden = false;
     return;
   }
   $('saveTemplateBtn').disabled = true;
+  $('saveTemplateDraftBtn').disabled = true;
   $('templateSaveState').textContent = 'Salvataggio in corso';
   try {
     const { template } = await api(id ? `/api/crm/templates/${id}` : '/api/crm/templates', {
       method: id ? 'PUT' : 'POST',
-      body: JSON.stringify(templatePayload()),
+      body: JSON.stringify(templatePayload(status)),
     });
     $('templateId').value = template.id;
     $('templateVersion').value = String(template.version || Number($('templateVersion').value) + 1);
+    $('templateStatus').value = template.status;
+    if (!$('templateName').value.trim()) $('templateName').value = template.name;
     templateDirty = false;
     $('templateSaveState').classList.remove('is-dirty', 'is-error');
-    $('templateSaveState').textContent = `Salvato ${new Date(template.updated_at).toLocaleString('it-IT')}`;
-    toast(id ? 'Template aggiornato' : 'Template creato');
+    $('templateSaveState').textContent = `${status === 'draft' ? 'Bozza salvata' : 'Pubblicato'} ${formatRomeDateTime(template.updated_at)} Roma`;
+    toast(status === 'draft' ? 'Bozza salvata' : 'Template pubblicato');
     await Promise.all([loadContentFolders(), loadTemplates(), loadSummary()]);
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
@@ -2106,6 +2149,7 @@ async function saveTemplate(event) {
     toast(error.message, 'err');
   } finally {
     $('saveTemplateBtn').disabled = false;
+    $('saveTemplateDraftBtn').disabled = false;
   }
 }
 
@@ -2119,7 +2163,7 @@ async function sendTemplateTest() {
   try {
     await api('/api/crm/templates/test', {
       method: 'POST',
-      body: JSON.stringify({ ...templatePayload(), to }),
+      body: JSON.stringify({ ...templatePayload('published'), to }),
     });
     toast(`Email di test inviata a ${to}`);
   } catch (error) {
@@ -2153,7 +2197,9 @@ async function duplicateTemplate(id, button) {
 }
 
 function templateOptions(selected = '') {
-  return state.templates.map((template) => `<option value="${template.id}" ${template.id === selected ? 'selected' : ''}>${esc(template.name)}</option>`).join('');
+  return state.templates
+    .filter((template) => template.status !== 'draft' || template.id === selected)
+    .map((template) => `<option value="${template.id}" ${template.id === selected ? 'selected' : ''}>${esc(template.name)}${template.status === 'draft' ? ' (bozza)' : ''}</option>`).join('');
 }
 
 function addSequenceStep(templateId = '', delayMinutes = 0) {
@@ -2783,7 +2829,7 @@ async function loadCampaigns() {
   $('campaignsGrid').innerHTML = campaigns.length ? campaigns.map((campaign) => {
     const done = campaign.sent_count + campaign.failed_count;
     const percentage = campaign.total_count ? Math.round((done / campaign.total_count) * 100) : 100;
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(new Date(campaign.scheduled_at).toLocaleString('it-IT'))}</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button></div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button></div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
 }
@@ -2852,7 +2898,7 @@ function syncCampaignTiming() {
 function resetCampaignEditor() {
   $('campaignEditor').reset();
   $('campaignTiming').value = 'now';
-  $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));
+  $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
   refreshSelects();
   syncCampaignTiming();
   loadCampaignPreview();
@@ -2897,8 +2943,8 @@ async function saveCampaign(event) {
         name: $('campaignName').value,
         listId: $('campaignList').value,
         templateId: $('campaignTemplate').value,
-        scheduledAt: scheduled
-          ? new Date($('campaignSchedule').value).toISOString() : null,
+        scheduledLocal: scheduled ? $('campaignSchedule').value : null,
+        timeZone: scheduled ? 'Europe/Rome' : null,
       }),
     });
     $('campaignEditor').hidden = true;
@@ -2937,6 +2983,7 @@ function resetTemplateEditor() {
   $('templateEditor').reset();
   $('templateId').value = '';
   $('templateVersion').value = '1';
+  $('templateStatus').value = 'draft';
   $('templateType').value = 'marketing';
   state.templateAttachments = [];
   renderTemplateAttachments();
@@ -3134,6 +3181,7 @@ $('contactBulkEditor').addEventListener('submit', saveBulkContacts);
 $('contactImportEditor').addEventListener('submit', runContactImport);
 $('listEditor').addEventListener('submit', saveList);
 $('templateEditor').addEventListener('submit', saveTemplate);
+$('saveTemplateDraftBtn').addEventListener('click', () => persistTemplate('draft'));
 $('automationEditor').addEventListener('submit', saveAutomation);
 $('sequenceEditor').addEventListener('submit', saveSequence);
 $('campaignEditor').addEventListener('submit', saveCampaign);
@@ -3461,7 +3509,7 @@ document.addEventListener('keydown', (event) => {
   const editable = event.target.matches('input,textarea,select,[contenteditable="true"]');
   if (command && event.key.toLowerCase() === 's') {
     event.preventDefault();
-    $('templateEditor').requestSubmit();
+    persistTemplate('draft');
   } else if (command && event.shiftKey && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     redoTemplateChange();
@@ -3511,7 +3559,7 @@ window.addEventListener('beforeunload', (event) => {
     await loadContentFolders();
     await Promise.all([loadSummary(), loadContacts(), loadLists(), loadTemplates(), loadAutomations(), loadCampaigns()]);
     await loadSequences();
-    $('campaignSchedule').value = localDateTimeValue(new Date(Date.now() + 3_600_000));
+    $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
     syncCampaignTiming();
     await loadCampaignPreview();
   } catch (error) {

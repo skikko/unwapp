@@ -825,12 +825,13 @@ async function createTemplate(input) {
   const slug = await uniqueTemplateSlug(input.slug);
   const { rows } = await db.query(
     `INSERT INTO crm_email_templates
-       (name,slug,template_type,editor_mode,subject,preheader,html_body,text_body,builder_json,
+       (name,slug,template_type,editor_mode,status,subject,preheader,html_body,text_body,builder_json,
         description,tags,attachments,folder_id,created_by,updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING *`,
-    [input.name, slug, input.templateType, input.editorMode, input.subject, input.preheader || null,
-     input.htmlBody, input.textBody || null, input.builderModel, input.description || null, input.tags,
-     JSON.stringify(input.attachments || []), input.folderId, input.createdBy]
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15) RETURNING *`,
+    [input.name, slug, input.templateType, input.editorMode, input.status, input.subject,
+     input.preheader || null, input.htmlBody, input.textBody || null, input.builderModel,
+     input.description || null, input.tags, JSON.stringify(input.attachments || []), input.folderId,
+     input.createdBy]
   );
   return rows[0];
 }
@@ -839,11 +840,11 @@ async function updateTemplate(id, input) {
   await verifyContentFolder(input.folderId, 'template');
   const slug = await uniqueTemplateSlug(input.slug, id);
   const { rows } = await db.query(
-    `UPDATE crm_email_templates SET name=$2,slug=$3,template_type=$4,editor_mode=$5,subject=$6,
-       preheader=$7,html_body=$8,text_body=$9,builder_json=$10,description=$11,tags=$12,
-       attachments=$13,folder_id=$14,updated_by=$15,version=version+1,updated_at=now()
-     WHERE id=$1 AND version=$16 RETURNING *`,
-    [id, input.name, slug, input.templateType, input.editorMode, input.subject,
+    `UPDATE crm_email_templates SET name=$2,slug=$3,template_type=$4,editor_mode=$5,status=$6,subject=$7,
+       preheader=$8,html_body=$9,text_body=$10,builder_json=$11,description=$12,tags=$13,
+       attachments=$14,folder_id=$15,updated_by=$16,version=version+1,updated_at=now()
+     WHERE id=$1 AND version=$17 RETURNING *`,
+    [id, input.name, slug, input.templateType, input.editorMode, input.status, input.subject,
      input.preheader || null, input.htmlBody, input.textBody || null, input.builderModel,
      input.description || null, input.tags, JSON.stringify(input.attachments || []), input.folderId,
      input.updatedBy, input.version]
@@ -891,10 +892,10 @@ async function getTemplate(id) {
 async function duplicateTemplate(id, createdBy) {
   const { rows } = await db.query(
     `INSERT INTO crm_email_templates
-       (name,slug,template_type,editor_mode,subject,preheader,html_body,text_body,builder_json,
+       (name,slug,template_type,editor_mode,status,subject,preheader,html_body,text_body,builder_json,
         description,tags,attachments,folder_id,created_by,updated_by)
      SELECT name || ' - copia',slug || '-copia-' || left(gen_random_uuid()::text,8),template_type,
-       editor_mode,subject,preheader,html_body,text_body,builder_json,description,tags,attachments,folder_id,$2,$2
+       editor_mode,status,subject,preheader,html_body,text_body,builder_json,description,tags,attachments,folder_id,$2,$2
      FROM crm_email_templates WHERE id=$1
      RETURNING *`,
     [id, createdBy]
@@ -1383,7 +1384,7 @@ async function processSequenceTriggers() {
 async function createCampaign(input) {
   const list = await getList(input.listId);
   const template = await getTemplate(input.templateId);
-  if (!list || !template) return null;
+  if (!list || !template || template.status !== 'published') return null;
   const compiled = compileListFilter(list);
   const client = await db.getClient();
   try {

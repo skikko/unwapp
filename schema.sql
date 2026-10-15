@@ -350,6 +350,8 @@ CREATE TABLE IF NOT EXISTS crm_email_templates (
                      CHECK (template_type IN ('marketing','transactional')),
   editor_mode        TEXT NOT NULL DEFAULT 'visual'
                      CHECK (editor_mode IN ('visual','html')),
+  status             TEXT NOT NULL DEFAULT 'published'
+                     CHECK (status IN ('draft','published')),
   subject            TEXT NOT NULL,
   preheader          TEXT,
   html_body          TEXT NOT NULL,
@@ -367,6 +369,8 @@ CREATE TABLE IF NOT EXISTS crm_email_templates (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_email_templates_slug
   ON crm_email_templates (slug);
+CREATE INDEX IF NOT EXISTS idx_crm_email_templates_status_updated
+  ON crm_email_templates (status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS crm_sequences (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

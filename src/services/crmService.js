@@ -4,6 +4,25 @@ const sanitizeHtml = require('sanitize-html');
 const EMAIL_STATUSES = new Set(['unknown', 'subscribed', 'unsubscribed', 'bounced']);
 const TEMPLATE_TYPES = new Set(['marketing', 'transactional']);
 const TEMPLATE_EDITOR_MODES = new Set(['visual', 'html']);
+const TEMPLATE_STATUSES = new Set(['draft', 'published']);
+const TEMPLATE_BLOCK_TYPE_ALIASES = new Map([
+  ['title', 'heading'],
+  ['paragraph', 'text'],
+  ['cta', 'button'],
+  ['separator', 'divider'],
+  ['space', 'spacer'],
+]);
+const ROME_TIME_ZONE = 'Europe/Rome';
+const ROME_PARTS_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: ROME_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
 const TEMPLATE_BLOCK_TYPES = new Set([
   'heading', 'text', 'image', 'button', 'logo', 'divider', 'spacer', 'columns', 'social', 'html',
 ]);
@@ -214,6 +233,7 @@ async function saveContact(input, options) {
 function validateTemplate(input = {}) {
   const templateType = TEMPLATE_TYPES.has(input.templateType) ? input.templateType : 'marketing';
   const editorMode = TEMPLATE_EDITOR_MODES.has(input.editorMode) ? input.editorMode : 'visual';
+  const status = TEMPLATE_STATUSES.has(input.status) ? input.status : 'published';
   const inputVersion = Number(input.version);
   const subject = String(input.subject || '').trim().replace(/[\r\n]+/g, ' ');
   const preheader = String(input.preheader || '').trim();
@@ -222,10 +242,11 @@ function validateTemplate(input = {}) {
     ? renderTemplateBuilderHtml(builderModel, { subject, preheader })
     : sanitizeEmailHtml(input.htmlBody);
   const template = {
-    name: String(input.name || '').trim(),
-    slug: templateSlug(input.name),
+    name: String(input.name || '').trim() || (status === 'draft' ? 'Bozza senza titolo' : ''),
+    slug: templateSlug(input.name || (status === 'draft' ? 'Bozza senza titolo' : '')),
     templateType,
     editorMode,
+    status,
     subject,
     preheader,
     htmlBody,
@@ -237,10 +258,59 @@ function validateTemplate(input = {}) {
     attachments: normalizeTemplateAttachments(input.attachments),
     folderId: normalizeFolderId(input.folderId),
   };
-  if (!template.name || !template.subject || !template.htmlBody) {
+  if (status === 'published' && (!template.name || !template.subject || !template.htmlBody)) {
     throw Object.assign(new Error('Template name, subject and HTML body are required'), { status: 400 });
   }
   return template;
+}
+
+function datePartsInRome(date) {
+  return Object.fromEntries(ROME_PARTS_FORMATTER.formatToParts(date)
+    .filter((part) => part.type !== 'literal')
+    .map((part) => [part.type, Number(part.value)]));
+}
+
+function parseRomeLocalDateTime(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) throw Object.assign(new Error('Invalid Europe/Rome local date and time'), { status: 400 });
+  const expected = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+  };
+  const localAsUtc = Date.UTC(expected.year, expected.month - 1, expected.day, expected.hour, expected.minute, 0);
+  const normalized = new Date(localAsUtc);
+  if (normalized.getUTCFullYear() !== expected.year
+      || normalized.getUTCMonth() + 1 !== expected.month
+      || normalized.getUTCDate() !== expected.day
+      || normalized.getUTCHours() !== expected.hour
+      || normalized.getUTCMinutes() !== expected.minute) {
+    throw Object.assign(new Error('Invalid Europe/Rome local date and time'), { status: 400 });
+  }
+
+  const offsets = new Set();
+  for (const delta of [-86_400_000, 0, 86_400_000]) {
+    const probe = new Date(localAsUtc + delta);
+    const parts = datePartsInRome(probe);
+    offsets.add(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - probe.getTime());
+  }
+  const matches = [...offsets].map((offset) => new Date(localAsUtc - offset)).filter((candidate) => {
+    const parts = datePartsInRome(candidate);
+    return parts.year === expected.year
+      && parts.month === expected.month
+      && parts.day === expected.day
+      && parts.hour === expected.hour
+      && parts.minute === expected.minute;
+  });
+  if (matches.length === 0) {
+    throw Object.assign(new Error('Nonexistent Europe/Rome local date and time'), { status: 400 });
+  }
+  if (matches.length > 1) {
+    throw Object.assign(new Error('Ambiguous Europe/Rome local date and time'), { status: 400 });
+  }
+  return matches[0];
 }
 
 function templateSlug(value) {
@@ -267,7 +337,7 @@ function normalizeTemplateBuilderModel(value) {
   const normalizedBlocks = blocks.map((block) => {
     const id = String(block?.id || '').trim();
     const rawType = String(block?.type || '').trim();
-    const type = rawType === 'title' ? 'heading' : rawType;
+    const type = TEMPLATE_BLOCK_TYPE_ALIASES.get(rawType) || rawType;
     if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id) || ids.has(id) || !TEMPLATE_BLOCK_TYPES.has(type)) {
       throw Object.assign(new Error('Invalid template builder block'), { status: 400 });
     }
@@ -642,6 +712,7 @@ module.exports = {
   saveContact,
   sanitizeEmailHtml,
   validateTemplate,
+  parseRomeLocalDateTime,
   validateSequence,
   validateAutomation,
   normalizeSequenceConditions,

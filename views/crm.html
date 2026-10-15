@@ -236,6 +236,7 @@
           <form class="email-builder-app" id="templateEditor" hidden>
             <input id="templateId" type="hidden" />
             <input id="templateVersion" type="hidden" value="1" />
+            <input id="templateStatus" type="hidden" value="draft" />
             <header class="email-builder-header">
               <button class="ghost icon-button" type="button" data-close="templateEditor" aria-label="Torna ai template">Indietro</button>
               <select id="templateFolder" aria-label="Cartella"><option value="">Senza cartella</option></select>
@@ -253,7 +254,8 @@
               <button class="ghost icon-button" id="templateRedoBtn" type="button" aria-label="Ripeti" title="Ripeti (Cmd+Shift+Z)">Ripeti</button>
               <span class="email-header-divider"></span>
               <button class="secondary" id="openTemplatePreviewBtn" type="button">Anteprima</button>
-              <button id="saveTemplateBtn" type="submit">Salva</button>
+              <button class="secondary" id="saveTemplateDraftBtn" type="button">Salva bozza</button>
+              <button id="saveTemplateBtn" type="submit">Pubblica</button>
               <button class="ghost icon-button" id="toggleTemplateDetailsBtn" type="button" aria-label="Dettagli template">Altro</button>
             </header>
 
@@ -468,7 +470,7 @@
             <div class="grid-2">
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
               <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
-              <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora</label><input id="campaignSchedule" type="datetime-local" /></div>
+              <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
               <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
             </div>

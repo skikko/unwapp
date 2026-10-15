@@ -311,6 +311,21 @@ test('rifiuta identificatori duplicati nel modello a blocchi', () => {
   }), /Invalid template builder block/);
 });
 
+test('normalizza i tipi di blocco legacy del builder', () => {
+  const model = crmService.normalizeTemplateBuilderModel({
+    blocks: [
+      { id: 'legacy-title', type: 'title', html: '<h2>Titolo</h2>' },
+      { id: 'legacy-paragraph', type: 'paragraph', html: '<p>Testo</p>' },
+      { id: 'legacy-cta', type: 'cta', html: '<a href="https://example.com">Apri</a>' },
+      { id: 'legacy-separator', type: 'separator', html: '<hr>' },
+      { id: 'legacy-space', type: 'space', html: '<div>&nbsp;</div>' },
+    ],
+  });
+  assert.deepEqual(model.blocks.map((block) => block.type), [
+    'heading', 'text', 'button', 'divider', 'spacer',
+  ]);
+});
+
 test('mantiene il token firmato della CTA Ricontattami nel template', () => {
   const template = crmService.validateTemplate({
     name: 'Richiesta ricontatto',
@@ -402,6 +417,51 @@ test('valida la cartella del template', () => {
     htmlBody: '<p>Testo</p>',
     folderId: 'non-valida',
   }), /Invalid content folder/);
+});
+
+test('salva una bozza template anche se oggetto e contenuto sono incompleti', () => {
+  const template = crmService.validateTemplate({
+    status: 'draft',
+    name: '',
+    subject: '',
+    htmlBody: '',
+    editorMode: 'html',
+  });
+  assert.equal(template.status, 'draft');
+  assert.equal(template.name, 'Bozza senza titolo');
+  assert.equal(template.subject, '');
+  assert.equal(template.htmlBody, '');
+});
+
+test('mantiene pubblicati i template dei client precedenti', () => {
+  const template = crmService.validateTemplate({
+    name: 'Newsletter',
+    subject: 'Aggiornamento',
+    htmlBody: '<p>Testo</p>',
+  });
+  assert.equal(template.status, 'published');
+});
+
+test('interpreta una pianificazione nel fuso Europe/Rome', () => {
+  assert.equal(
+    crmService.parseRomeLocalDateTime('2026-01-15T10:30').toISOString(),
+    '2026-01-15T09:30:00.000Z'
+  );
+  assert.equal(
+    crmService.parseRomeLocalDateTime('2026-07-15T10:30').toISOString(),
+    '2026-07-15T08:30:00.000Z'
+  );
+});
+
+test('rifiuta orari inesistenti o ambigui durante il cambio dell’ora legale', () => {
+  assert.throws(
+    () => crmService.parseRomeLocalDateTime('2026-03-29T02:30'),
+    /Nonexistent Europe\/Rome/
+  );
+  assert.throws(
+    () => crmService.parseRomeLocalDateTime('2026-10-25T02:30'),
+    /Ambiguous Europe\/Rome/
+  );
 });
 
 test('richiede una lista per il trigger di ingresso', () => {
