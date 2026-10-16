@@ -520,48 +520,78 @@ async function listCampaignJobs(req, res) {
   res.json({ campaign, ...result });
 }
 
-async function createCampaign(req, res) {
-  await ensureSender();
-  const name = String(req.body.name || '').trim();
-  const recipientFilters = crmService.normalizeCampaignFilters(req.body.recipientFilters);
-  if (!name || !req.body.listId || !req.body.templateId) {
-    return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
-  }
-  if (req.body.scheduledLocal && req.body.timeZone !== 'Europe/Rome') {
-    return res.status(400).json({ error: 'Il fuso orario della campagna deve essere Europe/Rome' });
+function campaignSchedule(body) {
+  if (body.scheduledLocal && body.timeZone !== 'Europe/Rome') {
+    return { error: 'Il fuso orario della campagna deve essere Europe/Rome' };
   }
   let scheduledAt;
   try {
-    if (req.body.scheduledLocal) {
-      scheduledAt = crmService.parseRomeLocalDateTime(req.body.scheduledLocal);
-    } else if (req.body.scheduledAt) {
-      scheduledAt = new Date(req.body.scheduledAt);
-    } else {
-      scheduledAt = new Date();
-    }
+    if (body.scheduledLocal) scheduledAt = crmService.parseRomeLocalDateTime(body.scheduledLocal);
+    else if (body.scheduledAt) scheduledAt = new Date(body.scheduledAt);
+    else scheduledAt = new Date();
   } catch (error) {
-    let detail = 'Data di invio non valida';
     if (error.message.startsWith('Nonexistent')) {
-      detail = 'L’orario selezionato non esiste per il cambio dell’ora legale a Roma';
-    } else if (error.message.startsWith('Ambiguous')) {
-      detail = 'L’orario selezionato è ambiguo per il cambio dell’ora legale a Roma. Scegli un altro orario.';
+      return { error: 'L’orario selezionato non esiste per il cambio dell’ora legale a Roma' };
     }
-    return res.status(400).json({ error: detail });
+    if (error.message.startsWith('Ambiguous')) {
+      return { error: 'L’orario selezionato è ambiguo per il cambio dell’ora legale a Roma. Scegli un altro orario.' };
+    }
+    return { error: 'Data di invio non valida' };
   }
-  if (Number.isNaN(scheduledAt.getTime())) return res.status(400).json({ error: 'Data di invio non valida' });
+  if (Number.isNaN(scheduledAt.getTime())) return { error: 'Data di invio non valida' };
   if (scheduledAt.getTime() < Date.now() - 300_000) {
-    return res.status(400).json({ error: 'La data programmata non può essere nel passato' });
+    return { error: 'La data programmata non può essere nel passato' };
   }
+  return { scheduledAt: scheduledAt.toISOString() };
+}
+
+function campaignInput(body) {
+  return {
+    name: String(body.name || '').trim(),
+    listId: body.listId,
+    templateId: body.templateId,
+    recipientFilters: crmService.normalizeCampaignFilters(body.recipientFilters),
+    preserveRecipients: body.preserveRecipients === true,
+  };
+}
+
+async function createCampaign(req, res) {
+  await ensureSender();
+  const input = campaignInput(req.body);
+  if (!input.name || !input.listId || !input.templateId) {
+    return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
+  }
+  const schedule = campaignSchedule(req.body);
+  if (schedule.error) return res.status(400).json({ error: schedule.error });
   const campaign = await crmRepo.createCampaign({
-    name,
-    listId: req.body.listId,
-    templateId: req.body.templateId,
-    recipientFilters,
-    scheduledAt: scheduledAt.toISOString(),
+    ...input,
+    scheduledAt: schedule.scheduledAt,
     createdBy: req.user.username,
   });
   if (!campaign) return res.status(404).json({ error: 'Lista o template pubblicato non trovato' });
   res.status(201).json({ campaign });
+}
+
+async function updateCampaign(req, res) {
+  await ensureSender();
+  const input = campaignInput(req.body);
+  if (!input.name || !input.listId || !input.templateId) {
+    return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
+  }
+  const schedule = campaignSchedule(req.body);
+  if (schedule.error) return res.status(400).json({ error: schedule.error });
+  const campaign = await crmRepo.updateCampaign(req.params.id, {
+    ...input,
+    scheduledAt: schedule.scheduledAt,
+  });
+  if (!campaign) return res.status(404).json({ error: 'Invio non trovato' });
+  res.json({ campaign });
+}
+
+async function deleteCampaign(req, res) {
+  const removed = await crmRepo.deleteCampaign(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Invio non trovato' });
+  res.status(204).end();
 }
 
 async function previewCampaign(req, res) {
@@ -677,6 +707,8 @@ module.exports = {
   listCampaignJobs,
   previewCampaign,
   createCampaign,
+  updateCampaign,
+  deleteCampaign,
   getSender,
   updateSender,
   testSender,

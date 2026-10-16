@@ -466,7 +466,8 @@
         <section class="crm-panel" id="panel-campaigns" role="tabpanel" hidden>
           <div class="crm-panel-header"><div><span class="eyebrow">Single send</span><h2>Invii email</h2></div><button id="newCampaignBtn" data-write>Nuovo invio</button></div>
           <form class="card crm-editor" id="campaignEditor" hidden>
-            <div class="section-heading compact"><div><h2>Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
+            <input id="campaignId" type="hidden" />
+            <div class="section-heading compact"><div><h2 id="campaignEditorTitle">Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
             <div class="grid-2">
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
               <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
@@ -474,7 +475,7 @@
               <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
               <section class="sequence-conditions span-2" id="campaignFiltersWrap">
-                <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span>Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>
+                <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span id="campaignFiltersHelp">Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>
                 <div id="campaignFilters"></div>
               </section>
             </div>

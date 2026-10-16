@@ -9,11 +9,12 @@ test('calcola checksum stabili per le migrazioni', () => {
 
 test('ordina le migrazioni e include le migrazioni CRM', () => {
   const files = migrationService.migrationFiles();
-  assert.equal(files.at(-1).filename, '024_crm_template_drafts.sql');
+  assert.equal(files.at(-1).filename, '025_crm_campaign_recipient_filters.sql');
   assert.ok(files.some((file) => file.filename === '010_crm_operations.sql'));
   assert.ok(files.some((file) => file.filename === '021_crm_template_builder.sql'));
   assert.ok(files.some((file) => file.filename === '023_crm_favorite_lists.sql'));
   assert.ok(files.some((file) => file.filename === '024_crm_template_drafts.sql'));
+  assert.ok(files.some((file) => file.filename === '025_crm_campaign_recipient_filters.sql'));
   assert.deepEqual(files.map((file) => file.filename), files.map((file) => file.filename).sort());
 });
 

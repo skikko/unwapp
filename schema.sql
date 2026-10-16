@@ -458,11 +458,15 @@ CREATE TABLE IF NOT EXISTS crm_email_campaigns (
   total_count        INT NOT NULL DEFAULT 0,
   sent_count         INT NOT NULL DEFAULT 0,
   failed_count       INT NOT NULL DEFAULT 0,
+  recipient_filters  JSONB NOT NULL DEFAULT '[]'::jsonb,
   scheduled_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at       TIMESTAMPTZ
 );
+ALTER TABLE crm_email_campaigns DROP CONSTRAINT IF EXISTS crm_email_campaigns_recipient_filters_check;
+ALTER TABLE crm_email_campaigns ADD CONSTRAINT crm_email_campaigns_recipient_filters_check
+  CHECK (recipient_filters IS NULL OR jsonb_typeof(recipient_filters) = 'array');
 CREATE INDEX IF NOT EXISTS idx_crm_campaigns_recent ON crm_email_campaigns (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS crm_email_jobs (

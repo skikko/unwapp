@@ -71,6 +71,8 @@ router.get('/campaigns', read, handle(controller.listCampaigns));
 router.get('/campaigns/preview', read, handle(controller.previewCampaign));
 router.get('/campaigns/:id/jobs', read, handle(controller.listCampaignJobs));
 router.post('/campaigns', write, handle(controller.createCampaign));
+router.put('/campaigns/:id', write, handle(controller.updateCampaign));
+router.delete('/campaigns/:id', write, handle(controller.deleteCampaign));
 
 router.get('/sender', requireAdmin, handle(controller.getSender));
 router.put('/sender', requireAdmin, handle(controller.updateSender));

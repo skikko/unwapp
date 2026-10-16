@@ -2823,8 +2823,11 @@ async function removeSequence(id) {
 
 function refreshSelects() {
   const listOptionHtml = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
-  $('campaignList').innerHTML = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
-  $('campaignTemplate').innerHTML = templateOptions();
+  const selectedCampaignList = $('campaignList').value;
+  const selectedCampaignTemplate = $('campaignTemplate').value;
+  $('campaignList').innerHTML = listOptionHtml;
+  if (state.lists.some((list) => list.id === selectedCampaignList)) $('campaignList').value = selectedCampaignList;
+  $('campaignTemplate').innerHTML = templateOptions(selectedCampaignTemplate);
   const importList = $('contactImportList');
   const selectedList = importList.value;
   importList.innerHTML = `<option value="">Nessuna lista</option>${listOptionHtml}`;
@@ -2883,9 +2886,20 @@ async function loadCampaigns() {
   $('campaignsGrid').innerHTML = campaigns.length ? campaigns.map((campaign) => {
     const done = campaign.sent_count + campaign.failed_count;
     const percentage = campaign.total_count ? Math.round((done / campaign.total_count) * 100) : 100;
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button></div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
+    const zeroRecipientFutureCampaign = campaign.status === 'completed'
+      && campaign.total_count === 0
+      && new Date(campaign.scheduled_at).getTime() > Date.now();
+    const editable = campaign.status === 'queued' || zeroRecipientFutureCampaign;
+    const duplicable = campaign.list_id && campaign.template_id;
+    const writeActions = can('crm:write')
+      ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
+      : '';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
+  document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));
+  document.querySelectorAll('[data-duplicate-campaign]').forEach((button) => button.addEventListener('click', () => duplicateCampaign(button.dataset.duplicateCampaign)));
+  document.querySelectorAll('[data-delete-campaign]').forEach((button) => button.addEventListener('click', () => removeCampaign(button.dataset.deleteCampaign)));
 }
 
 async function loadCampaignJobs(id) {
@@ -2955,19 +2969,87 @@ function syncCampaignTiming() {
   const scheduled = $('campaignTiming').value === 'scheduled';
   $('campaignScheduleWrap').hidden = !scheduled;
   $('campaignSchedule').required = scheduled;
-  $('saveCampaignBtn').textContent = scheduled ? 'Programma invio' : 'Invia ora';
+  $('saveCampaignBtn').textContent = $('campaignId').value
+    ? 'Salva modifiche'
+    : scheduled ? 'Programma invio' : 'Invia ora';
 }
 
-function resetCampaignEditor() {
+function prepareCampaignEditor() {
   $('campaignEditor').reset();
+  $('campaignEditor').dataset.preserveRecipients = 'false';
+  $('campaignId').value = '';
+  $('campaignList').disabled = false;
+  $('addCampaignFilter').disabled = false;
+  $('campaignFiltersHelp').textContent = 'Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.';
   $('campaignTiming').value = 'now';
-  $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
   $('campaignFilters').innerHTML = '';
   $('campaignEligibleNote').textContent = 'Solo contatti iscritti con email valida.';
   refreshSelects();
+}
+
+function resetCampaignEditor() {
+  prepareCampaignEditor();
+  $('campaignEditorTitle').textContent = 'Programma un invio';
+  $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
   syncCampaignTiming();
   loadCampaignPreview();
   openEditor('campaignEditor');
+}
+
+function populateCampaignEditor(campaign, { duplicate = false } = {}) {
+  if (!campaign || !campaign.list_id || !campaign.template_id) {
+    toast('La lista o il template originale non è più disponibile', 'err');
+    return;
+  }
+  prepareCampaignEditor();
+  const preserveRecipients = !duplicate && campaign.recipient_filters === null;
+  $('campaignEditor').dataset.preserveRecipients = String(preserveRecipients);
+  $('campaignId').value = duplicate ? '' : campaign.id;
+  $('campaignEditorTitle').textContent = duplicate ? 'Duplica invio' : 'Modifica invio programmato';
+  $('campaignName').value = duplicate ? `${campaign.name} - copia` : campaign.name;
+  $('campaignList').value = campaign.list_id;
+  $('campaignTemplate').innerHTML = templateOptions(campaign.template_id);
+  $('campaignTemplate').value = campaign.template_id;
+  $('campaignTiming').value = 'scheduled';
+  const originalSchedule = new Date(campaign.scheduled_at);
+  const fallbackSchedule = new Date(Date.now() + 3_600_000);
+  $('campaignSchedule').value = romeDateTimeInputValue(
+    originalSchedule.getTime() > Date.now() ? originalSchedule : fallbackSchedule
+  );
+  (campaign.recipient_filters || []).forEach((filter) => addCampaignFilter(filter));
+  if (preserveRecipients) {
+    $('campaignList').disabled = true;
+    $('addCampaignFilter').disabled = true;
+    $('campaignFiltersHelp').textContent = 'Campagna precedente al salvataggio filtri: i destinatari esistenti saranno conservati.';
+  }
+  syncCampaignTiming();
+  loadCampaignPreview();
+  openEditor('campaignEditor');
+  $('campaignEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function editCampaign(id) {
+  populateCampaignEditor(state.campaigns.find((campaign) => campaign.id === id));
+}
+
+function duplicateCampaign(id) {
+  const campaign = state.campaigns.find((item) => item.id === id);
+  if (campaign?.recipient_filters === null
+      && !confirm('I filtri originali di questa campagna precedente non sono disponibili. La copia userà la lista selezionata completa. Continuare?')) return;
+  populateCampaignEditor(campaign, { duplicate: true });
+}
+
+async function removeCampaign(id) {
+  const campaign = state.campaigns.find((item) => item.id === id);
+  if (!campaign || !confirm(`Eliminare l'invio programmato "${campaign.name}"?`)) return;
+  try {
+    await api(`/api/crm/campaigns/${id}`, { method: 'DELETE' });
+    toast('Invio programmato eliminato');
+    if ($('campaignId').value === id) $('campaignEditor').hidden = true;
+    await Promise.all([loadCampaigns(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
 }
 
 async function sendCampaignTest() {
@@ -3000,22 +3082,24 @@ async function sendCampaignTest() {
 
 async function saveCampaign(event) {
   event.preventDefault();
+  const id = $('campaignId').value;
   const scheduled = $('campaignTiming').value === 'scheduled';
   try {
-    await api('/api/crm/campaigns', {
-      method: 'POST',
+    await api(id ? `/api/crm/campaigns/${id}` : '/api/crm/campaigns', {
+      method: id ? 'PUT' : 'POST',
       body: JSON.stringify({
         name: $('campaignName').value,
         listId: $('campaignList').value,
         templateId: $('campaignTemplate').value,
         recipientFilters: readCampaignFilters(),
+        preserveRecipients: $('campaignEditor').dataset.preserveRecipients === 'true',
         scheduledLocal: scheduled ? $('campaignSchedule').value : null,
         timeZone: scheduled ? 'Europe/Rome' : null,
       }),
     });
     $('campaignEditor').hidden = true;
     $('campaignEditor').reset();
-    toast(scheduled ? 'Invio programmato' : 'Invio messo in coda');
+    toast(id ? 'Invio programmato aggiornato' : scheduled ? 'Invio programmato' : 'Invio messo in coda');
     await Promise.all([loadCampaigns(), loadSummary()]);
   } catch (error) {
     toast(error.message, 'err');

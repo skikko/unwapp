@@ -1381,49 +1381,155 @@ async function processSequenceTriggers() {
   return { enrolled };
 }
 
+async function materializeCampaignJobs(client, campaignId, input) {
+  const compiled = compileListFilter({ id: input.listId }, 4);
+  const recipientFilter = compileSequenceConditions(
+    input.recipientFilters || [],
+    4 + compiled.values.length
+  );
+  const jobs = await client.query(
+    `INSERT INTO crm_email_jobs
+       (kind,campaign_id,contact_id,template_id,scheduled_at)
+     SELECT 'campaign',$1,c.id,$2,$3
+     FROM crm_contacts c
+     WHERE ${compiled.clause} AND ${recipientFilter.clause}
+       AND c.email_normalized IS NOT NULL AND c.email_status='subscribed'
+     RETURNING id`,
+    [campaignId, input.templateId, input.scheduledAt, ...compiled.values, ...recipientFilter.values]
+  );
+  const { rows } = await client.query(
+    `UPDATE crm_email_campaigns
+     SET total_count=$2,sent_count=0,failed_count=0,
+         status=CASE WHEN $2=0 THEN 'completed' ELSE 'queued' END,
+         completed_at=CASE WHEN $2=0 THEN now() ELSE NULL END
+     WHERE id=$1 RETURNING *`,
+    [campaignId, jobs.rowCount]
+  );
+  return rows[0];
+}
+
 async function createCampaign(input) {
   const list = await getList(input.listId);
   const template = await getTemplate(input.templateId);
   if (!list || !template || template.status !== 'published') return null;
-  const compiled = compileListFilter(list);
-  const recipientFilter = compileSequenceConditions(
-    input.recipientFilters || [],
-    compiled.values.length + 1
-  );
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
     const campaignResult = await client.query(
       `INSERT INTO crm_email_campaigns
-       (name,list_id,template_id,scheduled_at,created_by)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [input.name, input.listId, input.templateId, input.scheduledAt, input.createdBy]
+       (name,list_id,template_id,recipient_filters,scheduled_at,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [input.name, input.listId, input.templateId, JSON.stringify(input.recipientFilters || []),
+       input.scheduledAt, input.createdBy]
     );
     const campaign = campaignResult.rows[0];
-    const contacts = await client.query(
-      `SELECT c.id FROM crm_contacts c
-       WHERE ${compiled.clause} AND ${recipientFilter.clause}
-         AND c.email_normalized IS NOT NULL AND c.email_status = 'subscribed'`,
-      [...compiled.values, ...recipientFilter.values]
-    );
-    for (const contact of contacts.rows) {
-      await client.query(
-        `INSERT INTO crm_email_jobs
-         (kind,campaign_id,contact_id,template_id,scheduled_at)
-         VALUES ('campaign',$1,$2,$3,$4)`,
-        [campaign.id, contact.id, input.templateId, input.scheduledAt]
-      );
+    const updated = await materializeCampaignJobs(client, campaign.id, input);
+    await client.query('COMMIT');
+    return updated;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function lockEditableCampaign(client, id) {
+  const jobs = await client.query(
+    `SELECT id,status FROM crm_email_jobs
+     WHERE campaign_id=$1 ORDER BY id FOR UPDATE`,
+    [id]
+  );
+  const { rows } = await client.query(
+    'SELECT * FROM crm_email_campaigns WHERE id=$1 FOR UPDATE',
+    [id]
+  );
+  const campaign = rows[0];
+  if (!campaign) return null;
+  const zeroRecipientFutureCampaign = campaign.status === 'completed'
+    && campaign.total_count === 0
+    && new Date(campaign.scheduled_at).getTime() > Date.now();
+  if ((campaign.status !== 'queued' && !zeroRecipientFutureCampaign)
+      || jobs.rows.some((job) => job.status !== 'pending')) {
+    throw Object.assign(new Error('Only queued campaigns can be changed'), { status: 409 });
+  }
+  return campaign;
+}
+
+async function verifyCampaignTargets(client, input) {
+  const { rows } = await client.query(
+    `SELECT
+       EXISTS (SELECT 1 FROM crm_lists WHERE id=$1) AS list_exists,
+       EXISTS (SELECT 1 FROM crm_email_templates WHERE id=$2 AND status='published') AS template_exists`,
+    [input.listId, input.templateId]
+  );
+  return rows[0]?.list_exists && rows[0]?.template_exists;
+}
+
+async function updateCampaign(id, input) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const campaign = await lockEditableCampaign(client, id);
+    if (!campaign) {
+      await client.query('COMMIT');
+      return null;
     }
-    const updated = await client.query(
-      `UPDATE crm_email_campaigns
-       SET total_count=$2,
-           status=CASE WHEN $2=0 THEN 'completed' ELSE status END,
-           completed_at=CASE WHEN $2=0 THEN now() ELSE completed_at END
-       WHERE id=$1 RETURNING *`,
-      [campaign.id, contacts.rowCount]
+    if (!await verifyCampaignTargets(client, input)) {
+      throw Object.assign(new Error('Campaign list or published template not found'), { status: 404 });
+    }
+    if (input.preserveRecipients) {
+      if (campaign.recipient_filters !== null || campaign.list_id !== input.listId) {
+        throw Object.assign(new Error('Legacy campaign recipients cannot be reassigned'), { status: 400 });
+      }
+      await client.query(
+        `UPDATE crm_email_jobs SET template_id=$2,scheduled_at=$3
+         WHERE campaign_id=$1 AND status='pending'`,
+        [id, input.templateId, input.scheduledAt]
+      );
+      const { rows } = await client.query(
+        `UPDATE crm_email_campaigns SET
+           name=$2,template_id=$3,scheduled_at=$4
+         WHERE id=$1 RETURNING *`,
+        [id, input.name, input.templateId, input.scheduledAt]
+      );
+      await client.query('COMMIT');
+      return rows[0];
+    }
+    await client.query('DELETE FROM crm_email_jobs WHERE campaign_id=$1', [id]);
+    await client.query(
+      `UPDATE crm_email_campaigns SET
+         name=$2,list_id=$3,template_id=$4,recipient_filters=$5,scheduled_at=$6
+       WHERE id=$1`,
+      [id, input.name, input.listId, input.templateId,
+       JSON.stringify(input.recipientFilters || []), input.scheduledAt]
+    );
+    const updated = await materializeCampaignJobs(client, id, input);
+    await client.query('COMMIT');
+    return updated;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteCampaign(id) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const campaign = await lockEditableCampaign(client, id);
+    if (!campaign) {
+      await client.query('COMMIT');
+      return null;
+    }
+    const { rows } = await client.query(
+      'DELETE FROM crm_email_campaigns WHERE id=$1 RETURNING id',
+      [id]
     );
     await client.query('COMMIT');
-    return updated.rows[0];
+    return rows[0] || null;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -2400,6 +2506,8 @@ module.exports = {
   enrollList,
   processSequenceTriggers,
   createCampaign,
+  updateCampaign,
+  deleteCampaign,
   countEligibleContactsForList,
   listCampaigns,
   listCampaignJobs,
