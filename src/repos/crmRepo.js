@@ -1386,6 +1386,10 @@ async function createCampaign(input) {
   const template = await getTemplate(input.templateId);
   if (!list || !template || template.status !== 'published') return null;
   const compiled = compileListFilter(list);
+  const recipientFilter = compileSequenceConditions(
+    input.recipientFilters || [],
+    compiled.values.length + 1
+  );
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -1398,8 +1402,9 @@ async function createCampaign(input) {
     const campaign = campaignResult.rows[0];
     const contacts = await client.query(
       `SELECT c.id FROM crm_contacts c
-       WHERE ${compiled.clause} AND c.email_normalized IS NOT NULL AND c.email_status = 'subscribed'`,
-      compiled.values
+       WHERE ${compiled.clause} AND ${recipientFilter.clause}
+         AND c.email_normalized IS NOT NULL AND c.email_status = 'subscribed'`,
+      [...compiled.values, ...recipientFilter.values]
     );
     for (const contact of contacts.rows) {
       await client.query(
@@ -1427,12 +1432,14 @@ async function createCampaign(input) {
   }
 }
 
-async function countEligibleContactsForList(list) {
+async function countEligibleContactsForList(list, recipientFilters = []) {
   const compiled = compileListFilter(list);
+  const recipientFilter = compileSequenceConditions(recipientFilters, compiled.values.length + 1);
   const { rows } = await db.query(
     `SELECT count(*)::int AS count FROM crm_contacts c
-     WHERE ${compiled.clause} AND c.email_normalized IS NOT NULL AND c.email_status='subscribed'`,
-    compiled.values
+     WHERE ${compiled.clause} AND ${recipientFilter.clause}
+       AND c.email_normalized IS NOT NULL AND c.email_status='subscribed'`,
+    [...compiled.values, ...recipientFilter.values]
   );
   return rows[0].count;
 }

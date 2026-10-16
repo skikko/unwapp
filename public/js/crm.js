@@ -39,6 +39,8 @@ let templateVisualSnapshotBeforeHtml = '';
 let templateHtmlSnapshotBeforeEdit = '';
 let lastTemplateField = null;
 let draggedTemplateBlockType = null;
+let campaignPreviewTimer = null;
+let campaignPreviewRequestId = 0;
 const TEMPLATE_HISTORY_LIMIT = 100;
 const TEMPLATE_BLOCK_TYPES = new Set([
   'heading', 'text', 'image', 'button', 'logo', 'divider', 'spacer', 'columns', 'social', 'html',
@@ -2326,8 +2328,9 @@ function syncSequenceCondition(row, condition = {}) {
   valueWrap.innerHTML = noValue ? '' : `<span>Valore</span>${sequenceConditionValueControl(field, condition.value || '')}`;
 }
 
-function addSequenceCondition(condition = {}) {
-  if ($('sequenceConditions').querySelectorAll('.sequence-condition').length >= 10) {
+function addContactCondition(containerId, condition = {}, onChange = () => {}) {
+  const container = $(containerId);
+  if (container.querySelectorAll('.sequence-condition').length >= 10) {
     toast('Puoi aggiungere al massimo 10 condizioni', 'err');
     return;
   }
@@ -2335,22 +2338,65 @@ function addSequenceCondition(condition = {}) {
   const row = document.createElement('div');
   row.className = 'sequence-condition';
   row.innerHTML = `<label><span>Campo</span><select data-condition-field>${sequenceConditionFieldOptions(field)}</select></label><label><span>Operatore</span><select data-condition-operator></select></label><label data-condition-value-wrap></label><button class="danger" type="button" data-remove-condition>Rimuovi</button>`;
-  syncSequenceCondition(row, condition);
-  row.querySelector('[data-condition-field]').addEventListener('change', () => syncSequenceCondition(row));
+  const syncAndBind = (nextCondition = {}) => {
+    syncSequenceCondition(row, nextCondition);
+    const valueControl = row.querySelector('[data-condition-value]');
+    valueControl?.addEventListener('input', onChange);
+    valueControl?.addEventListener('change', onChange);
+  };
+  syncAndBind(condition);
+  row.querySelector('[data-condition-field]').addEventListener('change', () => {
+    syncAndBind();
+    onChange();
+  });
   row.querySelector('[data-condition-operator]').addEventListener('change', () => {
     const currentValue = row.querySelector('[data-condition-value]')?.value || '';
-    syncSequenceCondition(row, { operator: row.querySelector('[data-condition-operator]').value, value: currentValue });
+    syncAndBind({ operator: row.querySelector('[data-condition-operator]').value, value: currentValue });
+    onChange();
   });
-  row.querySelector('[data-remove-condition]').addEventListener('click', () => row.remove());
-  $('sequenceConditions').appendChild(row);
+  row.querySelector('[data-remove-condition]').addEventListener('click', () => {
+    row.remove();
+    onChange();
+  });
+  container.appendChild(row);
+  onChange();
 }
 
-function readSequenceConditions() {
-  return [...$('sequenceConditions').querySelectorAll('.sequence-condition')].map((row) => ({
+function readContactConditions(containerId) {
+  return [...$(containerId).querySelectorAll('.sequence-condition')].map((row) => ({
     field: row.querySelector('[data-condition-field]').value,
     operator: row.querySelector('[data-condition-operator]').value,
     value: row.querySelector('[data-condition-value]')?.value || null,
   }));
+}
+
+function addSequenceCondition(condition = {}) {
+  addContactCondition('sequenceConditions', condition);
+}
+
+function readSequenceConditions() {
+  return readContactConditions('sequenceConditions');
+}
+
+function scheduleCampaignPreview() {
+  clearTimeout(campaignPreviewTimer);
+  campaignPreviewTimer = setTimeout(() => loadCampaignPreview(), 200);
+}
+
+function addCampaignFilter(condition = {}) {
+  addContactCondition('campaignFilters', condition, scheduleCampaignPreview);
+}
+
+function readCampaignFilters() {
+  return readContactConditions('campaignFilters');
+}
+
+function completeCampaignFilters() {
+  return readCampaignFilters().filter((filter) => (
+    filter.operator === 'is_set'
+    || filter.operator === 'is_not_set'
+    || String(filter.value || '').trim()
+  ));
 }
 
 function sequenceConditionSummary(conditions = []) {
@@ -2880,16 +2926,25 @@ function renderCampaignTemplate(template) {
 async function loadCampaignPreview() {
   const listId = $('campaignList').value;
   const templateId = $('campaignTemplate').value;
+  const requestId = ++campaignPreviewRequestId;
+  const filters = completeCampaignFilters();
+  $('campaignEligibleNote').textContent = filters.length
+    ? `${filters.length} ${filters.length === 1 ? 'filtro attivo' : 'filtri attivi'}, oltre a iscrizione ed email valida.`
+    : 'Solo contatti iscritti con email valida.';
   if (!listId || !templateId) {
     $('campaignEligibleCount').textContent = '0';
     renderCampaignTemplate(null);
     return;
   }
   try {
-    const result = await api(`/api/crm/campaigns/preview?listId=${encodeURIComponent(listId)}&templateId=${encodeURIComponent(templateId)}`);
+    const query = new URLSearchParams({ listId, templateId });
+    if (filters.length) query.set('filters', JSON.stringify(filters));
+    const result = await api(`/api/crm/campaigns/preview?${query}`);
+    if (requestId !== campaignPreviewRequestId) return;
     $('campaignEligibleCount').textContent = result.eligibleCount;
     renderCampaignTemplate(result.template);
   } catch (error) {
+    if (requestId !== campaignPreviewRequestId) return;
     $('campaignEligibleCount').textContent = '0';
     renderCampaignTemplate(null);
     toast(error.message, 'err');
@@ -2907,6 +2962,8 @@ function resetCampaignEditor() {
   $('campaignEditor').reset();
   $('campaignTiming').value = 'now';
   $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
+  $('campaignFilters').innerHTML = '';
+  $('campaignEligibleNote').textContent = 'Solo contatti iscritti con email valida.';
   refreshSelects();
   syncCampaignTiming();
   loadCampaignPreview();
@@ -2951,6 +3008,7 @@ async function saveCampaign(event) {
         name: $('campaignName').value,
         listId: $('campaignList').value,
         templateId: $('campaignTemplate').value,
+        recipientFilters: readCampaignFilters(),
         scheduledLocal: scheduled ? $('campaignSchedule').value : null,
         timeZone: scheduled ? 'Europe/Rome' : null,
       }),
@@ -3251,6 +3309,7 @@ $('newSequenceBtn').addEventListener('click', resetSequenceEditor);
 $('newCampaignBtn').addEventListener('click', resetCampaignEditor);
 $('addSequenceStep').addEventListener('click', () => addSequenceStep());
 $('addSequenceCondition').addEventListener('click', () => addSequenceCondition());
+$('addCampaignFilter').addEventListener('click', () => addCampaignFilter());
 $('sequenceTriggerType').addEventListener('change', syncSequenceTriggerFields);
 $('automationTriggerType').addEventListener('change', syncAutomationFields);
 $('automationConditionField').addEventListener('change', () => syncAutomationCondition());

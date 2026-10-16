@@ -629,22 +629,22 @@ function validateAutomation(input = {}) {
   };
 }
 
-function normalizeSequenceConditions(value) {
+function normalizeContactConditions(value, context) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 10) {
-    throw Object.assign(new Error('Sequence trigger conditions must be an array with at most 10 items'), { status: 400 });
+    throw Object.assign(new Error(`${context} conditions must be an array with at most 10 items`), { status: 400 });
   }
   return value.map((condition) => {
     const field = String(condition?.field || '').trim();
     const operator = String(condition?.operator || '').trim();
     const operators = SEQUENCE_CONDITION_FIELDS.get(field);
     if (!operators || !operators.has(operator)) {
-      throw Object.assign(new Error('Invalid sequence trigger condition'), { status: 400 });
+      throw Object.assign(new Error(`Invalid ${context} condition`), { status: 400 });
     }
     if (operator === 'is_set' || operator === 'is_not_set') return { field, operator, value: null };
     let normalizedValue = String(condition?.value || '').trim();
     if (!normalizedValue) {
-      throw Object.assign(new Error('A value is required for each sequence trigger condition'), { status: 400 });
+      throw Object.assign(new Error(`A value is required for each ${context} condition`), { status: 400 });
     }
     if (field === 'contactType') normalizedValue = normalizeContactType(normalizedValue);
     if (field === 'contactStatusId') normalizedValue = normalizeContactStatusId(normalizedValue);
@@ -654,10 +654,18 @@ function normalizeSequenceConditions(value) {
     if (field === 'webinarRegisteredAt') normalizedValue = normalizeWebinarDate(normalizedValue);
     if (field === 'tags') normalizedValue = normalizeTags([normalizedValue])[0];
     if (!normalizedValue) {
-      throw Object.assign(new Error('A value is required for each sequence trigger condition'), { status: 400 });
+      throw Object.assign(new Error(`A value is required for each ${context} condition`), { status: 400 });
     }
     return { field, operator, value: normalizedValue.slice(0, 255) };
   });
+}
+
+function normalizeSequenceConditions(value) {
+  return normalizeContactConditions(value, 'sequence trigger');
+}
+
+function normalizeCampaignFilters(value) {
+  return normalizeContactConditions(value, 'campaign recipient filter');
 }
 
 function normalizeBulkContactChanges(input = {}) {
@@ -726,6 +734,7 @@ module.exports = {
   validateSequence,
   validateAutomation,
   normalizeSequenceConditions,
+  normalizeCampaignFilters,
   normalizeBulkContactChanges,
   contactFiltersFromQuery,
 };

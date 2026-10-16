@@ -519,6 +519,20 @@ test('rifiuta campi e operatori non previsti nelle condizioni di sequenza', () =
   }), /Invalid sequence trigger condition/);
 });
 
+test('normalizza filtri concatenati dei destinatari di una campagna', () => {
+  assert.deepEqual(crmService.normalizeCampaignFilters([
+    { field: 'contactType', operator: 'equals', value: 'Genitore' },
+    { field: 'tags', operator: 'contains', value: ' Webinar ' },
+  ]), [
+    { field: 'contactType', operator: 'equals', value: 'parent' },
+    { field: 'tags', operator: 'contains', value: 'webinar' },
+  ]);
+  assert.throws(
+    () => crmService.normalizeCampaignFilters([{ field: 'sql', operator: 'equals', value: 'TRUE' }]),
+    /Invalid campaign recipient filter condition/
+  );
+});
+
 test('normalizza una automazione su campo contatto con azioni lista e notifica', () => {
   const automation = crmService.validateAutomation({
     name: 'Lead genitori',

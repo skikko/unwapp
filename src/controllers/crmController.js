@@ -523,6 +523,7 @@ async function listCampaignJobs(req, res) {
 async function createCampaign(req, res) {
   await ensureSender();
   const name = String(req.body.name || '').trim();
+  const recipientFilters = crmService.normalizeCampaignFilters(req.body.recipientFilters);
   if (!name || !req.body.listId || !req.body.templateId) {
     return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
   }
@@ -555,6 +556,7 @@ async function createCampaign(req, res) {
     name,
     listId: req.body.listId,
     templateId: req.body.templateId,
+    recipientFilters,
     scheduledAt: scheduledAt.toISOString(),
     createdBy: req.user.username,
   });
@@ -563,6 +565,15 @@ async function createCampaign(req, res) {
 }
 
 async function previewCampaign(req, res) {
+  let recipientFilters = [];
+  if (req.query.filters) {
+    try {
+      recipientFilters = crmService.normalizeCampaignFilters(JSON.parse(req.query.filters));
+    } catch (error) {
+      if (error instanceof SyntaxError) return res.status(400).json({ error: 'Filtri destinatari non validi' });
+      throw error;
+    }
+  }
   const list = await crmRepo.getList(req.query.listId);
   const template = await crmRepo.getTemplate(req.query.templateId);
   if (!list || !template || template.status !== 'published') {
@@ -571,7 +582,7 @@ async function previewCampaign(req, res) {
   res.json({
     list: { id: list.id, name: list.name },
     template,
-    eligibleCount: await crmRepo.countEligibleContactsForList(list),
+    eligibleCount: await crmRepo.countEligibleContactsForList(list, recipientFilters),
   });
 }
 

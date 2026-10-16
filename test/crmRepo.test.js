@@ -111,6 +111,74 @@ test('lista sequenze senza duplicare gli step per iscrizione', async (t) => {
   assert.doesNotMatch(capturedSql, /LEFT JOIN crm_sequence_enrollments e ON e\.sequence_id = s\.id/);
 });
 
+test('conta i destinatari idonei applicando i filtri della campagna', async (t) => {
+  const originalQuery = db.query;
+  let captured;
+  db.query = async (sql, values) => {
+    captured = { sql, values };
+    return { rows: [{ count: 12 }] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  const count = await crmRepo.countEligibleContactsForList(
+    { id: '123e4567-e89b-12d3-a456-426614174000' },
+    [
+      { field: 'contactType', operator: 'equals', value: 'parent' },
+      { field: 'tags', operator: 'contains', value: 'webinar' },
+    ]
+  );
+
+  assert.equal(count, 12);
+  assert.match(captured.sql, /c\.contact_type = \$2/);
+  assert.match(captured.sql, /\$3 = ANY\(c\.tags\)/);
+  assert.deepEqual(captured.values, [
+    '123e4567-e89b-12d3-a456-426614174000',
+    'parent',
+    'webinar',
+  ]);
+});
+
+test('crea i job della campagna solo per i contatti che soddisfano i filtri', async (t) => {
+  const originalQuery = db.query;
+  const originalGetClient = db.getClient;
+  const calls = [];
+  db.query = async (sql) => {
+    if (sql.includes('FROM crm_lists')) return { rows: [{ id: 'list-1' }] };
+    if (sql.includes('FROM crm_email_templates')) return { rows: [{ id: 'template-1', status: 'published' }] };
+    return { rows: [] };
+  };
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.includes('INSERT INTO crm_email_campaigns')) return { rows: [{ id: 'campaign-1' }] };
+      if (sql.includes('SELECT c.id FROM crm_contacts')) return { rows: [{ id: 'contact-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE crm_email_campaigns')) return { rows: [{ id: 'campaign-1', total_count: 1 }] };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => {
+    db.query = originalQuery;
+    db.getClient = originalGetClient;
+  });
+
+  const campaign = await crmRepo.createCampaign({
+    name: 'Genitori webinar',
+    listId: 'list-1',
+    templateId: 'template-1',
+    recipientFilters: [{ field: 'contactType', operator: 'equals', value: 'parent' }],
+    scheduledAt: '2026-10-20T16:00:00.000Z',
+    createdBy: 'admin',
+  });
+
+  const contactQuery = calls.find((call) => call.sql.includes('SELECT c.id FROM crm_contacts'));
+  assert.match(contactQuery.sql, /c\.contact_type = \$2/);
+  assert.deepEqual(contactQuery.values, ['list-1', 'parent']);
+  assert.ok(calls.some((call) => call.sql.includes('INSERT INTO crm_email_jobs')));
+  assert.equal(campaign.total_count, 1);
+});
+
 test('crea e rinomina cartelle contenuto mantenendo il tipo', async (t) => {
   const originalQuery = db.query;
   const calls = [];

@@ -473,11 +473,15 @@
               <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
               <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
+              <section class="sequence-conditions span-2" id="campaignFiltersWrap">
+                <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span>Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>
+                <div id="campaignFilters"></div>
+              </section>
             </div>
             <div class="campaign-compose-grid">
               <section class="campaign-preview-card"><div class="section-heading compact"><div><h3>Anteprima</h3><span id="campaignPreviewSubject">Seleziona un template</span></div></div><iframe id="campaignPreview" title="Anteprima campagna" sandbox></iframe></section>
               <aside class="campaign-send-summary">
-                <div><span>Destinatari idonei</span><strong id="campaignEligibleCount">0</strong><small>Solo contatti iscritti con email valida.</small></div>
+                <div><span>Destinatari idonei</span><strong id="campaignEligibleCount">0</strong><small id="campaignEligibleNote">Solo contatti iscritti con email valida.</small></div>
                 <div class="form-field"><label for="campaignTestEmail">Email di prova</label><input id="campaignTestEmail" type="email" placeholder="nome@example.com" /></div>
                 <button class="secondary" type="button" id="sendCampaignTestBtn">Invia email di prova</button>
               </aside>
