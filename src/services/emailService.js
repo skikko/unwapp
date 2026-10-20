@@ -617,6 +617,10 @@ async function processDueJobs({ limit = 25 } = {}) {
         processed += 1;
         continue;
       }
+      let materializedCampaign;
+      do {
+        materializedCampaign = await crmRepo.materializeNextDueCampaign();
+      } while (materializedCampaign && materializedCampaign.total_count === 0);
       const job = await crmRepo.claimDueJob();
       if (!job) break;
       try {

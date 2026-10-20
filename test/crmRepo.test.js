@@ -138,7 +138,7 @@ test('conta i destinatari idonei applicando i filtri della campagna', async (t) 
   ]);
 });
 
-test('crea i job della campagna solo per i contatti che soddisfano i filtri', async (t) => {
+test('crea una campagna dinamica senza congelare i destinatari', async (t) => {
   const originalQuery = db.query;
   const originalGetClient = db.getClient;
   const calls = [];
@@ -151,7 +151,7 @@ test('crea i job della campagna solo per i contatti che soddisfano i filtri', as
     async query(sql, values = []) {
       calls.push({ sql, values });
       if (sql.includes('INSERT INTO crm_email_campaigns')) return { rows: [{ id: 'campaign-1' }] };
-      if (sql.includes('INSERT INTO crm_email_jobs')) return { rows: [{ id: 'job-1' }], rowCount: 1 };
+      if (sql.startsWith('SELECT count(*)::int AS count FROM crm_contacts')) return { rows: [{ count: 1 }] };
       if (sql.includes('UPDATE crm_email_campaigns')) return { rows: [{ id: 'campaign-1', total_count: 1 }] };
       return { rows: [], rowCount: 1 };
     },
@@ -172,19 +172,14 @@ test('crea i job della campagna solo per i contatti che soddisfano i filtri', as
     createdBy: 'admin',
   });
 
-  const jobsQuery = calls.find((call) => call.sql.includes('INSERT INTO crm_email_jobs'));
-  assert.match(jobsQuery.sql, /c\.contact_type = \$5/);
-  assert.deepEqual(jobsQuery.values, [
-    'campaign-1',
-    'template-1',
-    '2026-10-20T16:00:00.000Z',
-    'list-1',
-    'parent',
-  ]);
+  const estimateQuery = calls.find((call) => call.sql.startsWith('SELECT count(*)::int AS count FROM crm_contacts'));
+  assert.match(estimateQuery.sql, /c\.contact_type = \$2/);
+  assert.deepEqual(estimateQuery.values, ['list-1', 'parent']);
+  assert.equal(calls.some((call) => call.sql.includes('INSERT INTO crm_email_jobs')), false);
   assert.equal(campaign.total_count, 1);
 });
 
-test('modifica atomicamente una campagna in coda e rigenera i destinatari', async (t) => {
+test('modifica atomicamente una campagna in coda mantenendo i destinatari dinamici', async (t) => {
   const originalGetClient = db.getClient;
   const calls = [];
   const client = {
@@ -194,10 +189,13 @@ test('modifica atomicamente una campagna in coda e rigenera i destinatari', asyn
         return { rows: [{ id: 'job-old', status: 'pending' }] };
       }
       if (sql.startsWith('SELECT * FROM crm_email_campaigns')) {
-        return { rows: [{ id: 'campaign-1', status: 'queued', total_count: 1 }] };
+        return { rows: [{
+          id: 'campaign-1', status: 'queued', total_count: 1,
+          recipients_materialized_at: null, scheduled_at: '2026-10-20T16:00:00.000Z',
+        }] };
       }
       if (sql.includes('AS list_exists')) return { rows: [{ list_exists: true, template_exists: true }] };
-      if (sql.includes('INSERT INTO crm_email_jobs')) return { rows: [{ id: 'job-new' }], rowCount: 1 };
+      if (sql.startsWith('SELECT count(*)::int AS count FROM crm_contacts')) return { rows: [{ count: 1 }] };
       if (sql.includes('SET total_count=')) return { rows: [{ id: 'campaign-1', total_count: 1, status: 'queued' }] };
       return { rows: [], rowCount: 1 };
     },
@@ -219,7 +217,111 @@ test('modifica atomicamente una campagna in coda e rigenera i destinatari', asyn
   assert.ok(jobsLockIndex < campaignLockIndex);
   assert.ok(calls.some((call) => call.sql.startsWith('DELETE FROM crm_email_jobs')));
   assert.ok(calls.some((call) => call.sql.includes('recipient_filters=$5')));
+  assert.equal(calls.some((call) => call.sql.includes('INSERT INTO crm_email_jobs')), false);
   assert.equal(campaign.status, 'queued');
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+});
+
+test('materializza alla scadenza i contatti correnti della lista', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.includes('LIMIT 1 FOR UPDATE SKIP LOCKED')) {
+        return { rows: [{
+          id: 'campaign-1', status: 'queued', list_id: 'list-1', template_id: 'template-1',
+          recipient_filters: [{ field: 'contactType', operator: 'equals', value: 'parent' }],
+          scheduled_at: '2026-10-20T16:00:00.000Z',
+        }] };
+      }
+      if (sql.startsWith('SELECT count(*)::int AS count FROM crm_email_jobs')) return { rows: [{ count: 0 }] };
+      if (sql.includes('INSERT INTO crm_email_jobs')) return { rows: [{ id: 'job-1' }, { id: 'job-2' }], rowCount: 2 };
+      if (sql.includes('SET total_count=')) {
+        return { rows: [{ id: 'campaign-1', status: 'queued', total_count: 2, recipients_materialized_at: new Date() }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  const campaign = await crmRepo.materializeNextDueCampaign();
+
+  const jobsQuery = calls.find((call) => call.sql.includes('INSERT INTO crm_email_jobs'));
+  assert.match(jobsQuery.sql, /c\.contact_type = \$5/);
+  assert.deepEqual(jobsQuery.values, [
+    'campaign-1',
+    'template-1',
+    '2026-10-20T16:00:00.000Z',
+    'list-1',
+    'parent',
+  ]);
+  assert.equal(campaign.total_count, 2);
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+});
+
+test('blocca la modifica dopo il calcolo definitivo dei destinatari', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.includes('SELECT id,status FROM crm_email_jobs')) {
+        return { rows: [{ id: 'job-1', status: 'pending' }] };
+      }
+      if (sql.startsWith('SELECT * FROM crm_email_campaigns')) {
+        return { rows: [{
+          id: 'campaign-1', status: 'queued', total_count: 1,
+          scheduled_at: '2026-10-20T16:00:00.000Z',
+          recipients_materialized_at: '2026-10-20T16:00:01.000Z',
+        }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  await assert.rejects(
+    () => crmRepo.updateCampaign('campaign-1', {
+      name: 'Troppo tardi',
+      listId: 'list-1',
+      templateId: 'template-1',
+      recipientFilters: [],
+      scheduledAt: '2026-10-21T16:00:00.000Z',
+    }),
+    (error) => error.status === 409 && /queued campaigns/.test(error.message)
+  );
+  assert.equal(calls.at(-1).sql, 'ROLLBACK');
+});
+
+test('non duplica i job creati dalla versione precedente durante il deploy', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.includes('LIMIT 1 FOR UPDATE SKIP LOCKED')) {
+        return { rows: [{ id: 'campaign-1', status: 'queued', total_count: 3 }] };
+      }
+      if (sql.startsWith('SELECT count(*)::int AS count FROM crm_email_jobs')) return { rows: [{ count: 3 }] };
+      if (sql.includes('SET recipients_materialized_at=')) {
+        return { rows: [{ id: 'campaign-1', status: 'queued', total_count: 3 }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  const campaign = await crmRepo.materializeNextDueCampaign();
+
+  assert.equal(campaign.total_count, 3);
+  assert.equal(calls.some((call) => call.sql.includes('INSERT INTO crm_email_jobs')), false);
   assert.equal(calls.at(-1).sql, 'COMMIT');
 });
 

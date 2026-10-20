@@ -2885,16 +2885,29 @@ async function loadCampaigns() {
   state.campaigns = campaigns;
   $('campaignsGrid').innerHTML = campaigns.length ? campaigns.map((campaign) => {
     const done = campaign.sent_count + campaign.failed_count;
-    const percentage = campaign.total_count ? Math.round((done / campaign.total_count) * 100) : 100;
+    const materialized = Boolean(campaign.recipients_materialized_at);
+    const percentage = materialized && campaign.total_count
+      ? Math.round((done / campaign.total_count) * 100)
+      : 0;
     const zeroRecipientFutureCampaign = campaign.status === 'completed'
       && campaign.total_count === 0
       && new Date(campaign.scheduled_at).getTime() > Date.now();
-    const editable = campaign.status === 'queued' || zeroRecipientFutureCampaign;
+    const materializedAtSendTime = materialized
+      && new Date(campaign.recipients_materialized_at).getTime()
+        >= new Date(campaign.scheduled_at).getTime();
+    const editable = (campaign.status === 'queued' || zeroRecipientFutureCampaign)
+      && !materializedAtSendTime;
     const duplicable = campaign.list_id && campaign.template_id;
+    const recipientSummary = materialized
+      ? `${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali`
+      : `${campaign.total_count} destinatari stimati, calcolo definitivo all'avvio`;
+    const detailsAction = materialized
+      ? `<button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>`
+      : '<span>La lista resta dinamica fino all’orario di invio</span>';
     const writeActions = can('crm:write')
       ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
       : '';
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${recipientSummary}</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span>${detailsAction}${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
   document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));

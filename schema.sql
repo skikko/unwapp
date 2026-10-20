@@ -459,6 +459,7 @@ CREATE TABLE IF NOT EXISTS crm_email_campaigns (
   sent_count         INT NOT NULL DEFAULT 0,
   failed_count       INT NOT NULL DEFAULT 0,
   recipient_filters  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  recipients_materialized_at TIMESTAMPTZ,
   scheduled_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by         TEXT NOT NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -468,6 +469,9 @@ ALTER TABLE crm_email_campaigns DROP CONSTRAINT IF EXISTS crm_email_campaigns_re
 ALTER TABLE crm_email_campaigns ADD CONSTRAINT crm_email_campaigns_recipient_filters_check
   CHECK (recipient_filters IS NULL OR jsonb_typeof(recipient_filters) = 'array');
 CREATE INDEX IF NOT EXISTS idx_crm_campaigns_recent ON crm_email_campaigns (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crm_campaigns_due_materialization
+  ON crm_email_campaigns (scheduled_at, created_at)
+  WHERE recipients_materialized_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS crm_email_jobs (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

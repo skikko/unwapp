@@ -1401,9 +1401,37 @@ async function materializeCampaignJobs(client, campaignId, input) {
     `UPDATE crm_email_campaigns
      SET total_count=$2,sent_count=0,failed_count=0,
          status=CASE WHEN $2=0 THEN 'completed' ELSE 'queued' END,
-         completed_at=CASE WHEN $2=0 THEN now() ELSE NULL END
+         completed_at=CASE WHEN $2=0 THEN now() ELSE NULL END,
+         recipients_materialized_at=now()
      WHERE id=$1 RETURNING *`,
     [campaignId, jobs.rowCount]
+  );
+  return rows[0];
+}
+
+async function estimateCampaignRecipients(client, input) {
+  const compiled = compileListFilter({ id: input.listId });
+  const recipientFilter = compileSequenceConditions(
+    input.recipientFilters || [],
+    compiled.values.length + 1
+  );
+  const { rows } = await client.query(
+    `SELECT count(*)::int AS count FROM crm_contacts c
+     WHERE ${compiled.clause} AND ${recipientFilter.clause}
+       AND c.email_normalized IS NOT NULL AND c.email_status='subscribed'`,
+    [...compiled.values, ...recipientFilter.values]
+  );
+  return rows[0].count;
+}
+
+async function updateCampaignEstimate(client, campaignId, input) {
+  const estimatedCount = await estimateCampaignRecipients(client, input);
+  const { rows } = await client.query(
+    `UPDATE crm_email_campaigns
+     SET total_count=$2,sent_count=0,failed_count=0,status='queued',
+         completed_at=NULL,recipients_materialized_at=NULL
+     WHERE id=$1 RETURNING *`,
+    [campaignId, estimatedCount]
   );
   return rows[0];
 }
@@ -1423,7 +1451,7 @@ async function createCampaign(input) {
        input.scheduledAt, input.createdBy]
     );
     const campaign = campaignResult.rows[0];
-    const updated = await materializeCampaignJobs(client, campaign.id, input);
+    const updated = await updateCampaignEstimate(client, campaign.id, input);
     await client.query('COMMIT');
     return updated;
   } catch (error) {
@@ -1449,7 +1477,11 @@ async function lockEditableCampaign(client, id) {
   const zeroRecipientFutureCampaign = campaign.status === 'completed'
     && campaign.total_count === 0
     && new Date(campaign.scheduled_at).getTime() > Date.now();
+  const materializedAtSendTime = campaign.recipients_materialized_at
+    && new Date(campaign.recipients_materialized_at).getTime()
+      >= new Date(campaign.scheduled_at).getTime();
   if ((campaign.status !== 'queued' && !zeroRecipientFutureCampaign)
+      || materializedAtSendTime
       || jobs.rows.some((job) => job.status !== 'pending')) {
     throw Object.assign(new Error('Only queued campaigns can be changed'), { status: 409 });
   }
@@ -1504,9 +1536,67 @@ async function updateCampaign(id, input) {
       [id, input.name, input.listId, input.templateId,
        JSON.stringify(input.recipientFilters || []), input.scheduledAt]
     );
-    const updated = await materializeCampaignJobs(client, id, input);
+    const updated = await updateCampaignEstimate(client, id, input);
     await client.query('COMMIT');
     return updated;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function materializeNextDueCampaign() {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT * FROM crm_email_campaigns
+       WHERE recipients_materialized_at IS NULL
+         AND scheduled_at <= now()
+         AND (status='queued' OR (status='completed' AND total_count=0))
+       ORDER BY scheduled_at ASC,created_at ASC
+       LIMIT 1 FOR UPDATE SKIP LOCKED`
+    );
+    const campaign = rows[0];
+    if (!campaign) {
+      await client.query('COMMIT');
+      return null;
+    }
+    const existingJobs = await client.query(
+      'SELECT count(*)::int AS count FROM crm_email_jobs WHERE campaign_id=$1',
+      [campaign.id]
+    );
+    if (existingJobs.rows[0].count > 0) {
+      const normalized = await client.query(
+        `UPDATE crm_email_campaigns
+         SET recipients_materialized_at=now()
+         WHERE id=$1 RETURNING *`,
+        [campaign.id]
+      );
+      await client.query('COMMIT');
+      return normalized.rows[0];
+    }
+    if (!campaign.list_id || !campaign.template_id) {
+      const failed = await client.query(
+        `UPDATE crm_email_campaigns
+         SET status='failed',total_count=0,failed_count=0,
+             completed_at=now(),recipients_materialized_at=now()
+         WHERE id=$1 RETURNING *`,
+        [campaign.id]
+      );
+      await client.query('COMMIT');
+      return failed.rows[0];
+    }
+    const materialized = await materializeCampaignJobs(client, campaign.id, {
+      listId: campaign.list_id,
+      templateId: campaign.template_id,
+      recipientFilters: campaign.recipient_filters || [],
+      scheduledAt: campaign.scheduled_at,
+    });
+    await client.query('COMMIT');
+    return materialized;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -2508,6 +2598,7 @@ module.exports = {
   createCampaign,
   updateCampaign,
   deleteCampaign,
+  materializeNextDueCampaign,
   countEligibleContactsForList,
   listCampaigns,
   listCampaignJobs,
