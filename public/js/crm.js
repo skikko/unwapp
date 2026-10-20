@@ -2898,9 +2898,10 @@ async function loadCampaigns() {
     const editable = (campaign.status === 'queued' || zeroRecipientFutureCampaign)
       && !materializedAtSendTime;
     const duplicable = campaign.list_id && campaign.template_id;
+    const estimatedCount = campaign.estimated_count ?? campaign.total_count;
     const recipientSummary = materialized
       ? `${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali`
-      : `${campaign.total_count} destinatari stimati, calcolo definitivo all'avvio`;
+      : `${estimatedCount} destinatari stimati, calcolo definitivo all'avvio`;
     const detailsAction = materialized
       ? `<button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>`
       : '<span>La lista resta dinamica fino all’orario di invio</span>';

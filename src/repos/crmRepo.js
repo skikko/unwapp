@@ -1648,7 +1648,14 @@ async function listCampaigns() {
      LEFT JOIN crm_email_templates t ON t.id = c.template_id
      ORDER BY c.created_at DESC LIMIT 100`
   );
-  return rows;
+  return Promise.all(rows.map(async (campaign) => {
+    if (campaign.recipients_materialized_at || !campaign.list_id) return campaign;
+    const estimatedCount = await countEligibleContactsForList(
+      { id: campaign.list_id },
+      campaign.recipient_filters || []
+    );
+    return { ...campaign, estimated_count: estimatedCount };
+  }));
 }
 
 async function listCampaignJobs(campaignId, { limit = 250, offset = 0 } = {}) {

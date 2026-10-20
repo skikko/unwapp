@@ -179,6 +179,45 @@ test('crea una campagna dinamica senza congelare i destinatari', async (t) => {
   assert.equal(campaign.total_count, 1);
 });
 
+test('ricalcola la stima delle campagne non ancora materializzate', async (t) => {
+  const originalQuery = db.query;
+  const calls = [];
+  db.query = async (sql, values = []) => {
+    calls.push({ sql, values });
+    if (sql.includes('FROM crm_email_campaigns c')) {
+      return { rows: [
+        {
+          id: 'campaign-dynamic',
+          list_id: 'list-1',
+          recipient_filters: [{ field: 'contactType', operator: 'equals', value: 'parent' }],
+          recipients_materialized_at: null,
+          total_count: 84,
+        },
+        {
+          id: 'campaign-sent',
+          list_id: 'list-1',
+          recipient_filters: [],
+          recipients_materialized_at: '2026-10-20T16:00:00.000Z',
+          total_count: 84,
+        },
+      ] };
+    }
+    if (sql.startsWith('SELECT count(*)::int AS count FROM crm_contacts')) {
+      return { rows: [{ count: 127 }] };
+    }
+    return { rows: [] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  const campaigns = await crmRepo.listCampaigns();
+
+  assert.equal(campaigns[0].estimated_count, 127);
+  assert.equal(campaigns[1].estimated_count, undefined);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].sql, /c\.contact_type = \$2/);
+  assert.deepEqual(calls[1].values, ['list-1', 'parent']);
+});
+
 test('modifica atomicamente una campagna in coda mantenendo i destinatari dinamici', async (t) => {
   const originalGetClient = db.getClient;
   const calls = [];
