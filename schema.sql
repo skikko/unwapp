@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS crm_contact_statuses (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_crm_contact_statuses_name
   ON crm_contact_statuses (lower(name));
 INSERT INTO crm_contact_statuses (name, sort_order)
-VALUES ('Lead',10),('Richiesta di contatto',20),('Contattato',30),('Iscritto',40),('Pagante',50)
+VALUES ('Lead',10),('Richiesta di contatto',20),('Iscritto Primo Step',30),('Contattato',40),('Iscritto',50),('Pagante',60)
 ON CONFLICT (lower(name)) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS crm_contacts (
@@ -284,6 +284,25 @@ ALTER TABLE crm_contacts DROP CONSTRAINT IF EXISTS crm_contacts_email_status_che
 ALTER TABLE crm_contacts ADD CONSTRAINT crm_contacts_email_status_check
   CHECK (email_status IN ('unknown','subscribed','unsubscribed','bounced'));
 
+CREATE OR REPLACE FUNCTION crm_set_default_contact_status() RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.contact_status_id IS NULL THEN
+    SELECT status.id
+    INTO NEW.contact_status_id
+    FROM crm_contact_statuses status
+    WHERE lower(status.name) = lower('Lead')
+    LIMIT 1;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_crm_contacts_default_status ON crm_contacts;
+CREATE TRIGGER trg_crm_contacts_default_status
+BEFORE INSERT ON crm_contacts
+FOR EACH ROW EXECUTE FUNCTION crm_set_default_contact_status();
+
 CREATE TABLE IF NOT EXISTS crm_lists (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name               TEXT NOT NULL,
@@ -296,6 +315,11 @@ CREATE TABLE IF NOT EXISTS crm_lists (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_lists_favorite_updated
   ON crm_lists (is_favorite DESC, updated_at DESC);
+INSERT INTO crm_lists (name, description, filter_json, created_by)
+SELECT 'Primo Step su CRM Lefol','Contatti iscritti al Primo Step LEFOL','{}'::jsonb,'schema'
+WHERE NOT EXISTS (
+  SELECT 1 FROM crm_lists WHERE lower(name)=lower('Primo Step su CRM Lefol')
+);
 
 CREATE TABLE IF NOT EXISTS crm_list_memberships (
   list_id            UUID NOT NULL REFERENCES crm_lists(id) ON DELETE CASCADE,
@@ -329,6 +353,73 @@ CREATE TABLE IF NOT EXISTS crm_contact_events (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_contact_events_contact
   ON crm_contact_events (contact_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION crm_apply_list_contact_status() RETURNS TRIGGER AS $$
+DECLARE
+  target_list_name TEXT;
+  target_status_id UUID;
+  target_status_name TEXT;
+  updated_rows INT;
+BEGIN
+  SELECT lower(list.name)
+  INTO target_list_name
+  FROM crm_lists list
+  WHERE list.id = NEW.list_id;
+
+  IF target_list_name IN ('da ricontattare', 'last call lefol', 'last call lefol crm') THEN
+    target_status_name := 'Richiesta di contatto';
+  ELSIF target_list_name = 'primo step su crm lefol' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM crm_list_memberships membership
+      JOIN crm_lists list ON list.id = membership.list_id
+      WHERE membership.contact_id = NEW.contact_id
+        AND lower(list.name) IN ('da ricontattare', 'last call lefol', 'last call lefol crm')
+    ) THEN
+      RETURN NEW;
+    END IF;
+
+    target_status_name := 'Iscritto Primo Step';
+  ELSE
+    RETURN NEW;
+  END IF;
+
+  SELECT status.id
+  INTO target_status_id
+  FROM crm_contact_statuses status
+  WHERE lower(status.name) = lower(target_status_name)
+  LIMIT 1;
+
+  UPDATE crm_contacts contact
+  SET contact_status_id = target_status_id,
+      updated_at = now()
+  WHERE contact.id = NEW.contact_id
+    AND contact.contact_status_id IS DISTINCT FROM target_status_id;
+
+  GET DIAGNOSTICS updated_rows = ROW_COUNT;
+
+  IF updated_rows > 0 THEN
+    INSERT INTO crm_contact_events (contact_id, event_type, event_data, actor)
+    VALUES (
+      NEW.contact_id,
+      'contact_status_changed',
+      jsonb_build_object(
+        'status', target_status_name,
+        'listId', NEW.list_id,
+        'source', NEW.source
+      ),
+      'status_rule'
+    );
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_crm_list_membership_status ON crm_list_memberships;
+CREATE TRIGGER trg_crm_list_membership_status
+AFTER INSERT ON crm_list_memberships
+FOR EACH ROW EXECUTE FUNCTION crm_apply_list_contact_status();
 
 CREATE TABLE IF NOT EXISTS crm_content_folders (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
