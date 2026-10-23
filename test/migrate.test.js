@@ -9,7 +9,7 @@ test('calcola checksum stabili per le migrazioni', () => {
 
 test('ordina le migrazioni e include le migrazioni CRM', () => {
   const files = migrationService.migrationFiles();
-  assert.equal(files.at(-1).filename, '028_crm_lefol_contact_status_workflow.sql');
+  assert.equal(files.at(-1).filename, '029_crm_reconcile_lefol_students.sql');
   assert.ok(files.some((file) => file.filename === '010_crm_operations.sql'));
   assert.ok(files.some((file) => file.filename === '021_crm_template_builder.sql'));
   assert.ok(files.some((file) => file.filename === '023_crm_favorite_lists.sql'));
@@ -18,6 +18,7 @@ test('ordina le migrazioni e include le migrazioni CRM', () => {
   assert.ok(files.some((file) => file.filename === '026_crm_dynamic_campaign_recipients.sql'));
   assert.ok(files.some((file) => file.filename === '027_crm_convert_future_campaigns_to_dynamic.sql'));
   assert.ok(files.some((file) => file.filename === '028_crm_lefol_contact_status_workflow.sql'));
+  assert.ok(files.some((file) => file.filename === '029_crm_reconcile_lefol_students.sql'));
   assert.deepEqual(files.map((file) => file.filename), files.map((file) => file.filename).sort());
 });
 
