@@ -564,6 +564,15 @@ CREATE INDEX IF NOT EXISTS idx_crm_campaigns_due_materialization
   ON crm_email_campaigns (scheduled_at, created_at)
   WHERE recipients_materialized_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS crm_email_campaign_lists (
+  campaign_id UUID NOT NULL REFERENCES crm_email_campaigns(id) ON DELETE CASCADE,
+  list_id     UUID NOT NULL REFERENCES crm_lists(id) ON DELETE RESTRICT,
+  mode        TEXT NOT NULL CHECK (mode IN ('include', 'exclude')),
+  PRIMARY KEY (campaign_id, list_id, mode)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_campaign_lists_list
+  ON crm_email_campaign_lists (list_id, mode, campaign_id);
+
 CREATE TABLE IF NOT EXISTS crm_email_jobs (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   kind               TEXT NOT NULL CHECK (kind IN ('campaign','sequence')),

@@ -138,6 +138,28 @@ test('conta i destinatari idonei applicando i filtri della campagna', async (t) 
   ]);
 });
 
+test('unisce più liste ed esclude i contatti presenti nelle liste di blocco', () => {
+  const result = crmRepo.compileCampaignAudience(
+    [
+      '123e4567-e89b-12d3-a456-426614174000',
+      '123e4567-e89b-12d3-a456-426614174001',
+    ],
+    ['123e4567-e89b-12d3-a456-426614174002'],
+    3
+  );
+
+  assert.match(result.clause, /lm\.list_id = ANY\(\$3::uuid\[\]\)/);
+  assert.match(result.clause, /excluded\.list_id = ANY\(\$4::uuid\[\]\)/);
+  assert.match(result.clause, /NOT EXISTS/);
+  assert.deepEqual(result.values, [
+    [
+      '123e4567-e89b-12d3-a456-426614174000',
+      '123e4567-e89b-12d3-a456-426614174001',
+    ],
+    ['123e4567-e89b-12d3-a456-426614174002'],
+  ]);
+});
+
 test('crea una campagna dinamica senza congelare i destinatari', async (t) => {
   const originalQuery = db.query;
   const originalGetClient = db.getClient;

@@ -472,7 +472,8 @@
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
               <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
               <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
-              <div class="form-field"><label for="campaignList">Lista</label><select id="campaignList" required></select></div>
+              <div class="form-field"><label for="campaignList">Liste incluse</label><select id="campaignList" multiple size="6" required></select><small>Seleziona una o più liste. I contatti presenti in più liste ricevono una sola email.</small></div>
+              <div class="form-field"><label for="campaignExcludedLists">Liste escluse</label><select id="campaignExcludedLists" multiple size="6"></select><small>I contatti presenti in una di queste liste non riceveranno la campagna.</small></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
               <section class="sequence-conditions span-2" id="campaignFiltersWrap">
                 <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span id="campaignFiltersHelp">Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>

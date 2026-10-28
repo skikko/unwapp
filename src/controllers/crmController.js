@@ -546,9 +546,17 @@ function campaignSchedule(body) {
 }
 
 function campaignInput(body) {
+  const listIds = crmService.normalizeListIds(
+    Array.isArray(body.listIds) && body.listIds.length ? body.listIds : [body.listId]
+  );
+  const included = new Set(listIds);
+  const excludedListIds = crmService.normalizeListIds(body.excludedListIds)
+    .filter((listId) => !included.has(listId));
   return {
     name: String(body.name || '').trim(),
-    listId: body.listId,
+    listId: listIds[0] || null,
+    listIds,
+    excludedListIds,
     templateId: body.templateId,
     recipientFilters: crmService.normalizeCampaignFilters(body.recipientFilters),
     preserveRecipients: body.preserveRecipients === true,
@@ -558,8 +566,8 @@ function campaignInput(body) {
 async function createCampaign(req, res) {
   await ensureSender();
   const input = campaignInput(req.body);
-  if (!input.name || !input.listId || !input.templateId) {
-    return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
+  if (!input.name || !input.listIds.length || !input.templateId) {
+    return res.status(400).json({ error: 'Nome, almeno una lista e template sono obbligatori' });
   }
   const schedule = campaignSchedule(req.body);
   if (schedule.error) return res.status(400).json({ error: schedule.error });
@@ -575,8 +583,8 @@ async function createCampaign(req, res) {
 async function updateCampaign(req, res) {
   await ensureSender();
   const input = campaignInput(req.body);
-  if (!input.name || !input.listId || !input.templateId) {
-    return res.status(400).json({ error: 'Nome, lista e template sono obbligatori' });
+  if (!input.name || !input.listIds.length || !input.templateId) {
+    return res.status(400).json({ error: 'Nome, almeno una lista e template sono obbligatori' });
   }
   const schedule = campaignSchedule(req.body);
   if (schedule.error) return res.status(400).json({ error: schedule.error });
@@ -604,7 +612,11 @@ async function previewCampaign(req, res) {
       throw error;
     }
   }
-  const list = await crmRepo.getList(req.query.listId);
+  const listIds = crmService.normalizeListIds(req.query.listIds || req.query.listId);
+  const included = new Set(listIds);
+  const excludedListIds = crmService.normalizeListIds(req.query.excludedListIds)
+    .filter((listId) => !included.has(listId));
+  const list = listIds.length ? await crmRepo.getList(listIds[0]) : null;
   const template = await crmRepo.getTemplate(req.query.templateId);
   if (!list || !template || template.status !== 'published') {
     return res.status(404).json({ error: 'Lista o template pubblicato non trovato' });
@@ -612,7 +624,7 @@ async function previewCampaign(req, res) {
   res.json({
     list: { id: list.id, name: list.name },
     template,
-    eligibleCount: await crmRepo.countEligibleContactsForList(list, recipientFilters),
+    eligibleCount: await crmRepo.countEligibleContactsForLists(listIds, excludedListIds, recipientFilters),
   });
 }
 

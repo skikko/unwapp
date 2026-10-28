@@ -47,6 +47,34 @@ function compileListFilter(list, startIndex = 1) {
   };
 }
 
+function campaignAudience(input = {}) {
+  const listIds = [...new Set((Array.isArray(input.listIds) && input.listIds.length
+    ? input.listIds : [input.listId]).filter(Boolean))];
+  const included = new Set(listIds);
+  const excludedListIds = [...new Set((input.excludedListIds || []).filter((id) => id && !included.has(id)))];
+  return { listIds, excludedListIds };
+}
+
+function compileCampaignAudience(listIds, excludedListIds = [], startIndex = 1) {
+  if (listIds.length === 1 && excludedListIds.length === 0) {
+    return compileListFilter({ id: listIds[0] }, startIndex);
+  }
+  const values = [listIds];
+  const includeToken = `$${startIndex}`;
+  const clauses = [`EXISTS (
+    SELECT 1 FROM crm_list_memberships lm
+    WHERE lm.list_id = ANY(${includeToken}::uuid[]) AND lm.contact_id = c.id
+  )`];
+  if (excludedListIds.length) {
+    values.push(excludedListIds);
+    clauses.push(`NOT EXISTS (
+      SELECT 1 FROM crm_list_memberships excluded
+      WHERE excluded.list_id = ANY($${startIndex + 1}::uuid[]) AND excluded.contact_id = c.id
+    )`);
+  }
+  return { clause: clauses.join(' AND '), values };
+}
+
 const SEQUENCE_CONDITION_COLUMNS = {
   contactType: 'c.contact_type',
   contactStatusId: 'c.contact_status_id',
@@ -1382,7 +1410,8 @@ async function processSequenceTriggers() {
 }
 
 async function materializeCampaignJobs(client, campaignId, input) {
-  const compiled = compileListFilter({ id: input.listId }, 4);
+  const audience = campaignAudience(input);
+  const compiled = compileCampaignAudience(audience.listIds, audience.excludedListIds, 4);
   const recipientFilter = compileSequenceConditions(
     input.recipientFilters || [],
     4 + compiled.values.length
@@ -1410,7 +1439,8 @@ async function materializeCampaignJobs(client, campaignId, input) {
 }
 
 async function estimateCampaignRecipients(client, input) {
-  const compiled = compileListFilter({ id: input.listId });
+  const audience = campaignAudience(input);
+  const compiled = compileCampaignAudience(audience.listIds, audience.excludedListIds);
   const recipientFilter = compileSequenceConditions(
     input.recipientFilters || [],
     compiled.values.length + 1
@@ -1437,21 +1467,27 @@ async function updateCampaignEstimate(client, campaignId, input) {
 }
 
 async function createCampaign(input) {
-  const list = await getList(input.listId);
+  const audience = campaignAudience(input);
+  const list = await getList(audience.listIds[0]);
   const template = await getTemplate(input.templateId);
   if (!list || !template || template.status !== 'published') return null;
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
+    if ((audience.listIds.length + audience.excludedListIds.length) > 1
+        && !await verifyCampaignTargets(client, { ...input, ...audience })) {
+      throw Object.assign(new Error('Campaign list or published template not found'), { status: 404 });
+    }
     const campaignResult = await client.query(
       `INSERT INTO crm_email_campaigns
        (name,list_id,template_id,recipient_filters,scheduled_at,created_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [input.name, input.listId, input.templateId, JSON.stringify(input.recipientFilters || []),
+      [input.name, audience.listIds[0], input.templateId, JSON.stringify(input.recipientFilters || []),
        input.scheduledAt, input.createdBy]
     );
     const campaign = campaignResult.rows[0];
-    const updated = await updateCampaignEstimate(client, campaign.id, input);
+    await saveCampaignAudience(client, campaign.id, audience);
+    const updated = await updateCampaignEstimate(client, campaign.id, { ...input, ...audience });
     await client.query('COMMIT');
     return updated;
   } catch (error) {
@@ -1489,16 +1525,50 @@ async function lockEditableCampaign(client, id) {
 }
 
 async function verifyCampaignTargets(client, input) {
+  const audience = campaignAudience(input);
+  const targetIds = [...new Set([...audience.listIds, ...audience.excludedListIds])];
   const { rows } = await client.query(
     `SELECT
-       EXISTS (SELECT 1 FROM crm_lists WHERE id=$1) AS list_exists,
+       (SELECT count(*)::int FROM crm_lists WHERE id=ANY($1::uuid[])) = $3 AS list_exists,
        EXISTS (SELECT 1 FROM crm_email_templates WHERE id=$2 AND status='published') AS template_exists`,
-    [input.listId, input.templateId]
+    [targetIds, input.templateId, targetIds.length]
   );
   return rows[0]?.list_exists && rows[0]?.template_exists;
 }
 
+async function saveCampaignAudience(client, campaignId, input) {
+  const audience = campaignAudience(input);
+  await client.query('DELETE FROM crm_email_campaign_lists WHERE campaign_id=$1', [campaignId]);
+  if (audience.listIds.length) {
+    await client.query(
+      `INSERT INTO crm_email_campaign_lists (campaign_id,list_id,mode)
+       SELECT $1,list_id,'include' FROM unnest($2::uuid[]) AS list_id`,
+      [campaignId, audience.listIds]
+    );
+  }
+  if (audience.excludedListIds.length) {
+    await client.query(
+      `INSERT INTO crm_email_campaign_lists (campaign_id,list_id,mode)
+       SELECT $1,list_id,'exclude' FROM unnest($2::uuid[]) AS list_id`,
+      [campaignId, audience.excludedListIds]
+    );
+  }
+}
+
+async function loadCampaignAudience(client, campaign) {
+  const { rows } = await client.query(
+    `SELECT
+       coalesce(array_agg(list_id ORDER BY list_id) FILTER (WHERE mode='include'),'{}'::uuid[]) AS list_ids,
+       coalesce(array_agg(list_id ORDER BY list_id) FILTER (WHERE mode='exclude'),'{}'::uuid[]) AS excluded_list_ids
+     FROM crm_email_campaign_lists WHERE campaign_id=$1`,
+    [campaign.id]
+  );
+  const listIds = rows[0]?.list_ids?.length ? rows[0].list_ids : [campaign.list_id].filter(Boolean);
+  return { listIds, excludedListIds: rows[0]?.excluded_list_ids || [] };
+}
+
 async function updateCampaign(id, input) {
+  const audience = campaignAudience(input);
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -1507,11 +1577,12 @@ async function updateCampaign(id, input) {
       await client.query('COMMIT');
       return null;
     }
-    if (!await verifyCampaignTargets(client, input)) {
+    if (!await verifyCampaignTargets(client, { ...input, ...audience })) {
       throw Object.assign(new Error('Campaign list or published template not found'), { status: 404 });
     }
     if (input.preserveRecipients) {
-      if (campaign.recipient_filters !== null || campaign.list_id !== input.listId) {
+      if (campaign.recipient_filters !== null || campaign.list_id !== audience.listIds[0]
+          || audience.listIds.length !== 1 || audience.excludedListIds.length) {
         throw Object.assign(new Error('Legacy campaign recipients cannot be reassigned'), { status: 400 });
       }
       await client.query(
@@ -1533,10 +1604,11 @@ async function updateCampaign(id, input) {
       `UPDATE crm_email_campaigns SET
          name=$2,list_id=$3,template_id=$4,recipient_filters=$5,scheduled_at=$6
        WHERE id=$1`,
-      [id, input.name, input.listId, input.templateId,
+      [id, input.name, audience.listIds[0], input.templateId,
        JSON.stringify(input.recipientFilters || []), input.scheduledAt]
     );
-    const updated = await updateCampaignEstimate(client, id, input);
+    await saveCampaignAudience(client, id, audience);
+    const updated = await updateCampaignEstimate(client, id, { ...input, ...audience });
     await client.query('COMMIT');
     return updated;
   } catch (error) {
@@ -1589,8 +1661,9 @@ async function materializeNextDueCampaign() {
       await client.query('COMMIT');
       return failed.rows[0];
     }
+    const audience = await loadCampaignAudience(client, campaign);
     const materialized = await materializeCampaignJobs(client, campaign.id, {
-      listId: campaign.list_id,
+      ...audience,
       templateId: campaign.template_id,
       recipientFilters: campaign.recipient_filters || [],
       scheduledAt: campaign.scheduled_at,
@@ -1629,7 +1702,11 @@ async function deleteCampaign(id) {
 }
 
 async function countEligibleContactsForList(list, recipientFilters = []) {
-  const compiled = compileListFilter(list);
+  return countEligibleContactsForLists([list.id], [], recipientFilters);
+}
+
+async function countEligibleContactsForLists(listIds, excludedListIds = [], recipientFilters = []) {
+  const compiled = compileCampaignAudience(listIds, excludedListIds);
   const recipientFilter = compileSequenceConditions(recipientFilters, compiled.values.length + 1);
   const { rows } = await db.query(
     `SELECT count(*)::int AS count FROM crm_contacts c
@@ -1642,16 +1719,29 @@ async function countEligibleContactsForList(list, recipientFilters = []) {
 
 async function listCampaigns() {
   const { rows } = await db.query(
-    `SELECT c.*, l.name AS list_name, t.name AS template_name
+    `SELECT c.*, l.name AS list_name, t.name AS template_name,
+            coalesce(audience.list_ids,ARRAY[c.list_id]::uuid[]) AS list_ids,
+            coalesce(audience.excluded_list_ids,'{}'::uuid[]) AS excluded_list_ids,
+            coalesce(audience.list_names,l.name) AS list_names
      FROM crm_email_campaigns c
      LEFT JOIN crm_lists l ON l.id = c.list_id
      LEFT JOIN crm_email_templates t ON t.id = c.template_id
+     LEFT JOIN LATERAL (
+       SELECT
+         array_agg(link.list_id ORDER BY linked.name) FILTER (WHERE link.mode='include') AS list_ids,
+         array_agg(link.list_id ORDER BY linked.name) FILTER (WHERE link.mode='exclude') AS excluded_list_ids,
+         string_agg(linked.name, ', ' ORDER BY linked.name) FILTER (WHERE link.mode='include') AS list_names
+       FROM crm_email_campaign_lists link
+       JOIN crm_lists linked ON linked.id=link.list_id
+       WHERE link.campaign_id=c.id
+     ) audience ON TRUE
      ORDER BY c.created_at DESC LIMIT 100`
   );
   return Promise.all(rows.map(async (campaign) => {
     if (campaign.recipients_materialized_at || !campaign.list_id) return campaign;
-    const estimatedCount = await countEligibleContactsForList(
-      { id: campaign.list_id },
+    const estimatedCount = await countEligibleContactsForLists(
+      campaign.list_ids?.length ? campaign.list_ids : [campaign.list_id],
+      campaign.excluded_list_ids || [],
       campaign.recipient_filters || []
     );
     return { ...campaign, estimated_count: estimatedCount };
@@ -2553,6 +2643,7 @@ async function summary() {
 module.exports = {
   compileContactFilters,
   compileListFilter,
+  compileCampaignAudience,
   compileSequenceConditions,
   upsertContactWithClient,
   upsertContact,
@@ -2607,6 +2698,7 @@ module.exports = {
   deleteCampaign,
   materializeNextDueCampaign,
   countEligibleContactsForList,
+  countEligibleContactsForLists,
   listCampaigns,
   listCampaignJobs,
   listEmailJobs,

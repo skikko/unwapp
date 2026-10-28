@@ -2823,10 +2823,13 @@ async function removeSequence(id) {
 
 function refreshSelects() {
   const listOptionHtml = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} (${list.contact_count})</option>`).join('');
-  const selectedCampaignList = $('campaignList').value;
+  const selectedCampaignLists = new Set([...$('campaignList').selectedOptions].map((option) => option.value));
+  const selectedExcludedLists = new Set([...$('campaignExcludedLists').selectedOptions].map((option) => option.value));
   const selectedCampaignTemplate = $('campaignTemplate').value;
   $('campaignList').innerHTML = listOptionHtml;
-  if (state.lists.some((list) => list.id === selectedCampaignList)) $('campaignList').value = selectedCampaignList;
+  $('campaignExcludedLists').innerHTML = listOptionHtml;
+  [...$('campaignList').options].forEach((option) => { option.selected = selectedCampaignLists.has(option.value); });
+  [...$('campaignExcludedLists').options].forEach((option) => { option.selected = selectedExcludedLists.has(option.value); });
   $('campaignTemplate').innerHTML = templateOptions(selectedCampaignTemplate);
   const importList = $('contactImportList');
   const selectedList = importList.value;
@@ -2897,7 +2900,7 @@ async function loadCampaigns() {
         >= new Date(campaign.scheduled_at).getTime();
     const editable = (campaign.status === 'queued' || zeroRecipientFutureCampaign)
       && !materializedAtSendTime;
-    const duplicable = campaign.list_id && campaign.template_id;
+    const duplicable = (campaign.list_ids?.length || campaign.list_id) && campaign.template_id;
     const estimatedCount = campaign.estimated_count ?? campaign.total_count;
     const recipientSummary = materialized
       ? `${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali`
@@ -2908,7 +2911,11 @@ async function loadCampaigns() {
     const writeActions = can('crm:write')
       ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
       : '';
-    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(campaign.list_name || 'Lista rimossa')}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${recipientSummary}</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span>${detailsAction}${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
+    const audienceLabel = campaign.list_names || campaign.list_name || 'Lista rimossa';
+    const excludedLabel = campaign.excluded_list_ids?.length
+      ? ` Escluse: ${campaign.excluded_list_ids.length} ${campaign.excluded_list_ids.length === 1 ? 'lista' : 'liste'}.`
+      : '';
+    return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(audienceLabel)}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}${esc(excludedLabel)}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${recipientSummary}</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span>${detailsAction}${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
   }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
   document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));
@@ -2952,20 +2959,23 @@ function renderCampaignTemplate(template) {
 }
 
 async function loadCampaignPreview() {
-  const listId = $('campaignList').value;
+  const listIds = [...$('campaignList').selectedOptions].map((option) => option.value);
+  const excludedListIds = [...$('campaignExcludedLists').selectedOptions]
+    .map((option) => option.value).filter((listId) => !listIds.includes(listId));
   const templateId = $('campaignTemplate').value;
   const requestId = ++campaignPreviewRequestId;
   const filters = completeCampaignFilters();
   $('campaignEligibleNote').textContent = filters.length
     ? `${filters.length} ${filters.length === 1 ? 'filtro attivo' : 'filtri attivi'}, oltre a iscrizione ed email valida.`
     : 'Solo contatti iscritti con email valida.';
-  if (!listId || !templateId) {
+  if (!listIds.length || !templateId) {
     $('campaignEligibleCount').textContent = '0';
     renderCampaignTemplate(null);
     return;
   }
   try {
-    const query = new URLSearchParams({ listId, templateId });
+    const query = new URLSearchParams({ listIds: listIds.join(','), templateId });
+    if (excludedListIds.length) query.set('excludedListIds', excludedListIds.join(','));
     if (filters.length) query.set('filters', JSON.stringify(filters));
     const result = await api(`/api/crm/campaigns/preview?${query}`);
     if (requestId !== campaignPreviewRequestId) return;
@@ -2993,6 +3003,7 @@ function prepareCampaignEditor() {
   $('campaignEditor').dataset.preserveRecipients = 'false';
   $('campaignId').value = '';
   $('campaignList').disabled = false;
+  $('campaignExcludedLists').disabled = false;
   $('addCampaignFilter').disabled = false;
   $('campaignFiltersHelp').textContent = 'Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.';
   $('campaignTiming').value = 'now';
@@ -3011,7 +3022,7 @@ function resetCampaignEditor() {
 }
 
 function populateCampaignEditor(campaign, { duplicate = false } = {}) {
-  if (!campaign || !campaign.list_id || !campaign.template_id) {
+  if (!campaign || !(campaign.list_ids?.length || campaign.list_id) || !campaign.template_id) {
     toast('La lista o il template originale non è più disponibile', 'err');
     return;
   }
@@ -3021,7 +3032,11 @@ function populateCampaignEditor(campaign, { duplicate = false } = {}) {
   $('campaignId').value = duplicate ? '' : campaign.id;
   $('campaignEditorTitle').textContent = duplicate ? 'Duplica invio' : 'Modifica invio programmato';
   $('campaignName').value = duplicate ? `${campaign.name} - copia` : campaign.name;
-  $('campaignList').value = campaign.list_id;
+  const listIds = campaign.list_ids?.length ? campaign.list_ids : [campaign.list_id];
+  [...$('campaignList').options].forEach((option) => { option.selected = listIds.includes(option.value); });
+  [...$('campaignExcludedLists').options].forEach((option) => {
+    option.selected = (campaign.excluded_list_ids || []).includes(option.value);
+  });
   $('campaignTemplate').innerHTML = templateOptions(campaign.template_id);
   $('campaignTemplate').value = campaign.template_id;
   $('campaignTiming').value = 'scheduled';
@@ -3033,6 +3048,7 @@ function populateCampaignEditor(campaign, { duplicate = false } = {}) {
   (campaign.recipient_filters || []).forEach((filter) => addCampaignFilter(filter));
   if (preserveRecipients) {
     $('campaignList').disabled = true;
+    $('campaignExcludedLists').disabled = true;
     $('addCampaignFilter').disabled = true;
     $('campaignFiltersHelp').textContent = 'Campagna precedente al salvataggio filtri: i destinatari esistenti saranno conservati.';
   }
@@ -3098,12 +3114,17 @@ async function saveCampaign(event) {
   event.preventDefault();
   const id = $('campaignId').value;
   const scheduled = $('campaignTiming').value === 'scheduled';
+  const listIds = [...$('campaignList').selectedOptions].map((option) => option.value);
+  const excludedListIds = [...$('campaignExcludedLists').selectedOptions]
+    .map((option) => option.value).filter((listId) => !listIds.includes(listId));
   try {
     await api(id ? `/api/crm/campaigns/${id}` : '/api/crm/campaigns', {
       method: id ? 'PUT' : 'POST',
       body: JSON.stringify({
         name: $('campaignName').value,
-        listId: $('campaignList').value,
+        listId: listIds[0] || null,
+        listIds,
+        excludedListIds,
         templateId: $('campaignTemplate').value,
         recipientFilters: readCampaignFilters(),
         preserveRecipients: $('campaignEditor').dataset.preserveRecipients === 'true',
@@ -3421,6 +3442,7 @@ $('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
 $('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);
 $('campaignTiming').addEventListener('change', syncCampaignTiming);
 $('campaignList').addEventListener('change', loadCampaignPreview);
+$('campaignExcludedLists').addEventListener('change', loadCampaignPreview);
 $('campaignTemplate').addEventListener('change', loadCampaignPreview);
 $('refreshEmailDashboardBtn').addEventListener('click', () => loadEmailDashboard().catch((error) => toast(error.message, 'err')));
 document.querySelectorAll('[data-dashboard-period]').forEach((button) => button.addEventListener('click', () => {
