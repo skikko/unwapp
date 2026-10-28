@@ -2886,7 +2886,29 @@ function syncSequenceTriggerFields() {
 async function loadCampaigns() {
   const { campaigns } = await api('/api/crm/campaigns');
   state.campaigns = campaigns;
-  $('campaignsGrid').innerHTML = campaigns.length ? campaigns.map((campaign) => {
+  const statusFilter = $('campaignStatusFilter').value;
+  const visibleCampaigns = campaigns.filter((campaign) => {
+    if (statusFilter === 'all') return true;
+    return campaign.status === statusFilter;
+  }).sort((a, b) => {
+    const aScheduledAt = new Date(a.scheduled_at).getTime();
+    const bScheduledAt = new Date(b.scheduled_at).getTime();
+    if (statusFilter === 'all') {
+      const aQueued = a.status === 'queued';
+      const bQueued = b.status === 'queued';
+      if (aQueued !== bQueued) return aQueued ? -1 : 1;
+      return aQueued ? aScheduledAt - bScheduledAt : bScheduledAt - aScheduledAt;
+    }
+    return statusFilter === 'queued'
+      ? aScheduledAt - bScheduledAt
+      : bScheduledAt - aScheduledAt;
+  });
+  const emptyLabels = {
+    queued: 'Non ci sono campagne in coda.',
+    completed: 'Non ci sono campagne completate.',
+    all: 'Non ci sono campagne.',
+  };
+  $('campaignsGrid').innerHTML = visibleCampaigns.length ? visibleCampaigns.map((campaign) => {
     const done = campaign.sent_count + campaign.failed_count;
     const materialized = Boolean(campaign.recipients_materialized_at);
     const percentage = materialized && campaign.total_count
@@ -2916,7 +2938,7 @@ async function loadCampaigns() {
       ? ` Escluse: ${campaign.excluded_list_ids.length} ${campaign.excluded_list_ids.length === 1 ? 'lista' : 'liste'}.`
       : '';
     return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(audienceLabel)}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}${esc(excludedLabel)}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${recipientSummary}</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span>${detailsAction}${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
-  }).join('') : '<div class="crm-empty-card">Non ci sono invii email.</div>';
+  }).join('') : `<div class="crm-empty-card">${emptyLabels[statusFilter]}</div>`;
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
   document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));
   document.querySelectorAll('[data-duplicate-campaign]').forEach((button) => button.addEventListener('click', () => duplicateCampaign(button.dataset.duplicateCampaign)));
@@ -3441,6 +3463,7 @@ $('automationNotify').addEventListener('change', syncAutomationFields);
 $('sendTemplateTestBtn').addEventListener('click', sendTemplateTest);
 $('sendCampaignTestBtn').addEventListener('click', sendCampaignTest);
 $('campaignTiming').addEventListener('change', syncCampaignTiming);
+$('campaignStatusFilter').addEventListener('change', () => loadCampaigns().catch((error) => toast(error.message, 'err')));
 $('campaignList').addEventListener('change', loadCampaignPreview);
 $('campaignExcludedLists').addEventListener('change', loadCampaignPreview);
 $('campaignTemplate').addEventListener('change', loadCampaignPreview);

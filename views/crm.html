@@ -464,7 +464,7 @@
         </section>
 
         <section class="crm-panel" id="panel-campaigns" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><span class="eyebrow">Single send</span><h2>Invii email</h2></div><button id="newCampaignBtn" data-write>Nuovo invio</button></div>
+          <div class="crm-panel-header"><div><span class="eyebrow">Single send</span><h2>Invii email</h2></div><div class="crm-panel-actions"><label class="crm-panel-filter" for="campaignStatusFilter"><span>Stato</span><select id="campaignStatusFilter"><option value="queued">In coda</option><option value="all">Tutte</option><option value="completed">Completate</option></select></label><button id="newCampaignBtn" data-write>Nuovo invio</button></div></div>
           <form class="card crm-editor" id="campaignEditor" hidden>
             <input id="campaignId" type="hidden" />
             <div class="section-heading compact"><div><h2 id="campaignEditorTitle">Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>

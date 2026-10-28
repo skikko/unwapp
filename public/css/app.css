@@ -524,6 +524,8 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 8px; lette
 .crm-panel-header h2 { margin: 5px 0 0; font-size: 32px; letter-spacing: -.04em; }
 .crm-panel-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .crm-panel-actions > [data-write] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.crm-panel-filter { display: grid; gap: 4px; min-width: 160px; color: var(--ink-soft); font-size: 11px; font-weight: 750; }
+.crm-panel-filter select { min-height: 40px; }
 .crm-filterbar {
   margin-bottom: 14px; padding: 14px; display: grid; grid-template-columns: minmax(180px, 1.3fr) repeat(5, minmax(110px, .8fr));
   gap: 10px; align-items: end; background: white; border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);
