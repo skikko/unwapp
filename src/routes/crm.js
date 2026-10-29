@@ -58,6 +58,7 @@ router.delete('/automations/:id', write, handle(controller.deleteAutomation));
 
 router.get('/sequences', read, handle(controller.listSequences));
 router.get('/sequences/:id/enrollments', read, handle(controller.listSequenceEnrollments));
+router.get('/sequences/:id/steps/:stepId/analytics', read, handle(controller.getSequenceStepAnalytics));
 router.post('/sequences', write, handle(controller.createSequence));
 router.post('/sequences/:id/duplicate', write, handle(controller.duplicateSequence));
 router.put('/sequences/:id', write, handle(controller.updateSequence));
@@ -70,6 +71,7 @@ router.delete('/sequences/:id', write, handle(controller.deleteSequence));
 router.get('/campaigns', read, handle(controller.listCampaigns));
 router.get('/campaigns/preview', read, handle(controller.previewCampaign));
 router.get('/campaigns/:id/jobs', read, handle(controller.listCampaignJobs));
+router.get('/campaigns/:id/analytics', read, handle(controller.getCampaignAnalytics));
 router.post('/campaigns', write, handle(controller.createCampaign));
 router.put('/campaigns/:id', write, handle(controller.updateCampaign));
 router.post('/campaigns/:id/retry-failed', write, handle(controller.retryFailedCampaign));

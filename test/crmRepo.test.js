@@ -619,3 +619,61 @@ test('registra il click e iscrive il contatto alla lista in modo atomico', async
   assert.ok(calls.some((call) => call.sql.includes('INSERT INTO crm_list_memberships')));
   assert.equal(calls.at(-1).sql, 'COMMIT');
 });
+
+test('calcola analytics e click unici per una campagna email', async (t) => {
+  const originalQuery = db.query;
+  const calls = [];
+  db.query = async (sql, values) => {
+    calls.push({ sql, values });
+    if (sql.includes('FROM crm_email_campaigns c')) {
+      return { rows: [{ id: 'campaign-1', name: 'Webinar', template_name: 'Invito' }] };
+    }
+    if (sql.includes('count(*)::int AS total,')) {
+      return { rows: [{
+        total: 100, accepted: 80, failed: 5, pending: 15, cancelled: 0,
+        unique_opens: 40, total_opens: 55, unique_clickers: 20, total_clicks: 31,
+      }] };
+    }
+    if (sql.includes('count(DISTINCT event.job_id)')) {
+      return { rows: [{ url: 'https://example.com/iscrizione', total_clicks: 24, unique_clicks: 16 }] };
+    }
+    return { rows: [] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  const analytics = await crmRepo.emailAnalytics({ campaignId: 'campaign-1' });
+
+  assert.equal(analytics.summary.open_rate, 50);
+  assert.equal(analytics.summary.click_rate, 25);
+  assert.equal(analytics.links[0].total_click_rate, 30);
+  assert.equal(analytics.links[0].unique_click_rate, 20);
+  assert.ok(calls.every((call) => call.values[0] === 'campaign-1'));
+});
+
+test('limita gli analytics al singolo step della sequenza', async (t) => {
+  const originalQuery = db.query;
+  const calls = [];
+  db.query = async (sql, values) => {
+    calls.push({ sql, values });
+    if (sql.includes('FROM crm_sequence_steps st')) {
+      return { rows: [{ id: 'step-2', name: 'Nurturing', position: 1, template_name: 'Promemoria' }] };
+    }
+    if (sql.includes('count(*)::int AS total,')) {
+      return { rows: [{
+        total: 20, accepted: 10, failed: 0, pending: 10, cancelled: 0,
+        unique_opens: 4, total_opens: 6, unique_clickers: 2, total_clicks: 3,
+      }] };
+    }
+    if (sql.includes('count(DISTINCT event.job_id)')) return { rows: [] };
+    return { rows: [] };
+  };
+  t.after(() => { db.query = originalQuery; });
+
+  const analytics = await crmRepo.emailAnalytics({ sequenceId: 'sequence-1', sequenceStepId: 'step-2' });
+
+  assert.equal(analytics.context, 'sequence_step');
+  assert.equal(analytics.position, 1);
+  assert.equal(analytics.summary.open_rate, 40);
+  assert.ok(calls.slice(1).every((call) => call.sql.includes('j.sequence_step_id=$2')));
+  assert.ok(calls.slice(1).every((call) => call.values[0] === 'sequence-1' && call.values[1] === 'step-2'));
+});

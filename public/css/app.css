@@ -977,6 +977,22 @@ body.email-builder-open { overflow: hidden; }
 .crm-inline-action button { min-height: 44px; white-space: nowrap; }
 .crm-progress { height: 7px; margin: 18px 0; overflow: hidden; border-radius: 999px; background: var(--line-soft); }
 .crm-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.email-analytics-dialog { width: min(1000px, calc(100vw - 40px)); max-height: calc(100vh - 40px); padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: white; box-shadow: 0 24px 70px rgba(20,24,35,.24); }
+.email-analytics-dialog::backdrop { background: rgba(20,24,35,.52); }
+.email-analytics-dialog > header { padding: 22px 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); }
+.email-analytics-dialog h2 { margin: 4px 0; }
+.email-analytics-dialog header p { margin: 0; color: var(--muted); }
+.email-analytics-body { max-height: calc(100vh - 160px); padding: 24px; overflow: auto; }
+.email-analytics-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.email-analytics-kpi { min-height: 112px; padding: 16px; display: grid; align-content: space-between; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface-soft); }
+.email-analytics-kpi span { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.email-analytics-kpi strong { font-size: 28px; line-height: 1; }
+.email-analytics-kpi small { color: var(--muted); }
+.email-analytics-note { margin: 16px 0 22px; padding: 12px 14px; color: var(--ink-soft); border-left: 3px solid var(--accent); background: var(--surface-soft); font-size: 12px; line-height: 1.5; }
+.email-analytics-links h3 { margin: 0 0 12px; }
+.email-analytics-links table { min-width: 720px; }
+.email-analytics-url { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sequence-timeline li .sequence-step-analytics { margin-left: auto; min-height: 34px; padding: 7px 10px; flex: 0 0 auto; }
 .crm-endpoint-card { margin-top: 14px; }
 .crm-endpoint-card p { color: var(--ink-soft); line-height: 1.55; }
 .crm-endpoint-card pre { max-width: 100%; overflow: auto; padding: 18px; border-radius: 12px; background: var(--ink); color: #f7f8fa; line-height: 1.6; font-size: 13px; }
@@ -1093,6 +1109,7 @@ body.email-builder-open { overflow: hidden; }
   .sequence-trigger { align-items: flex-start; flex-direction: column; }
   .sequence-trigger strong { text-align: left; }
   .sequence-card-stats { grid-template-columns: repeat(2, 1fr); }
+  .email-analytics-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sequence-card-stats div { border-bottom: 1px solid var(--line-soft); }
   .sequence-step { grid-template-columns: 42px minmax(0, 1fr); }
   .sequence-step-actions { grid-column: 2; flex-wrap: wrap; }

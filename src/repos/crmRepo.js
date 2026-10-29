@@ -1811,6 +1811,85 @@ async function listCampaignJobs(campaignId, { limit = 250, offset = 0 } = {}) {
   return { jobs: items.rows, total: count.rows[0].count };
 }
 
+async function emailAnalytics({ campaignId = null, sequenceId = null, sequenceStepId = null } = {}) {
+  const isCampaign = Boolean(campaignId);
+  const metadata = isCampaign
+    ? await db.query(
+      `SELECT c.id,c.name,t.name AS template_name
+       FROM crm_email_campaigns c
+       LEFT JOIN crm_email_templates t ON t.id=c.template_id
+       WHERE c.id=$1`,
+      [campaignId]
+    )
+    : await db.query(
+      `SELECT st.id,s.name,st.position,t.name AS template_name
+       FROM crm_sequence_steps st
+       JOIN crm_sequences s ON s.id=st.sequence_id
+       LEFT JOIN crm_email_templates t ON t.id=st.template_id
+       WHERE s.id=$1 AND st.id=$2`,
+      [sequenceId, sequenceStepId]
+    );
+  if (!metadata.rows[0]) return null;
+
+  const scope = isCampaign
+    ? { clause: 'j.campaign_id=$1', values: [campaignId] }
+    : {
+      clause: `j.sequence_step_id=$2 AND EXISTS (
+        SELECT 1 FROM crm_sequence_enrollments enrollment
+        WHERE enrollment.id=j.enrollment_id AND enrollment.sequence_id=$1
+      )`,
+      values: [sequenceId, sequenceStepId],
+    };
+  const [summaryResult, linksResult] = await Promise.all([
+    db.query(
+      `SELECT
+         count(*)::int AS total,
+         count(*) FILTER (WHERE j.status='sent')::int AS accepted,
+         count(*) FILTER (WHERE j.status='failed')::int AS failed,
+         count(*) FILTER (WHERE j.status IN ('pending','sending'))::int AS pending,
+         count(*) FILTER (WHERE j.status='cancelled')::int AS cancelled,
+         count(*) FILTER (WHERE j.open_count > 0)::int AS unique_opens,
+         COALESCE(sum(j.open_count),0)::int AS total_opens,
+         count(*) FILTER (WHERE j.click_count > 0)::int AS unique_clickers,
+         COALESCE(sum(j.click_count),0)::int AS total_clicks
+       FROM crm_email_jobs j
+       WHERE ${scope.clause}`,
+      scope.values
+    ),
+    db.query(
+      `SELECT event.url,
+              count(*)::int AS total_clicks,
+              count(DISTINCT event.job_id)::int AS unique_clicks
+       FROM crm_email_events event
+       JOIN crm_email_jobs j ON j.id=event.job_id
+       WHERE ${scope.clause} AND event.event_type='click' AND event.url IS NOT NULL
+       GROUP BY event.url
+       ORDER BY unique_clicks DESC,total_clicks DESC,event.url ASC`,
+      scope.values
+    ),
+  ]);
+  const summary = summaryResult.rows[0];
+  const accepted = summary.accepted || 0;
+  const percentage = (value) => accepted ? Number(((value / accepted) * 100).toFixed(2)) : 0;
+  return {
+    context: isCampaign ? 'campaign' : 'sequence_step',
+    name: metadata.rows[0].name,
+    templateName: metadata.rows[0].template_name,
+    position: metadata.rows[0].position,
+    summary: {
+      ...summary,
+      open_rate: percentage(summary.unique_opens),
+      click_rate: percentage(summary.unique_clickers),
+    },
+    links: linksResult.rows.map((link) => ({
+      ...link,
+      total_click_rate: percentage(link.total_clicks),
+      unique_click_rate: percentage(link.unique_clicks),
+    })),
+    deliveryNote: 'Il server SMTP ha accettato questi invii. La consegna nella casella non è verificabile senza webhook del provider.',
+  };
+}
+
 async function listEmailJobs(filters = {}, { limit = 100, offset = 0 } = {}) {
   const conditions = [];
   const values = [];
@@ -2760,6 +2839,7 @@ module.exports = {
   countEligibleContactsForLists,
   listCampaigns,
   listCampaignJobs,
+  emailAnalytics,
   listEmailJobs,
   dashboardPeriodStart,
   emailDashboard,

@@ -144,6 +144,35 @@ function formatRomeDateTime(value) {
   return romeDateTimeFormatter.format(date);
 }
 
+function formatPercentage(value) {
+  return `${Number(value || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`;
+}
+
+function renderEmailAnalytics(analytics) {
+  const summary = analytics.summary;
+  $('emailAnalyticsTitle').textContent = analytics.context === 'campaign'
+    ? analytics.name
+    : `${analytics.name}, email ${Number(analytics.position) + 1}`;
+  $('emailAnalyticsSubtitle').textContent = analytics.templateName || 'Template rimosso';
+  const links = analytics.links.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Link</th><th>Click</th><th>CTR</th><th>Click unici</th><th>CTR unico</th></tr></thead><tbody>${analytics.links.map((link) => `<tr><td class="email-analytics-url" title="${esc(link.url)}"><a href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.url)}</a></td><td>${link.total_clicks}</td><td>${formatPercentage(link.total_click_rate)}</td><td>${link.unique_clicks}</td><td>${formatPercentage(link.unique_click_rate)}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="crm-empty">Nessun click registrato.</div>';
+  $('emailAnalyticsBody').innerHTML = `<section class="email-analytics-kpis"><article class="email-analytics-kpi"><span>Destinatari</span><strong>${summary.total}</strong><small>${summary.pending} ancora in coda</small></article><article class="email-analytics-kpi"><span>Email inviate</span><strong>${summary.accepted}</strong><small>Accettate dal server SMTP</small></article><article class="email-analytics-kpi"><span>Fallite</span><strong>${summary.failed}</strong><small>${summary.cancelled} annullate</small></article><article class="email-analytics-kpi"><span>Aperture uniche</span><strong>${summary.unique_opens}</strong><small>${formatPercentage(summary.open_rate)} | ${summary.total_opens} totali</small></article><article class="email-analytics-kpi"><span>Click unici</span><strong>${summary.unique_clickers}</strong><small>${formatPercentage(summary.click_rate)} | ${summary.total_clicks} totali</small></article></section><p class="email-analytics-note">${esc(analytics.deliveryNote)}</p><section class="email-analytics-links"><h3>Click per link</h3>${links}</section>`;
+}
+
+async function openEmailAnalytics(path) {
+  $('emailAnalyticsTitle').textContent = 'Caricamento dati';
+  $('emailAnalyticsSubtitle').textContent = '';
+  $('emailAnalyticsBody').innerHTML = '<div class="crm-empty">Caricamento analytics in corso.</div>';
+  $('emailAnalyticsDialog').showModal();
+  try {
+    const { analytics } = await api(path);
+    renderEmailAnalytics(analytics);
+  } catch (error) {
+    $('emailAnalyticsBody').innerHTML = `<div class="crm-empty">${esc(error.message)}</div>`;
+  }
+}
+
 function statusLabel(status) {
   return {
     unknown: 'Email assente',
@@ -2621,7 +2650,7 @@ async function loadSequences() {
     let elapsed = 0;
     const timeline = sequence.steps.map((step, index) => {
       elapsed += step.delayMinutes;
-      return `<li><span class="sequence-timeline-index">${String(index + 1).padStart(2, '0')}</span><div><strong>${esc(step.templateName)}</strong><span>${step.delayMinutes ? `Attesa ${formatDuration(step.delayMinutes)}` : 'Invio immediato'} | ${elapsed ? `T+ ${formatDuration(elapsed)}` : 'T+ 0'}</span></div></li>`;
+      return `<li><span class="sequence-timeline-index">${String(index + 1).padStart(2, '0')}</span><div><strong>${esc(step.templateName)}</strong><span>${step.delayMinutes ? `Attesa ${formatDuration(step.delayMinutes)}` : 'Invio immediato'} | ${elapsed ? `T+ ${formatDuration(elapsed)}` : 'T+ 0'}</span></div><button class="secondary sequence-step-analytics" type="button" data-sequence-step-analytics="${sequence.id}" data-step-id="${step.id}">Dati</button></li>`;
     }).join('');
     const automaticTrigger = sequence.trigger_type === 'list_joined';
     const triggerLabel = automaticTrigger
@@ -2641,6 +2670,7 @@ async function loadSequences() {
   }).join('') : '<div class="crm-empty-card">Non ci sono sequenze nella cartella selezionata.</div>';
   document.querySelectorAll('[data-enroll-sequence]').forEach((button) => button.addEventListener('click', () => enrollSequence(button.dataset.enrollSequence)));
   document.querySelectorAll('[data-view-sequence-contacts]').forEach((button) => button.addEventListener('click', () => loadSequenceEnrollments(button.dataset.viewSequenceContacts)));
+  document.querySelectorAll('[data-sequence-step-analytics]').forEach((button) => button.addEventListener('click', () => openEmailAnalytics(`/api/crm/sequences/${button.dataset.sequenceStepAnalytics}/steps/${button.dataset.stepId}/analytics`)));
   document.querySelectorAll('[data-duplicate-sequence]').forEach((button) => button.addEventListener('click', () => duplicateSequence(button.dataset.duplicateSequence, button)));
   document.querySelectorAll('[data-edit-sequence]').forEach((button) => button.addEventListener('click', () => editSequence(button.dataset.editSequence)));
   document.querySelectorAll('[data-toggle-sequence]').forEach((button) => button.addEventListener('click', () => toggleSequence(button.dataset.toggleSequence, button.dataset.active !== 'true')));
@@ -2928,7 +2958,7 @@ async function loadCampaigns() {
       ? `${campaign.sent_count} inviati, ${campaign.failed_count} falliti, ${campaign.total_count} totali`
       : `${estimatedCount} destinatari stimati, calcolo definitivo all'avvio`;
     const detailsAction = materialized
-      ? `<button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>`
+      ? `<button class="secondary" data-campaign-analytics="${campaign.id}">Dati e analytics</button><button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>`
       : '<span>La lista resta dinamica fino all’orario di invio</span>';
     const writeActions = can('crm:write')
       ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${materialized && campaign.failed_count > 0 && ['completed_with_errors', 'failed'].includes(campaign.status) ? `<button class="secondary" data-retry-failed-campaign="${campaign.id}">Riprova falliti</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
@@ -2940,6 +2970,7 @@ async function loadCampaigns() {
     return `<article class="crm-object-card wide"><div class="crm-object-top"><div><span class="crm-object-kicker">${esc(audienceLabel)}</span><h3>${esc(campaign.name)}</h3></div><span class="badge ${campaign.status === 'completed' ? 'on' : campaign.status.includes('failed') || campaign.status === 'failed' ? 'off' : 'warn'}">${esc(statusLabel(campaign.status))}</span></div><p>${esc(campaign.template_name || 'Template rimosso')}${esc(excludedLabel)}</p><div class="crm-progress"><span style="width:${percentage}%"></span></div><div class="crm-object-meta"><span>${recipientSummary}</span><div class="row-actions"><span>${esc(formatRomeDateTime(campaign.scheduled_at))} Roma</span>${detailsAction}${writeActions}</div></div><div class="campaign-jobs" id="campaignJobs-${campaign.id}" hidden></div></article>`;
   }).join('') : `<div class="crm-empty-card">${emptyLabels[statusFilter]}</div>`;
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
+  document.querySelectorAll('[data-campaign-analytics]').forEach((button) => button.addEventListener('click', () => openEmailAnalytics(`/api/crm/campaigns/${button.dataset.campaignAnalytics}/analytics`)));
   document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));
   document.querySelectorAll('[data-duplicate-campaign]').forEach((button) => button.addEventListener('click', () => duplicateCampaign(button.dataset.duplicateCampaign)));
   document.querySelectorAll('[data-retry-failed-campaign]').forEach((button) => button.addEventListener('click', () => retryFailedCampaign(button.dataset.retryFailedCampaign)));
@@ -3772,6 +3803,11 @@ window.addEventListener('beforeunload', (event) => {
   if ($('templateEditor').hidden || !templateDirty) return;
   event.preventDefault();
   event.returnValue = '';
+});
+
+$('closeEmailAnalyticsBtn').addEventListener('click', () => $('emailAnalyticsDialog').close());
+$('emailAnalyticsDialog').addEventListener('click', (event) => {
+  if (event.target === $('emailAnalyticsDialog')) $('emailAnalyticsDialog').close();
 });
 
 (async () => {

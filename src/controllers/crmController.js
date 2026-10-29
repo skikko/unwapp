@@ -443,6 +443,15 @@ async function listSequenceEnrollments(req, res) {
   res.json({ sequence, ...result });
 }
 
+async function getSequenceStepAnalytics(req, res) {
+  const analytics = await crmRepo.emailAnalytics({
+    sequenceId: req.params.id,
+    sequenceStepId: req.params.stepId,
+  });
+  if (!analytics) return res.status(404).json({ error: 'Email della sequenza non trovata' });
+  res.json({ analytics });
+}
+
 async function createSequence(req, res) {
   const sequence = await crmRepo.createSequence({
     ...crmService.validateSequence(req.body),
@@ -518,6 +527,12 @@ async function listCampaignJobs(req, res) {
   if (!campaign) return res.status(404).json({ error: 'Invio non trovato' });
   const result = await crmRepo.listCampaignJobs(req.params.id, pagination(req.query));
   res.json({ campaign, ...result });
+}
+
+async function getCampaignAnalytics(req, res) {
+  const analytics = await crmRepo.emailAnalytics({ campaignId: req.params.id });
+  if (!analytics) return res.status(404).json({ error: 'Invio non trovato' });
+  res.json({ analytics });
 }
 
 function campaignSchedule(body) {
@@ -714,6 +729,7 @@ module.exports = {
   deleteAutomation,
   listSequences,
   listSequenceEnrollments,
+  getSequenceStepAnalytics,
   createSequence,
   duplicateSequence,
   updateSequence,
@@ -724,6 +740,7 @@ module.exports = {
   enrollList,
   listCampaigns,
   listCampaignJobs,
+  getCampaignAnalytics,
   previewCampaign,
   createCampaign,
   updateCampaign,
