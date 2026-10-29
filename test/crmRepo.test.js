@@ -3,6 +3,36 @@ const assert = require('node:assert/strict');
 const db = require('../src/config/db');
 const crmRepo = require('../src/repos/crmRepo');
 
+test('serializza e distanzia globalmente la prenotazione dei job email', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.includes('FROM crm_email_jobs j')) {
+        return { rows: [{ id: 'job-1', attempts: 0, campaign_id: null }] };
+      }
+      if (sql.includes("SET status='sending'")) {
+        return { rows: [{ claim_token: 'claim-1', claimed_at: new Date() }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  const job = await crmRepo.claimDueJob();
+
+  assert.equal(job.id, 'job-1');
+  assert.equal(job.claim_token, 'claim-1');
+  assert.match(calls[1].sql, /pg_advisory_xact_lock/);
+  const throttle = calls.find((call) => call.sql.includes('scheduled_at=GREATEST'));
+  assert.ok(throttle);
+  assert.deepEqual(throttle.values, [6000]);
+  assert.ok(calls.indexOf(throttle) < calls.findIndex((call) => call.sql === 'COMMIT'));
+});
+
 test('duplica un template mantenendo contenuto e allegati', async (t) => {
   const originalQuery = db.query;
   let queryCall;

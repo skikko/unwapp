@@ -1,4 +1,8 @@
 const db = require('../config/db');
+const EMAIL_JOB_CLAIM_LOCK_ID = 247109;
+const emailRateLimit = Math.max(1, Number(process.env.EMAIL_SMTP_RATE_LIMIT || 10));
+const emailRateDeltaMs = Math.max(1_000, Number(process.env.EMAIL_SMTP_RATE_DELTA_MS || 60_000));
+const emailSendIntervalMs = Math.ceil(emailRateDeltaMs / emailRateLimit);
 const CONTACT_SELECT = `c.*,
   (SELECT status.name FROM crm_contact_statuses status WHERE status.id=c.contact_status_id) AS contact_status_name`;
 
@@ -2462,6 +2466,7 @@ async function claimDueJob() {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [EMAIL_JOB_CLAIM_LOCK_ID]);
     const result = await client.query(
       `SELECT j.*, c.first_name, c.last_name, c.email, c.phone, c.source, c.tags, c.custom_fields,
               t.subject, t.preheader, t.html_body, t.text_body, t.attachments,
@@ -2487,6 +2492,16 @@ async function claimDueJob() {
        SET status='sending', attempts=attempts+1,claimed_at=now(),claim_token=gen_random_uuid()
        WHERE id=$1 RETURNING claim_token,claimed_at`,
       [job.id]
+    );
+    await client.query(
+      `UPDATE crm_email_jobs
+       SET scheduled_at=GREATEST(
+         scheduled_at,
+         now() + make_interval(secs => $1::double precision / 1000)
+       )
+       WHERE status='pending'
+         AND scheduled_at < now() + make_interval(secs => $1::double precision / 1000)`,
+      [emailSendIntervalMs]
     );
     if (job.campaign_id) {
       await client.query(
