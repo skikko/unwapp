@@ -1701,6 +1701,49 @@ async function deleteCampaign(id) {
   }
 }
 
+async function retryFailedCampaignJobs(id) {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'SELECT * FROM crm_email_campaigns WHERE id=$1 FOR UPDATE',
+      [id]
+    );
+    const campaign = rows[0];
+    if (!campaign) {
+      await client.query('COMMIT');
+      return null;
+    }
+    if (!['completed_with_errors', 'failed'].includes(campaign.status)) {
+      throw Object.assign(new Error('Only failed campaigns can be retried'), { status: 409 });
+    }
+    const retried = await client.query(
+      `UPDATE crm_email_jobs SET
+         status='pending',attempts=0,scheduled_at=now(),sent_at=NULL,last_error=NULL,
+         provider_message_id=NULL,claimed_at=NULL,claim_token=NULL
+       WHERE campaign_id=$1 AND status='failed'
+       RETURNING id`,
+      [id]
+    );
+    if (!retried.rowCount) {
+      throw Object.assign(new Error('Campaign has no failed recipients'), { status: 409 });
+    }
+    const updated = await client.query(
+      `UPDATE crm_email_campaigns SET
+         status='queued',failed_count=0,completed_at=NULL
+       WHERE id=$1 RETURNING *`,
+      [id]
+    );
+    await client.query('COMMIT');
+    return { campaign: updated.rows[0], retriedCount: retried.rowCount };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function countEligibleContactsForList(list, recipientFilters = []) {
   return countEligibleContactsForLists([list.id], [], recipientFilters);
 }
@@ -2696,6 +2739,7 @@ module.exports = {
   createCampaign,
   updateCampaign,
   deleteCampaign,
+  retryFailedCampaignJobs,
   materializeNextDueCampaign,
   countEligibleContactsForList,
   countEligibleContactsForLists,

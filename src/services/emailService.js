@@ -25,7 +25,11 @@ let workerRunning = false;
 let workerTimer = null;
 let workerPromise = null;
 let stopping = false;
+let pooledTransporter = null;
+let pooledTransporterKey = null;
 const emailClaimTimeoutMinutes = Math.max(1, Number(process.env.EMAIL_CLAIM_TIMEOUT_MINUTES || 30));
+const emailRateLimit = Math.max(1, Number(process.env.EMAIL_SMTP_RATE_LIMIT || 10));
+const emailRateDeltaMs = Math.max(1_000, Number(process.env.EMAIL_SMTP_RATE_DELTA_MS || 60_000));
 const EMAIL_FOOTER = '© 2026 United Network | P.IVA: 13513131006 - PEC: uneuropa@pec.it';
 const RECONTACT_LIST_NAME = process.env.CRM_RECONTACT_LIST_NAME || 'Da Ricontattare';
 const RECONTACT_THANK_YOU_URL = process.env.CRM_RECONTACT_THANK_YOU_URL
@@ -101,6 +105,7 @@ async function saveSettings(input, updatedBy) {
   if (input.password) values.smtp_password = merged.password;
   const encrypted = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, secretService.encrypt(value)]));
   await settingsRepo.setMany(encrypted, updatedBy);
+  closeTransporter();
   cachedSettings = null;
   cacheExpiresAt = 0;
   return getSettings({ fresh: true });
@@ -123,20 +128,57 @@ function publicSettings(settings) {
   };
 }
 
-function createTransport(settings) {
+function createTransport(settings, { pooled = false } = {}) {
   return nodemailer.createTransport({
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
     auth: { user: settings.username, pass: settings.password },
+    ...(pooled ? {
+      pool: true,
+      maxConnections: 1,
+      maxMessages: 100,
+      rateDelta: emailRateDeltaMs,
+      rateLimit: emailRateLimit,
+    } : {}),
   });
+}
+
+function transportKey(settings) {
+  return crypto.createHash('sha256').update(JSON.stringify([
+    settings.host,
+    settings.port,
+    settings.secure,
+    settings.username,
+    settings.password,
+  ])).digest('hex');
+}
+
+function closeTransporter() {
+  if (pooledTransporter && typeof pooledTransporter.close === 'function') pooledTransporter.close();
+  pooledTransporter = null;
+  pooledTransporterKey = null;
+}
+
+function getTransporter(settings) {
+  const key = transportKey(settings);
+  if (pooledTransporter && pooledTransporterKey === key) return pooledTransporter;
+  closeTransporter();
+  pooledTransporter = createTransport(settings, { pooled: true });
+  pooledTransporterKey = key;
+  return pooledTransporter;
 }
 
 async function testConnection() {
   const settings = await getSettings({ fresh: true });
   const { errors } = validateSettings({}, settings);
   if (errors.length) throw new Error(errors.join('. '));
-  await createTransport(settings).verify();
+  const transporter = createTransport(settings);
+  try {
+    await transporter.verify();
+  } finally {
+    if (typeof transporter.close === 'function') transporter.close();
+  }
   return { host: settings.host, port: settings.port, secure: settings.secure };
 }
 
@@ -536,7 +578,7 @@ async function sendJob(job) {
   const text = appendComplianceFooterText(renderTemplate(job.text_body || '', job, { variables }), job, settings.publicBaseUrl);
   const trackedHtml = applyEmailTracking(html, job, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(job.attachments);
-  const info = await createTransport(settings).sendMail({
+  const info = await getTransporter(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to: job.email,
@@ -569,7 +611,7 @@ async function sendTestEmail(to, template) {
   const html = appendComplianceFooter(renderTemplate(template.htmlBody, contact, { html: true, variables }), contact, settings.publicBaseUrl);
   const text = appendComplianceFooterText(renderTemplate(template.textBody || '', contact, { variables }), contact, settings.publicBaseUrl);
   const attachments = await storedTemplateAttachments(template.attachments);
-  const info = await createTransport(settings).sendMail({
+  const info = await getTransporter(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to,
@@ -587,7 +629,7 @@ async function sendAutomationNotification(notification) {
   if (errors.length) throw new Error(errors.join('. '));
   const text = String(notification.body || '').trim();
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#171a23;white-space:pre-line;">${escapeHtml(text)}</div>`;
-  const info = await createTransport(settings).sendMail({
+  const info = await getTransporter(settings).sendMail({
     from: settings.fromName ? { name: settings.fromName, address: settings.fromEmail } : settings.fromEmail,
     replyTo: settings.replyTo || undefined,
     to: notification.to_email,
@@ -659,6 +701,7 @@ async function stopWorker() {
   if (workerTimer) clearInterval(workerTimer);
   workerTimer = null;
   if (workerPromise) await workerPromise;
+  closeTransporter();
 }
 
 module.exports = {

@@ -442,6 +442,62 @@ test('elimina una campagna in coda e i relativi job in cascata', async (t) => {
   assert.equal(calls.at(-1).sql, 'COMMIT');
 });
 
+test('riaccoda soltanto i destinatari falliti di una campagna completata', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.startsWith('SELECT * FROM crm_email_campaigns')) {
+        return { rows: [{ id: 'campaign-1', status: 'completed_with_errors', sent_count: 185, failed_count: 270 }] };
+      }
+      if (sql.includes("WHERE campaign_id=$1 AND status='failed'")) {
+        return { rows: Array.from({ length: 270 }, (_, index) => ({ id: `job-${index}` })), rowCount: 270 };
+      }
+      if (sql.includes('UPDATE crm_email_campaigns SET')) {
+        return { rows: [{ id: 'campaign-1', status: 'queued', sent_count: 185, failed_count: 0 }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  const result = await crmRepo.retryFailedCampaignJobs('campaign-1');
+
+  const jobsUpdate = calls.find((call) => call.sql.includes('UPDATE crm_email_jobs SET'));
+  assert.match(jobsUpdate.sql, /status='pending',attempts=0/);
+  assert.match(jobsUpdate.sql, /WHERE campaign_id=\$1 AND status='failed'/);
+  assert.equal(result.retriedCount, 270);
+  assert.equal(result.campaign.sent_count, 185);
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+});
+
+test('rifiuta il reinvio di una campagna ancora in esecuzione', async (t) => {
+  const originalGetClient = db.getClient;
+  const calls = [];
+  const client = {
+    async query(sql, values = []) {
+      calls.push({ sql, values });
+      if (sql.startsWith('SELECT * FROM crm_email_campaigns')) {
+        return { rows: [{ id: 'campaign-1', status: 'running' }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  };
+  db.getClient = async () => client;
+  t.after(() => { db.getClient = originalGetClient; });
+
+  await assert.rejects(
+    () => crmRepo.retryFailedCampaignJobs('campaign-1'),
+    (error) => error.status === 409 && /failed campaigns/.test(error.message)
+  );
+  assert.equal(calls.some((call) => call.sql.includes('UPDATE crm_email_jobs SET')), false);
+  assert.equal(calls.at(-1).sql, 'ROLLBACK');
+});
+
 test('modifica una campagna legacy mantenendo invariati i destinatari', async (t) => {
   const originalGetClient = db.getClient;
   const calls = [];

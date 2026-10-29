@@ -2931,7 +2931,7 @@ async function loadCampaigns() {
       ? `<button class="secondary" data-view-campaign-jobs="${campaign.id}">Dettagli destinatari</button>`
       : '<span>La lista resta dinamica fino all’orario di invio</span>';
     const writeActions = can('crm:write')
-      ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
+      ? `${duplicable ? `<button class="secondary" data-duplicate-campaign="${campaign.id}">Duplica</button>` : ''}${materialized && campaign.failed_count > 0 && ['completed_with_errors', 'failed'].includes(campaign.status) ? `<button class="secondary" data-retry-failed-campaign="${campaign.id}">Riprova falliti</button>` : ''}${editable ? `<button class="secondary" data-edit-campaign="${campaign.id}">Modifica</button><button class="danger" data-delete-campaign="${campaign.id}">Elimina</button>` : ''}`
       : '';
     const audienceLabel = campaign.list_names || campaign.list_name || 'Lista rimossa';
     const excludedLabel = campaign.excluded_list_ids?.length
@@ -2942,6 +2942,7 @@ async function loadCampaigns() {
   document.querySelectorAll('[data-view-campaign-jobs]').forEach((button) => button.addEventListener('click', () => loadCampaignJobs(button.dataset.viewCampaignJobs)));
   document.querySelectorAll('[data-edit-campaign]').forEach((button) => button.addEventListener('click', () => editCampaign(button.dataset.editCampaign)));
   document.querySelectorAll('[data-duplicate-campaign]').forEach((button) => button.addEventListener('click', () => duplicateCampaign(button.dataset.duplicateCampaign)));
+  document.querySelectorAll('[data-retry-failed-campaign]').forEach((button) => button.addEventListener('click', () => retryFailedCampaign(button.dataset.retryFailedCampaign)));
   document.querySelectorAll('[data-delete-campaign]').forEach((button) => button.addEventListener('click', () => removeCampaign(button.dataset.deleteCampaign)));
 }
 
@@ -3099,6 +3100,17 @@ async function removeCampaign(id) {
     toast('Invio programmato eliminato');
     if ($('campaignId').value === id) $('campaignEditor').hidden = true;
     await Promise.all([loadCampaigns(), loadSummary()]);
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+async function retryFailedCampaign(id) {
+  if (!confirm('Riaccodare esclusivamente i destinatari falliti?')) return;
+  try {
+    const result = await api(`/api/crm/campaigns/${id}/retry-failed`, { method: 'POST' });
+    toast(`${result.retriedCount} destinatari falliti riaccodati`);
+    await Promise.all([loadSummary(), loadCampaigns()]);
   } catch (error) {
     toast(error.message, 'err');
   }

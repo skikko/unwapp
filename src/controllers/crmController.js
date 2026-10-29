@@ -602,6 +602,13 @@ async function deleteCampaign(req, res) {
   res.status(204).end();
 }
 
+async function retryFailedCampaign(req, res) {
+  await ensureSender();
+  const result = await crmRepo.retryFailedCampaignJobs(req.params.id);
+  if (!result) return res.status(404).json({ error: 'Invio non trovato' });
+  res.json(result);
+}
+
 async function previewCampaign(req, res) {
   let recipientFilters = [];
   if (req.query.filters) {
@@ -721,6 +728,7 @@ module.exports = {
   createCampaign,
   updateCampaign,
   deleteCampaign,
+  retryFailedCampaign,
   getSender,
   updateSender,
   testSender,
