@@ -1932,7 +1932,7 @@ function dashboardPeriodStart(period, now = new Date()) {
 async function emailDashboard(period = 'all') {
   const periodStart = dashboardPeriodStart(period);
   const values = [periodStart];
-  const [summaryResult, favoriteListResult, listResult, tagResult, typeResult, sourceResult, eventResult] = await Promise.all([
+  const [summaryResult, favoriteListResult, listResult, tagResult, typeResult, sourceResult, eventResult, acquisitionResult] = await Promise.all([
     db.query(
       `SELECT
          count(*)::int AS total_jobs,
@@ -2038,7 +2038,7 @@ async function emailDashboard(period = 'all') {
        HAVING count(DISTINCT c.id) FILTER (
          WHERE $1::timestamptz IS NULL OR c.created_at >= $1
        ) > 0 OR count(j.id) > 0
-       ORDER BY contacts DESC,source ASC LIMIT 25`,
+       ORDER BY contacts DESC,source ASC`,
       values
     ),
     db.query(
@@ -2052,6 +2052,29 @@ async function emailDashboard(period = 'all') {
        ORDER BY ev.created_at DESC LIMIT 25`,
       values
     ),
+    db.query(
+      `WITH bounds AS (
+         SELECT COALESCE($1::timestamptz,(SELECT min(created_at) FROM crm_contacts),now()) AS start_at,
+                now() AS end_at,
+                CASE WHEN $1::timestamptz IS NULL THEN 'month' ELSE 'day' END AS grain
+       ), buckets AS (
+         SELECT generate_series(
+           date_trunc(grain,start_at AT TIME ZONE 'Europe/Rome'),
+           date_trunc(grain,end_at AT TIME ZONE 'Europe/Rome'),
+           CASE WHEN grain='month' THEN interval '1 month' ELSE interval '1 day' END
+         ) AS bucket FROM bounds
+       ), counts AS (
+         SELECT date_trunc(b.grain,c.created_at AT TIME ZONE 'Europe/Rome') AS bucket,
+                count(*)::int AS contacts
+         FROM crm_contacts c CROSS JOIN bounds b
+         WHERE c.created_at >= b.start_at
+         GROUP BY 1
+       )
+       SELECT to_char(b.bucket,'YYYY-MM-DD') AS bucket,COALESCE(c.contacts,0)::int AS contacts
+       FROM buckets b LEFT JOIN counts c USING(bucket)
+       ORDER BY b.bucket`,
+      values
+    ),
   ]);
   return {
     period,
@@ -2063,6 +2086,8 @@ async function emailDashboard(period = 'all') {
     byContactType: typeResult.rows,
     bySource: sourceResult.rows,
     recentEvents: eventResult.rows,
+    acquisition: acquisitionResult.rows,
+    acquisitionGrain: periodStart ? 'day' : 'month',
   };
 }
 

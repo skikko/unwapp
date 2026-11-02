@@ -41,6 +41,9 @@ let lastTemplateField = null;
 let draggedTemplateBlockType = null;
 let campaignPreviewTimer = null;
 let campaignPreviewRequestId = 0;
+let dashboardRequestId = 0;
+let campaignWizardStep = 1;
+let campaignSaving = false;
 const TEMPLATE_HISTORY_LIMIT = 100;
 const TEMPLATE_BLOCK_TYPES = new Set([
   'heading', 'text', 'image', 'button', 'logo', 'divider', 'spacer', 'columns', 'social', 'html',
@@ -329,8 +332,53 @@ function renderDashboardFavoriteLists(lists, period) {
   }));
 }
 
+function renderDashboardCharts(dashboard) {
+  const series = dashboard.acquisition || [];
+  const monthly = dashboard.acquisitionGrain === 'month';
+  const dateLabel = (bucket) => new Date(`${bucket}T12:00:00Z`).toLocaleDateString('it-IT', {
+    timeZone: 'Europe/Rome', ...(monthly ? { month: 'short', year: 'numeric' } : { day: '2-digit', month: 'short' }),
+  });
+  const maximum = Math.max(1, ...series.map((row) => numberValue(row.contacts)));
+  const total = series.reduce((sum, row) => sum + numberValue(row.contacts), 0);
+  $('acquisitionPeriod').textContent = `${total.toLocaleString('it-IT')} contatti · ${monthly ? 'Per mese' : 'Per giorno, intervalli iniziale e finale parziali'} · Roma`;
+  const bars = series.map((row) => {
+    const count = numberValue(row.contacts);
+    const label = dateLabel(row.bucket);
+    return `<div class="crm-chart-column" role="img" aria-label="${esc(label)}: ${count} contatti" title="${esc(label)}: ${count} contatti"><span class="crm-chart-value">${count}</span><div class="crm-chart-bar-track"><span class="crm-chart-bar" style="height:${count / maximum * 100}%"></span></div><span class="crm-chart-axis">${esc(label)}</span></div>`;
+  }).join('');
+  $('dashboardAcquisition').innerHTML = total
+    ? `<div class="crm-chart-scroll"><div class="crm-acquisition-bars">${bars}</div></div><details class="crm-chart-data"><summary>Visualizza i dati</summary>${dashboardTable(['Periodo', 'Contatti'], series.map((row) => `<tr><td>${esc(dateLabel(row.bucket))}</td><td>${numberValue(row.contacts)}</td></tr>`), 'Nessun dato.')}</details>`
+    : '<div class="crm-empty">Nessun nuovo contatto nel periodo selezionato.</div>';
+  const sources = (dashboard.bySource || []).filter((row) => numberValue(row.contacts) > 0);
+  const sourceTotal = sources.reduce((sum, row) => sum + numberValue(row.contacts), 0);
+  const groups = sources.slice(0, 5).map((row) => ({ name: row.source === 'n/a' ? 'Sorgente non disponibile' : row.source, contacts: numberValue(row.contacts) }));
+  const other = sources.slice(5).reduce((sum, row) => sum + numberValue(row.contacts), 0);
+  if (other) groups.push({ name: 'Altre sorgenti', contacts: other });
+  $('dashboardSourceChart').innerHTML = sourceTotal ? groups.map((row) => {
+    const share = row.contacts / sourceTotal * 100;
+    return `<div class="crm-source-chart-row"><div><span>${esc(row.name)}</span><strong>${row.contacts.toLocaleString('it-IT')} <small>${formatPercentage(share)}</small></strong></div><div class="crm-source-chart-track"><span style="width:${share}%"></span></div></div>`;
+  }).join('') + `<p class="crm-chart-note">${sourceTotal.toLocaleString('it-IT')} contatti acquisiti nel periodo. Dettaglio completo nella tabella Per sorgente.</p>` : '<div class="crm-empty">Nessun contatto nel periodo selezionato.</div>';
+}
+
 async function loadEmailDashboard() {
-  const { dashboard } = await api(`/api/crm/email-dashboard?period=${state.dashboardPeriod}`);
+  const requestId = ++dashboardRequestId;
+  $('dashboardAcquisition').textContent = 'Caricamento dati in corso.';
+  $('dashboardSourceChart').textContent = 'Caricamento dati in corso.';
+  $('dashboardAcquisition').setAttribute('aria-busy', 'true');
+  $('dashboardSourceChart').setAttribute('aria-busy', 'true');
+  let result;
+  try {
+    result = await api(`/api/crm/email-dashboard?period=${state.dashboardPeriod}`);
+  } catch (error) {
+    if (requestId !== dashboardRequestId) return;
+    $('dashboardAcquisition').textContent = 'Dati non disponibili. Usa Aggiorna per riprovare.';
+    $('dashboardSourceChart').textContent = 'Dati non disponibili.';
+    $('dashboardAcquisition').setAttribute('aria-busy', 'false');
+    $('dashboardSourceChart').setAttribute('aria-busy', 'false');
+    throw error;
+  }
+  if (requestId !== dashboardRequestId) return;
+  const { dashboard } = result;
   state.emailDashboard = dashboard;
   const periodCopy = dashboardPeriodCopy(dashboard.period);
   $('dashboardPeriodLabel').textContent = periodCopy.label;
@@ -344,6 +392,9 @@ async function loadEmailDashboard() {
     dashboardMetric('Tasso di click', percentage(summary.clicked_jobs, sent), `${numberValue(summary.clicked_jobs)} email con click`),
   ].join('');
   renderDashboardFavoriteLists(dashboard.favoriteLists || [], dashboard.period);
+  renderDashboardCharts(dashboard);
+  $('dashboardAcquisition').setAttribute('aria-busy', 'false');
+  $('dashboardSourceChart').setAttribute('aria-busy', 'false');
   $('emailDashboardLists').innerHTML = dashboardTable(['Lista', 'Contatti', 'Email', 'Aperte', 'Click'], (dashboard.byList || []).map((row) => (
     `<tr><td>${esc(row.name)}</td><td>${numberValue(row.contacts)}</td><td>${numberValue(row.email_jobs)}</td><td>${numberValue(row.opened_jobs)}</td><td>${numberValue(row.clicked_jobs)}</td></tr>`
   )), 'Nessun dato per lista.');
@@ -3019,6 +3070,7 @@ async function loadCampaignPreview() {
     .map((option) => option.value).filter((listId) => !listIds.includes(listId));
   const templateId = $('campaignTemplate').value;
   const requestId = ++campaignPreviewRequestId;
+  $('campaignReviewCount').textContent = 'Calcolo in corso';
   const filters = completeCampaignFilters();
   $('campaignEligibleNote').textContent = filters.length
     ? `${filters.length} ${filters.length === 1 ? 'filtro attivo' : 'filtri attivi'}, oltre a iscrizione ed email valida.`
@@ -3026,21 +3078,26 @@ async function loadCampaignPreview() {
   if (!listIds.length || !templateId) {
     $('campaignEligibleCount').textContent = '0';
     renderCampaignTemplate(null);
-    return;
+    $('campaignReviewCount').textContent = 'n/a';
+    return false;
   }
   try {
     const query = new URLSearchParams({ listIds: listIds.join(','), templateId });
     if (excludedListIds.length) query.set('excludedListIds', excludedListIds.join(','));
     if (filters.length) query.set('filters', JSON.stringify(filters));
     const result = await api(`/api/crm/campaigns/preview?${query}`);
-    if (requestId !== campaignPreviewRequestId) return;
+    if (requestId !== campaignPreviewRequestId) return false;
     $('campaignEligibleCount').textContent = result.eligibleCount;
+    $('campaignReviewCount').textContent = result.eligibleCount;
     renderCampaignTemplate(result.template);
+    return true;
   } catch (error) {
-    if (requestId !== campaignPreviewRequestId) return;
+    if (requestId !== campaignPreviewRequestId) return false;
     $('campaignEligibleCount').textContent = '0';
     renderCampaignTemplate(null);
     toast(error.message, 'err');
+    $('campaignReviewCount').textContent = 'Non disponibile';
+    return false;
   }
 }
 
@@ -3052,6 +3109,74 @@ function syncCampaignTiming() {
     ? 'Salva modifiche'
     : scheduled ? 'Programma campagna' : 'Invia ora';
   renderCampaignAudiencePickers();
+  updateCampaignReview();
+}
+
+function updateCampaignReview() {
+  const selected = (id) => [...$(id).selectedOptions].map((option) => option.textContent).join(', ');
+  const template = $('campaignTemplate').selectedOptions[0]?.textContent || 'Nessun template';
+  const rows = [
+    ['Nome', $('campaignName').value || 'n/a'],
+    ['Liste incluse', selected('campaignList') || 'Nessuna'],
+    ['Liste escluse', selected('campaignExcludedLists') || 'Nessuna'],
+    ['Condizioni', $('campaignEditor').dataset.preserveRecipients === 'true' ? 'Destinatari originali conservati' : `${completeCampaignFilters().length} condizioni aggiuntive`],
+    ['Template', template],
+    ['Invio', $('campaignTiming').value === 'scheduled' ? `${$('campaignSchedule').value.replace('T', ' ')} · Europe/Rome` : 'Appena messo in coda'],
+  ];
+  $('campaignReview').innerHTML = rows.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('');
+}
+
+function validateCampaignStep(step) {
+  const ids = step === 1 ? ['campaignName', 'campaignList'] : step === 2 ? ['campaignTemplate'] : ['campaignTiming', 'campaignSchedule'];
+  for (const id of ids) {
+    const input = $(id);
+    if (input.disabled || (id === 'campaignSchedule' && $('campaignTiming').value !== 'scheduled')) continue;
+    if (!input.checkValidity()) {
+      if (id !== 'campaignList') input.reportValidity();
+      return false;
+    }
+  }
+  if (step === 1) {
+    if (!$('campaignName').value.trim()) { toast('Inserisci il nome della campagna', 'err'); return false; }
+    if (readCampaignFilters().length !== completeCampaignFilters().length) {
+      toast('Completa o rimuovi le condizioni senza valore', 'err');
+      return false;
+    }
+  }
+  if (step === 3 && $('campaignTiming').value === 'scheduled'
+      && $('campaignSchedule').value <= romeDateTimeInputValue()) {
+    $('campaignSchedule').focus();
+    toast('Scegli una data e un orario futuri nel fuso di Roma', 'err');
+    return false;
+  }
+  return true;
+}
+
+function setCampaignStep(step, { focus = true } = {}) {
+  campaignWizardStep = step;
+  document.querySelectorAll('[data-campaign-page]').forEach((page) => { page.hidden = Number(page.dataset.campaignPage) !== step; });
+  document.querySelectorAll('[data-campaign-step]').forEach((button) => {
+    if (Number(button.dataset.campaignStep) === step) button.setAttribute('aria-current', 'step');
+    else button.removeAttribute('aria-current');
+  });
+  $('campaignPreviousBtn').hidden = step === 1;
+  $('campaignNextBtn').hidden = step === 3;
+  $('saveCampaignBtn').hidden = step !== 3;
+  $('campaignStepLabel').textContent = `Passaggio ${step} di 3`;
+  $('campaignWizardError').hidden = true;
+  updateCampaignReview();
+  if (step === 3) loadCampaignPreview();
+  if (focus) document.querySelector(`[data-campaign-step="${step}"]`).focus();
+}
+
+function navigateCampaignStep(step) {
+  if (campaignSaving) return;
+  if (step <= campaignWizardStep) { setCampaignStep(step); return; }
+  for (let current = 1; current < step; current += 1) {
+    setCampaignStep(current, { focus: false });
+    if (!validateCampaignStep(current)) return;
+  }
+  setCampaignStep(step);
 }
 
 function renderCampaignAudiencePickers() {
@@ -3078,6 +3203,7 @@ function prepareCampaignEditor() {
   $('campaignFilters').innerHTML = '';
   $('campaignEligibleNote').textContent = 'Solo contatti iscritti con email valida.';
   refreshSelects();
+  setCampaignStep(1, { focus: false });
 }
 
 function resetCampaignEditor() {
@@ -3191,12 +3317,23 @@ async function sendCampaignTest() {
 
 async function saveCampaign(event) {
   event.preventDefault();
+  if (campaignSaving) return;
+  if (campaignWizardStep < 3) { navigateCampaignStep(campaignWizardStep + 1); return; }
+  for (let step = 1; step <= 3; step += 1) {
+    setCampaignStep(step, { focus: false });
+    if (!validateCampaignStep(step)) return;
+  }
+  campaignSaving = true;
+  $('saveCampaignBtn').disabled = true;
+  $('campaignEditor').inert = true;
+  $('campaignEditor').setAttribute('aria-busy', 'true');
   const id = $('campaignId').value;
   const scheduled = $('campaignTiming').value === 'scheduled';
   const listIds = [...$('campaignList').selectedOptions].map((option) => option.value);
   const excludedListIds = [...$('campaignExcludedLists').selectedOptions]
     .map((option) => option.value).filter((listId) => !listIds.includes(listId));
   try {
+    if (!await loadCampaignPreview()) throw new Error('Impossibile verificare i destinatari. Riprova prima di confermare.');
     await api(id ? `/api/crm/campaigns/${id}` : '/api/crm/campaigns', {
       method: id ? 'PUT' : 'POST',
       body: JSON.stringify({
@@ -3216,7 +3353,14 @@ async function saveCampaign(event) {
     toast(id ? 'Invio programmato aggiornato' : scheduled ? 'Invio programmato' : 'Invio messo in coda');
     await Promise.all([loadCampaigns(), loadSummary()]);
   } catch (error) {
+    $('campaignWizardError').textContent = error.message;
+    $('campaignWizardError').hidden = false;
     toast(error.message, 'err');
+  } finally {
+    campaignSaving = false;
+    $('campaignEditor').inert = false;
+    $('campaignEditor').setAttribute('aria-busy', 'false');
+    $('saveCampaignBtn').disabled = false;
   }
 }
 
@@ -3476,6 +3620,11 @@ $('saveTemplateDraftBtn').addEventListener('click', () => persistTemplate('draft
 $('automationEditor').addEventListener('submit', saveAutomation);
 $('sequenceEditor').addEventListener('submit', saveSequence);
 $('campaignEditor').addEventListener('submit', saveCampaign);
+$('campaignNextBtn').addEventListener('click', () => navigateCampaignStep(campaignWizardStep + 1));
+$('campaignPreviousBtn').addEventListener('click', () => navigateCampaignStep(campaignWizardStep - 1));
+document.querySelectorAll('[data-campaign-step]').forEach((button) => button.addEventListener('click', () => navigateCampaignStep(Number(button.dataset.campaignStep))));
+$('campaignEditor').addEventListener('input', updateCampaignReview);
+$('campaignEditor').addEventListener('change', updateCampaignReview);
 document.querySelectorAll('[data-folder-manager]').forEach((manager) => manager.addEventListener('submit', saveContentFolder));
 document.querySelectorAll('[data-manage-folders]').forEach((button) => button.addEventListener('click', () => {
   const kind = button.dataset.manageFolders;

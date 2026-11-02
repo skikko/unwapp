@@ -50,6 +50,10 @@
             <div class="section-heading compact"><div><span class="eyebrow">Accesso rapido</span><h2 id="dashboardFavoriteListsTitle">Liste preferite</h2></div><span id="dashboardFavoriteListsPeriod">Ingressi negli ultimi 7 giorni</span></div>
             <div class="crm-favorite-list-grid" id="dashboardFavoriteLists"></div>
           </section>
+          <div class="crm-charts-grid">
+            <section class="crm-chart-card" aria-labelledby="acquisitionTitle"><header><h3 id="acquisitionTitle">Acquisizione contatti</h3><span id="acquisitionPeriod" class="crm-chart-note"></span></header><div id="dashboardAcquisition"></div></section>
+            <section class="crm-chart-card" aria-labelledby="sourcesTitle"><header><h3 id="sourcesTitle">Da dove arrivano</h3><span class="crm-chart-note">Sorgente del contatto</span></header><div id="dashboardSourceChart"></div></section>
+          </div>
           <div class="crm-dashboard-grid">
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per lista</h3></div></div><div id="emailDashboardLists"></div></section>
             <section class="crm-table-card"><div class="section-heading compact"><div><h3>Per tag</h3></div></div><div id="emailDashboardTags"></div></section>
@@ -464,21 +468,25 @@
 
         <section class="crm-panel" id="panel-campaigns" role="tabpanel" hidden>
           <div class="crm-panel-header"><div><h2>Campagne</h2><p>Invii singoli, pubblico e programmazione.</p></div><div class="crm-panel-actions"><label class="crm-panel-filter" for="campaignStatusFilter"><span>Stato</span><select id="campaignStatusFilter"><option value="queued">In coda</option><option value="all">Tutte</option><option value="completed">Completate</option></select></label><button id="newCampaignBtn" data-write>Crea campagna</button></div></div>
-          <form class="card crm-editor" id="campaignEditor" hidden>
+          <form class="card crm-editor" id="campaignEditor" novalidate hidden>
             <input id="campaignId" type="hidden" />
             <div class="section-heading compact"><div><h2 id="campaignEditorTitle">Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
-            <div class="grid-2">
+            <nav class="crm-wizard-steps" aria-label="Passaggi della campagna">
+              <button type="button" data-campaign-step="1" aria-current="step">1. Destinatari</button>
+              <button type="button" data-campaign-step="2">2. Contenuto</button>
+              <button type="button" data-campaign-step="3">3. Programmazione</button>
+            </nav>
+            <section data-campaign-page="1" aria-label="Destinatari"><div class="grid-2">
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
-              <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
-              <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
               <div class="form-field"><label for="campaignList">Liste incluse</label><div class="crm-audience-picker" data-select="campaignList"></div><select id="campaignList" multiple size="6" required class="crm-audience-source" tabindex="-1" aria-label="Liste incluse"></select><small>Seleziona una o più liste. I contatti presenti in più liste ricevono una sola email.</small></div>
               <div class="form-field"><label for="campaignExcludedLists">Liste escluse</label><div class="crm-audience-picker" data-select="campaignExcludedLists"></div><select id="campaignExcludedLists" multiple size="6" class="crm-audience-source" tabindex="-1" aria-label="Liste escluse"></select><small>I contatti presenti in una di queste liste non riceveranno la campagna.</small></div>
-              <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
               <section class="sequence-conditions span-2" id="campaignFiltersWrap">
                 <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span id="campaignFiltersHelp">Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>
                 <div id="campaignFilters"></div>
               </section>
-            </div>
+            </div><p class="crm-chart-note">Il pubblico rimane dinamico fino alla partenza. Ogni contatto idoneo riceve una sola email.</p></section>
+            <section data-campaign-page="2" aria-label="Contenuto" hidden>
+            <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select><small>Puoi cambiarlo fino alla partenza della campagna.</small></div>
             <div class="campaign-compose-grid">
               <section class="campaign-preview-card"><div class="section-heading compact"><div><h3>Anteprima</h3><span id="campaignPreviewSubject">Seleziona un template</span></div></div><iframe id="campaignPreview" title="Anteprima campagna" sandbox></iframe></section>
               <aside class="campaign-send-summary">
@@ -487,7 +495,16 @@
                 <button class="secondary" type="button" id="sendCampaignTestBtn">Invia email di prova</button>
               </aside>
             </div>
-            <div class="form-actions"><button type="submit" id="saveCampaignBtn">Invia ora</button></div>
+            </section>
+            <section data-campaign-page="3" aria-label="Programmazione" hidden>
+              <div class="grid-2">
+                <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
+                <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
+              </div>
+              <section class="crm-campaign-review" aria-labelledby="campaignReviewTitle"><h3 id="campaignReviewTitle">Controlla prima di confermare</h3><dl id="campaignReview"></dl><p>Destinatari stimati: <strong id="campaignReviewCount">n/a</strong>. Il totale definitivo viene calcolato all’avvio, con i contatti idonei presenti in quel momento.</p></section>
+            </section>
+            <p id="campaignWizardError" class="crm-wizard-error" role="alert" hidden></p>
+            <div class="form-actions crm-wizard-actions"><button type="button" class="secondary" id="campaignPreviousBtn" hidden>Indietro</button><span id="campaignStepLabel">Passaggio 1 di 3</span><button type="button" id="campaignNextBtn">Continua</button><button type="submit" id="saveCampaignBtn" hidden>Invia ora</button></div>
           </form>
           <div class="crm-card-grid" id="campaignsGrid"></div>
         </section>
