@@ -8,34 +8,32 @@
   <link href="/design-system/tokens.css" rel="stylesheet" />
   <link href="/design-system/components.css" rel="stylesheet" />
   <link href="/css/app.css" rel="stylesheet" />
+  <link href="/css/crm-ui.css" rel="stylesheet" />
 </head>
-<body class="un-root">
+<body class="un-root crm-ui">
   <div class="app">
     <header class="topbar">
       <a class="brand" href="/"><span class="brand-mark">UN</span><span><strong>CRM</strong><small>United Network</small></span></a>
       <nav aria-label="Navigazione principale">
         <a href="/">Home</a>
-        <a href="/crm" class="active" data-permission="crm:read">CRM</a>
-        <a href="/crm/settings" data-permission="admin">Impostazioni</a>
+        <div class="crm-nav-label">Workspace CRM</div>
+        <div class="crm-tabs" role="tablist" aria-label="Sezioni CRM" aria-orientation="vertical">
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="dashboard">Dashboard</button>
+          <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="campaigns">Campagne</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
+          <button class="crm-tab" role="tab" aria-selected="false" data-tab="automations">Regole automatiche</button>
+        </div>
+        <a href="/crm/settings" data-permission="admin">Impostazioni CRM</a>
+        <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
       </nav>
       <div class="user" id="userEmail"></div>
     </header>
 
     <main class="crm-shell">
-      <aside class="crm-rail" aria-label="Sezioni CRM">
-        <div class="crm-rail-heading"><span class="eyebrow">Workspace</span><h1>CRM</h1><p>Contatti e comunicazioni email.</p></div>
-        <div class="crm-tabs" role="tablist" aria-label="Sezioni CRM">
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="dashboard">Dashboard</button>
-          <button class="crm-tab active" role="tab" aria-selected="true" data-tab="contacts">Contatti</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="lists">Liste</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="templates">Template</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="automations">Automation Studio</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="sequences">Sequenze</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="campaigns">Campagne</button>
-          <button class="crm-tab" role="tab" aria-selected="false" data-tab="emailLog">Log email</button>
-        </div>
-        <div class="crm-api-note"><strong>API ingest</strong><code>POST /api/ingest/contacts</code><span>Chiavi gestite in Impostazioni</span></div>
-      </aside>
+      <header class="crm-contextbar"><span>CRM / <strong id="crmCurrentSection">Contatti</strong></span><span>Europe/Rome</span></header>
 
       <div class="crm-workspace">
         <section class="crm-summary" id="crmGlobalSummary" aria-label="Riepilogo CRM">
@@ -73,7 +71,8 @@
         <section class="crm-panel active" id="panel-contacts" role="tabpanel">
           <div class="crm-panel-header"><div><span class="eyebrow">Rubrica unificata</span><h2>Contatti</h2></div><div class="crm-panel-actions"><button class="secondary" type="button" id="exportContactsBtn">Esporta CSV</button><div data-write><button class="secondary" type="button" id="downloadContactTemplateBtn">Scarica modello CSV</button><button class="secondary" type="button" id="importContactsBtn">Importa CSV</button><button type="button" id="newContactBtn">Nuovo contatto</button></div></div></div>
           <div id="contactsListView">
-          <form class="crm-filterbar" id="contactFilters">
+          <div class="crm-list-tools"><button class="secondary" type="button" id="toggleContactFilters" aria-expanded="false" aria-controls="contactFilters">Altri filtri</button><label class="check-field"><input id="showContactDetails" type="checkbox" /> Mostra colonne aggiuntive</label></div>
+          <form class="crm-filterbar" id="contactFilters" data-expanded="false">
             <label><span>Cerca</span><input id="filterQuery" type="search" placeholder="Nome, email o telefono" /></label>
             <label><span>Origine</span><input id="filterSource" placeholder="wordpress, meta, whatsapp" /></label>
             <label><span>Stato email</span><select id="filterStatus"><option value="">Tutti</option><option value="unknown">Email assente</option><option value="subscribed">Iscritto</option><option value="unsubscribed">Disiscritto</option><option value="bounced">Non recapitabile</option></select></label>
@@ -464,7 +463,7 @@
         </section>
 
         <section class="crm-panel" id="panel-campaigns" role="tabpanel" hidden>
-          <div class="crm-panel-header"><div><span class="eyebrow">Single send</span><h2>Invii email</h2></div><div class="crm-panel-actions"><label class="crm-panel-filter" for="campaignStatusFilter"><span>Stato</span><select id="campaignStatusFilter"><option value="queued">In coda</option><option value="all">Tutte</option><option value="completed">Completate</option></select></label><button id="newCampaignBtn" data-write>Nuovo invio</button></div></div>
+          <div class="crm-panel-header"><div><h2>Campagne</h2><p>Invii singoli, pubblico e programmazione.</p></div><div class="crm-panel-actions"><label class="crm-panel-filter" for="campaignStatusFilter"><span>Stato</span><select id="campaignStatusFilter"><option value="queued">In coda</option><option value="all">Tutte</option><option value="completed">Completate</option></select></label><button id="newCampaignBtn" data-write>Crea campagna</button></div></div>
           <form class="card crm-editor" id="campaignEditor" hidden>
             <input id="campaignId" type="hidden" />
             <div class="section-heading compact"><div><h2 id="campaignEditorTitle">Programma un invio</h2></div><button class="ghost" type="button" data-close="campaignEditor">Chiudi</button></div>
@@ -472,8 +471,8 @@
               <div class="form-field"><label for="campaignName">Nome</label><input id="campaignName" required /></div>
               <div class="form-field"><label for="campaignTiming">Tipo invio</label><select id="campaignTiming"><option value="now">Invia appena messo in coda</option><option value="scheduled">Programma data e ora</option></select></div>
               <div class="form-field" id="campaignScheduleWrap" hidden><label for="campaignSchedule">Data e ora, fuso di Roma</label><input id="campaignSchedule" type="datetime-local" /><small>L’orario viene interpretato in Europe/Rome, inclusa l’ora legale.</small></div>
-              <div class="form-field"><label for="campaignList">Liste incluse</label><select id="campaignList" multiple size="6" required></select><small>Seleziona una o più liste. I contatti presenti in più liste ricevono una sola email.</small></div>
-              <div class="form-field"><label for="campaignExcludedLists">Liste escluse</label><select id="campaignExcludedLists" multiple size="6"></select><small>I contatti presenti in una di queste liste non riceveranno la campagna.</small></div>
+              <div class="form-field"><label for="campaignList">Liste incluse</label><div class="crm-audience-picker" data-select="campaignList"></div><select id="campaignList" multiple size="6" required class="crm-audience-source" tabindex="-1" aria-label="Liste incluse"></select><small>Seleziona una o più liste. I contatti presenti in più liste ricevono una sola email.</small></div>
+              <div class="form-field"><label for="campaignExcludedLists">Liste escluse</label><div class="crm-audience-picker" data-select="campaignExcludedLists"></div><select id="campaignExcludedLists" multiple size="6" class="crm-audience-source" tabindex="-1" aria-label="Liste escluse"></select><small>I contatti presenti in una di queste liste non riceveranno la campagna.</small></div>
               <div class="form-field"><label for="campaignTemplate">Template</label><select id="campaignTemplate" required></select></div>
               <section class="sequence-conditions span-2" id="campaignFiltersWrap">
                 <div class="section-heading compact"><div><h3>Filtra destinatari</h3><span id="campaignFiltersHelp">Opzionale. Tutte le condizioni aggiunte devono essere soddisfatte.</span></div><button class="secondary" type="button" id="addCampaignFilter">Aggiungi condizione</button></div>

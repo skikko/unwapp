@@ -405,7 +405,7 @@ async function loadContacts() {
     const lists = (contact.lists || []).map((list) => `<span>${esc(list.name)}</span>`).join('');
     return `<tr class="crm-contact-row" data-open-contact="${contact.id}" tabindex="0" aria-label="Apri profilo di ${esc(fullName)}">
       ${can('crm:write') ? `<td><input type="checkbox" data-select-contact="${contact.id}" aria-label="Seleziona ${esc(fullName)}"></td>` : '<td hidden></td>'}
-      <td><div class="crm-contact-name"><strong>${esc(fullName)}</strong><small>Ingresso lead ${esc(formatRomeDateTime(contact.created_at))} Roma</small></div></td>
+      <td><div class="crm-contact-name"><button class="crm-contact-link" data-view-contact="${contact.id}">${esc(fullName)}</button><small>${esc(contact.email || contact.phone || 'Email e telefono non disponibili')}</small></div></td>
       <td>${esc(contactTypeLabel(contact.contact_type))}</td>
       <td>${esc(contact.email || 'n/a')}</td>
       <td>${esc(contact.phone || 'n/a')}</td>
@@ -426,7 +426,7 @@ async function loadContacts() {
       loadContactProfile(row.dataset.openContact);
     });
     row.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter') return;
+      if (event.key !== 'Enter' || event.target !== row) return;
       loadContactProfile(row.dataset.openContact);
     });
   });
@@ -2883,6 +2883,7 @@ function refreshSelects() {
   });
   syncSequenceTriggerFields();
   syncAutomationFields();
+  renderCampaignAudiencePickers();
 }
 
 function refreshContactStatusSelects() {
@@ -3049,7 +3050,20 @@ function syncCampaignTiming() {
   $('campaignSchedule').required = scheduled;
   $('saveCampaignBtn').textContent = $('campaignId').value
     ? 'Salva modifiche'
-    : scheduled ? 'Programma invio' : 'Invia ora';
+    : scheduled ? 'Programma campagna' : 'Invia ora';
+  renderCampaignAudiencePickers();
+}
+
+function renderCampaignAudiencePickers() {
+  document.querySelectorAll('.crm-audience-picker').forEach((picker) => {
+    const select = $(picker.dataset.select);
+    picker.innerHTML = [...select.options].map((option) => `<label><input type="checkbox" value="${esc(option.value)}" ${option.selected ? 'checked' : ''} ${select.disabled ? 'disabled' : ''}><span>${esc(option.textContent)}</span></label>`).join('') || '<p>Nessuna lista disponibile. Crea una lista prima di programmare la campagna.</p>';
+    picker.querySelectorAll('input').forEach((input) => input.addEventListener('change', () => {
+      const option = [...select.options].find((item) => item.value === input.value);
+      option.selected = input.checked;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }));
+  });
 }
 
 function prepareCampaignEditor() {
@@ -3068,7 +3082,7 @@ function prepareCampaignEditor() {
 
 function resetCampaignEditor() {
   prepareCampaignEditor();
-  $('campaignEditorTitle').textContent = 'Programma un invio';
+  $('campaignEditorTitle').textContent = 'Crea campagna';
   $('campaignSchedule').value = romeDateTimeInputValue(new Date(Date.now() + 3_600_000));
   syncCampaignTiming();
   loadCampaignPreview();
@@ -3084,7 +3098,7 @@ function populateCampaignEditor(campaign, { duplicate = false } = {}) {
   const preserveRecipients = !duplicate && campaign.recipient_filters === null;
   $('campaignEditor').dataset.preserveRecipients = String(preserveRecipients);
   $('campaignId').value = duplicate ? '' : campaign.id;
-  $('campaignEditorTitle').textContent = duplicate ? 'Duplica invio' : 'Modifica invio programmato';
+  $('campaignEditorTitle').textContent = duplicate ? 'Duplica campagna' : 'Modifica campagna programmata';
   $('campaignName').value = duplicate ? `${campaign.name} - copia` : campaign.name;
   const listIds = campaign.list_ids?.length ? campaign.list_ids : [campaign.list_id];
   [...$('campaignList').options].forEach((option) => { option.selected = listIds.includes(option.value); });
@@ -3393,6 +3407,7 @@ function resetSequenceEditor() {
 function changeTab(name) {
   if (name !== 'contacts' && !$('contactProfile').hidden) closeContactProfile();
   $('crmGlobalSummary').hidden = name === 'dashboard';
+  $('crmCurrentSection').textContent = document.querySelector(`[data-tab="${name}"]`)?.textContent || 'CRM';
   document.querySelectorAll('.crm-tab').forEach((tab) => {
     const active = tab.dataset.tab === name;
     tab.classList.toggle('active', active);
@@ -3409,6 +3424,32 @@ function changeTab(name) {
 }
 
 document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('click', () => changeTab(tab.dataset.tab)));
+document.querySelectorAll('.crm-tab').forEach((tab) => tab.addEventListener('keydown', (event) => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = [...document.querySelectorAll('.crm-tab')];
+  const index = tabs.indexOf(tab);
+  let next = index;
+  if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = tabs.length - 1;
+  else next = (index + (event.key === 'ArrowDown' ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus();
+  changeTab(tabs[next].dataset.tab);
+}));
+$('toggleContactFilters').addEventListener('click', () => {
+  const expanded = $('toggleContactFilters').getAttribute('aria-expanded') !== 'true';
+  $('toggleContactFilters').setAttribute('aria-expanded', String(expanded));
+  $('contactFilters').dataset.expanded = String(expanded);
+  $('toggleContactFilters').textContent = expanded ? 'Riduci filtri' : 'Altri filtri';
+});
+$('showContactDetails').addEventListener('change', () => {
+  $('contactsListView').classList.toggle('show-details', $('showContactDetails').checked);
+});
+$('campaignList').addEventListener('invalid', (event) => {
+  event.preventDefault();
+  document.querySelector('[data-select="campaignList"] input')?.focus();
+  toast('Seleziona almeno una lista inclusa', 'err');
+});
 document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => {
   if (button.dataset.close === 'templateEditor') closeTemplateEditor();
   else $(button.dataset.close).hidden = true;
